@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ds_autom8_cli"
+version = "0.5.0"
+description = "A CLI tool for automating various datenstation tasks including ticket management."
+readme = "README.md"
+license = {text = "Custom Personal Use License v1.4"}
+requires-python = "~=3.11.0"
+authors = [
+    {name = "Martin Krause", email = "krause@luis-hiwi.uni-hannover.de"}
+]
+urls = { "Homepage" = "https://gitlab.uni-hannover.de/mk2233/ds_autom8_cli" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: Other/Proprietary License",
+    "Operating System :: OS Independent",
+    "Topic :: Utilities",
+    "Intended Audience :: Developers"
+]
+dependencies = [
+    "requests~=2.32.0",
+    "selenium==4.17.2",
+    "urllib3~=2.1.0",
+    "ollama~=0.3.0",
+    "kix_api>=0.6",
+    "nats_ticket_manager>=0.8.4"
+]
+
+[project.scripts]
+ds_autom8_cli="ds_autom8_cli.core:cli_invoke"

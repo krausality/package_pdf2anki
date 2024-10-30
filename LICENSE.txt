@@ -1,0 +1,50 @@
+Custom Personal Use License v1.4 [24.09.24]
+
+1. License Grant
+   Martin Krause ("Licensor") grants you, provided you meet the eligibility criteria, a limited, non-exclusive, non-transferable, royalty-free license to use, modify, and share the software for personal use on individual desktop PCs for automating daily tasks, subject to the following terms and conditions.
+
+2. Eligibility Criteria
+   The software is provided for free use only to individuals who:
+   * Are currently enrolled as students at an accredited institution.
+   * Have an annual income below 15,000€.
+   * Use the software solely on their personal desktop PCs and not for commercial or institutional/organizational purposes.
+   
+   Verification of student status and income may be required through appropriate documentation, such as a valid student ID and proof of income (e.g., tax return, payslip).
+
+3. Restrictions on Deployment
+   You are not permitted to:
+   * Deploy the software or any derivative works on any server, virtual machine, or any other distributed computing environment without obtaining a commercial license from the Licensor.
+   * Use the software if you cease to meet the eligibility criteria described above.
+
+4. Ownership of Derivative Works
+   Any derivative works, including modifications, enhancements, or redistributions, shall:
+   * Automatically assign ownership rights of the derivative works to Martin Krause.
+   * Apply the same license terms as the original software. This means any modifications or redistributions must also allow others to use, modify, and share under the same conditions.
+
+5. Dependencies on Third-Party Libraries
+   This software relies on third-party libraries specified in the `setup.py` file. Each of these libraries is provided under its own license terms, which you must comply with. By using this software, you agree to adhere to the licenses of all such third-party dependencies.
+
+6. Commercial Use
+   For any use beyond the specified personal desktop automation, including but not limited to server deployments or commercial applications, a separate commercial license must be obtained from the Licensor. Contact martinkrausemedia@gmail.com to negotiate the terms of a commercial license.
+
+7. Approval and Review Clause for Free Usage
+   Approval to use the software under this license is granted preemptively upon meeting the eligibility criteria. However, the Licensor reserves the right to revoke approval at any time. Additionally, the Licensor may request a review and verification of your eligibility status at any time. Failure to provide adequate proof of meeting the criteria will result in the immediate termination of this license.
+
+8. Prohibition of Proxy Usage
+   Users are prohibited from employing others who meet the eligibility criteria solely for the purpose of circumventing these terms. Any attempt to do so will result in the immediate termination of the license.
+
+9. Nonprofit Usage Clause
+   Nonprofit organizations are permitted to use the software for internal, non-commercial purposes, provided they:
+   * Are registered as a nonprofit entity.
+   * Use the software solely for internal, non-commercial purposes.
+   
+   Nonprofits must submit proof of nonprofit status (e.g., tax-exempt documentation, registration) and may be subject to the same approval and review clause as individual users.
+
+10. Audit Rights
+    The Licensor reserves the right to audit your use of the software at any time to ensure compliance with the terms of this license. Failure to comply with an audit request will result in the immediate termination of this license.
+
+11. Termination Clause
+    Any breach of these terms and conditions will result in the immediate termination of this license, and the Licensor reserves the right to take legal action.
+
+12. Disclaimer of Warranty
+    The software is provided "as is", without warranty of any kind, express or implied, including but not limited to the warranties of merchantability and fitness for a particular purpose. In no event shall the Licensor be liable for any claim, damages, or other liability arising from the use of the software.
