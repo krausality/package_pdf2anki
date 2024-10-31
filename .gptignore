@@ -39,6 +39,8 @@
     "exclude_patterns": [
         "*.png",
         "*.svg",
-        ".git"
+        ".git",
+        "pdf2anki.egg-info",
+        ".venv"
     ]
 }

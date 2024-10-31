@@ -15,12 +15,13 @@ Refer to the NOTICE file for dependencies and third-party libraries used.
 Code partially from https://pub.towardsai.net/enhance-ocr-with-llama-3-2-vision-using-ollama-0b15c7b8905c
 """
 
-from .core import cli_invoke
+#from .core import cli_invoke
 
 from PIL import Image
 import base64
 import io
 import ollama
+import os
 
 def _image_to_base64(image_path):
     # Open the image file
@@ -35,24 +36,61 @@ def _image_to_base64(image_path):
         img_base64 = base64.b64encode(img_bytes).decode('utf-8')
         return img_base64
 
-def convert(image_path='image.png'):
-    # Example usage
-    #image_path = 'image.png'  # Replace with your image path
-    base64_image = _image_to_base64(image_path)
+def convert_images_to_text(images_dir, output_file):
+    # Clear the output file first to start fresh
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write("")  # Create/clear the file
+    
+    processed_count = 0
+    
+    for image_name in os.listdir(images_dir):
+        image_path = os.path.join(images_dir, image_name)
+        
+        # Ensure we're working with an image file
+        if not image_name.lower().endswith(('.png', '.jpg', '.jpeg')):
+            continue
+        
+        try:
+            # Convert image to Base64
+            base64_image = _image_to_base64(image_path)
+            
+            # Use Ollama to process OCR on the image
+            response = ollama.chat(
+                model="x/llama3.2-vision:11b",
+                messages=[{
+                    "role": "user",
+                    "content": "The image is a slide from a presentation. Output should be in this format - <Textual content>: <Text>,<Visual content>: <Visual description>. Do not output anything else",
+                    "images": [base64_image]
+                }],
+            )
+            
+            # Extract and format the OCR result
+            cleaned_text = response['message']['content'].strip()
+            entry_text = f"Image: {image_name}\n{cleaned_text}"
+            
+            # Append the result to the file
+            with open(output_file, 'a', encoding='utf-8') as f:
+                # Add double newline before entry if it's not the first one
+                if processed_count > 0:
+                    f.write("\n\n")
+                f.write(entry_text)
+            
+            processed_count += 1
+            print(f"Processed and saved {image_name}.")
+            
+        except Exception as e:
+            print(f"Error processing {image_name}: {str(e)}")
+            # Optionally log the error to the output file
+            with open(output_file, 'a', encoding='utf-8') as f:
+                if processed_count > 0:
+                    f.write("\n\n")
+                f.write(f"Error processing {image_name}: {str(e)}")
+            continue
+    
+    print(f"OCR results saved to {output_file}. Processed {processed_count} images.")
+    
+    # Return the path to the output file
+    return output_file
 
-    # Use Ollama to clean and structure the OCR output
-    response = ollama.chat(
-        model="x/llama3.2-vision:latest",
-        messages=[{
-        "role": "user",
-        "content": "The image is a slide from a presentation. Output should be in this format - <Textual content>: <Text>,<Visual content>: <Visual description>. Do not output anything else",
-        "images": [base64_image]
-        }],
-    )
-    # Extract cleaned text
-    cleaned_text = response['message']['content'].strip()
-    print(cleaned_text)
-    return cleaned_text
-
-if __name__ == "__main__":
-    cli_invoke()
+# if __name__ == "__main__":
+#     cli_invoke()

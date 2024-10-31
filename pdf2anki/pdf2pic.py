@@ -12,19 +12,29 @@ martinkrausemedia@gmail.com
 
 Refer to the NOTICE.txt file for dependencies and third-party libraries used.
 """
-
-from pdf2image import convert_from_path
+import pymupdf  # PyMuPDF
+from PIL import Image
 import os
 
-def convert_pdf_to_images(pdf_path, output_dir):
-    # Ensure the output directory exists
+
+def convert_pdf_to_images(pdf_path, output_dir, target_dpi=200):
     os.makedirs(output_dir, exist_ok=True)
-    # Convert PDF to images and save in output_dir
-    images = convert_from_path(pdf_path)
-    for i, image in enumerate(images):
-        image_path = os.path.join(output_dir, f"page_{i+1}.png")
-        image.save(image_path, 'PNG')
-    print(f"Saved {len(images)} images to {output_dir}")
+    images = []
+    
+    with pymupdf.open(pdf_path) as pdf:
+        zoom = target_dpi / 72  # Calculate zoom factor based on target DPI
+        mat = pymupdf.Matrix(zoom, zoom)  # Create transformation matrix
+        
+        for page_num in range(len(pdf)):
+            page = pdf.load_page(page_num)
+            pix = page.get_pixmap(matrix=mat, alpha=False)
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            img_path = os.path.join(output_dir, f"page_{page_num + 1}.png")
+            img.save(img_path, format="PNG", dpi=(target_dpi, target_dpi))
+            print(f"Saved high-res page {page_num + 1} as PNG at {target_dpi} DPI")
+            images.append(img_path)
+    
+    return images
 
 if __name__ == "__main__":
     import sys
