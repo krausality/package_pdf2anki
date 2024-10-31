@@ -1,3 +1,25 @@
+Metadata-Version: 2.1
+Name: pdf2anki
+Version: 0.1.0
+Summary: A CLI tool for converting PDFs into Anki flashcards.
+Home-page: https://gitlab.uni-hannover.de/mk2233/ds_autom8_cli
+Author: Martin Krause
+Author-email: Martin Krause <martinkrausemedia@gmail.com>
+License: Custom Personal Use License v1.4
+Project-URL: Homepage, https://your-repo-url/pdf2anki
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: Other/Proprietary License
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Utilities
+Classifier: Intended Audience :: Education
+Requires-Python: ~=3.11.0
+Description-Content-Type: text/markdown
+License-File: LICENSE.txt
+License-File: NOTICE.txt
+Requires-Dist: ollama>=0.4.0
+Requires-Dist: pdf2image>=1.16.3
+Requires-Dist: Pillow>=9.1.0
+
 # pdf2anki - Comprehensive User Guide
 
 `pdf2anki` is a Python command-line tool that converts PDFs into Anki flashcards by utilizing a multi-step pipeline. This guide will provide an in-depth look at each function, offering clear examples and usage scenarios.

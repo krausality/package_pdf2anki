@@ -1,34 +1,38 @@
-md
 # BUILD.md
 
-Here is an exhaustive `BUILD.md` that explains the two build techniques: one using `python -m build --wheel` (which requires an internet connection for isolated builds), and the other using `python setup.py bdist_wheel` (which can be done offline).
+This `BUILD.md` provides instructions for building the `pdf2anki` project. You can choose between two build techniques:
 
-This document details two techniques for building the `ds_autom8_cli` project.
-Table of Contents
+1. **Technique 1 (Online)**: Using `python -m build --wheel`
+2. **Technique 2 (Offline)**: Using `python setup.py bdist_wheel`
 
-1. Introduction
-2. Prerequisites
-3. Build Techniques
-    - Technique 1  (Online): `python -m build --wheel`
-    - Technique 2 (Offline): `python setup.py bdist_wheel`
-Introduction
+## Table of Contents
 
-This project handles the automation of multiple recurring tasks at the Datenstation. 
-The project is licensed under the Custom Personal Use License v1.4; see LICENSE file for more information.
-Prerequisites
+1. [Introduction](#introduction)
+2. [Prerequisites](#prerequisites)
+3. [Build Techniques](#build-techniques)
+   - [Technique 1 (Online)](#technique-1-online-python--m-build---wheel)
+   - [Technique 2 (Offline)](#technique-2-offline-python-setup.py-bdist_wheel)
+4. [Conclusion](#conclusion)
 
-Before building the project, ensure you have the following:
+## Introduction
 
-- Python 3.11 installed.
-- Required packages listed in `requirements.txt` or as defined in `setup.py`.
-- Virtual environment to manage dependencies (recommended).
-Build Techniques
-Technique 1: `python -m build --wheel`
+`pdf2anki` is a CLI tool that converts PDF documents into Anki flashcards. It automates the process of creating study materials by extracting text from PDFs and formatting it for Anki.
 
-This technique utilizes the `build` tool, which requires an internet connection for isolated builds.
-Step-by-Step Guide
+## Prerequisites
 
-1. Ensure `pyproject.toml` is Present:
+- **Python 3.11** installed.
+- Required packages as defined in `setup.py`.
+- A virtual environment is recommended for dependency management.
+
+## Build Techniques
+
+### Technique 1 (Online): `python -m build --wheel`
+
+This method requires an internet connection to fetch dependencies.
+
+#### Step-by-Step Guide
+
+1. **Ensure `pyproject.toml` is Present**:
 
    ```toml
    [build-system]
@@ -36,88 +40,64 @@ Step-by-Step Guide
    build-backend = "setuptools.build_meta"
    ```
 
-2. Install Required Packages:
-
-   Ensure `build` and other build dependencies are installed:
+2. **Install Required Packages**:
 
    ```sh
    pip install setuptools wheel build
    ```
 
-3. Build the Wheel:
-
-   Navigate to the root directory of your project where `pyproject.toml` is located and execute:
+3. **Build the Wheel**:
 
    ```sh
    python -m build --wheel
    ```
 
-4. Result:
+4. **Result**:
+
    The built wheel file will be located in the `dist` directory.
-Pros and Cons
 
-- Pros:
-  - Ensures a clean, isolated build environment.
-  - Minimizes the impact of environment-specific issues.
-- Cons:
-  - Requires an internet connection to fetch dependencies.
-Technique 2: `python setup.py bdist_wheel`
+### Technique 2 (Offline): `python setup.py bdist_wheel`
 
-This technique uses the `setup.py` script, which can be executed offline if all dependencies are pre-installed.
-Step-by-Step Guide
+This method can be executed offline if all dependencies are pre-installed.
 
-1. Ensure `setup.py` is Present:
+#### Step-by-Step Guide
 
-   Ensure you have a valid `setup.py` (see repository or local folder)
+1. **Ensure `setup.py` is Present**:
 
+   Confirm you have a valid `setup.py` file.
 
-2. Set Up Virtual Environment (optional):
-
-   Create and activate a virtual environment:
+2. **Set Up Virtual Environment (Optional)**:
 
    ```sh
    python -m venv venv
    .\venv\Scripts\activate
    ```
 
-3. Install Required Packages:
-
-   Ensure all necessary packages are installed in the virtual environment:
+3. **Install Required Packages**:
 
    ```sh
    pip install setuptools wheel
    ```
 
-4. Build the Wheel:
-
-   In the project root directory, run:
+4. **Build the Wheel**:
 
    ```sh
    python setup.py bdist_wheel
    ```
 
-5. Result:
+5. **Result**:
 
    The built wheel file will be placed in the `dist` directory.
-Pros and Cons
 
-- Pros:
-  - Can be run offline if all dependencies are pre-installed.
-  - Offers control over the build environment without isolation.
-- Cons:
-  - Can be affected by environment-specific issues.
-Conclusion
+## Conclusion
 
-Both build techniques are viable, depending on your specific needs and constraints. Technique 1 ensures a clean, isolated environment but requires an internet connection, while Technique 2 can be run offline if dependencies are pre-installed but may be subject to environment-specific issues.
+Choose the build technique that best suits your needs. For development purposes, you might frequently rebuild the package:
 
-For consistency and ease of use, consider including both methods in your build pipeline, ensuring that you can build your project both online and offline as needed.
+```sh
+pip uninstall pdf2anki
+python setup.py bdist_wheel
+pip install .\dist\pdf2anki-{version}-py3-none-any.whl
+```
 
-
-By following the steps in this `BUILD.md`, users can effectively build the project using either method, ensuring they have clear instructions for both online and offline scenarios.
-
-For development (often rebuilding):
-go to project root:
-
-use this command:
-
-pip uninstall ds_autom8_cli; python setup.py bdist_wheel; pip install .\dist\ds_autom8_cli-{version}-py3-none-any.whl
+By following this `BUILD.md`, you can effectively build the `pdf2anki` project using either method, ensuring flexibility for both online and offline scenarios.
+```

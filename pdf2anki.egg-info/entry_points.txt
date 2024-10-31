@@ -1,0 +1,2 @@
+[console_scripts]
+pdf2anki = pdf2anki.core:cli_invoke

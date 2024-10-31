@@ -1,16 +1,19 @@
 This software is developed by Martin Krause and is licensed under the terms specified in LICENSE.txt.
 
-Third-Party Libraries:
-1. Selenium - Selenium WebDriver is licensed under the Apache License, Version 2.0. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0.
-2. Requests - Requests HTTP library is licensed under the Apache License, Version 2.0. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0.
-3. urllib3 - urllib3 is licensed under the MIT License. You may obtain a copy of the License at https://opensource.org/licenses/MIT.
+**Third-Party Libraries:**
+
+1. **pdf2image** - Licensed under the MIT License. [Link](https://github.com/Belval/pdf2image/blob/master/LICENSE)
+2. **Pillow** - Licensed under the PIL Software License. [Link](https://github.com/python-pillow/Pillow/blob/main/LICENSE)
+3. **AnkiConnect** - Licensed under the GNU AGPL v3. [Link](https://github.com/FooSoft/anki-connect/blob/master/LICENSE)
 4. ollama - ollama is licensed under the MIT License. You may obtain a copy of the License at https://opensource.org/licenses/MIT.
-5. kix_api - Custom Personal Use License v1.4 [24.09.24], included as LICENSE.txt
-6. nats_ticket_manager - Custom Personal Use License v1.4 [24.09.24] included as LICENSE.txt
 
 The full text of each third-party license is available in the corresponding library’s documentation or source code repository.
 
-Contact Information:
+**Contact Information:**
+
 For any inquiries regarding this software, including commercial licensing terms, please contact:
-Martin Krause
+
+Martin Krause  
 martinkrausemedia@gmail.com
+
+

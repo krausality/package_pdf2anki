@@ -1,0 +1,542 @@
+File Structure:
+.
+├── BUILD.md
+├── LICENSE.txt
+├── NOTICE.txt
+├── README.md
+├── pdf2anki
+│   ├── __init__.py
+│   ├── core.py
+│   ├── pdf2pic.py
+│   ├── pic2text.py
+│   └── text2anki.py
+├── pyproject.toml
+└── setup.py
+
+----- START OF .\BUILD.md -----
+md
+# BUILD.md
+
+Here is an exhaustive `BUILD.md` that explains the two build techniques: one using `python -m build --wheel` (which requires an internet connection for isolated builds), and the other using `python setup.py bdist_wheel` (which can be done offline).
+
+This document details two techniques for building the `ds_autom8_cli` project.
+Table of Contents
+
+1. Introduction
+2. Prerequisites
+3. Build Techniques
+    - Technique 1  (Online): `python -m build --wheel`
+    - Technique 2 (Offline): `python setup.py bdist_wheel`
+Introduction
+
+This project handles the automation of multiple recurring tasks at the Datenstation. 
+The project is licensed under the Custom Personal Use License v1.4; see LICENSE file for more information.
+Prerequisites
+
+Before building the project, ensure you have the following:
+
+- Python 3.11 installed.
+- Required packages listed in `requirements.txt` or as defined in `setup.py`.
+- Virtual environment to manage dependencies (recommended).
+Build Techniques
+Technique 1: `python -m build --wheel`
+
+This technique utilizes the `build` tool, which requires an internet connection for isolated builds.
+Step-by-Step Guide
+
+1. Ensure `pyproject.toml` is Present:
+
+   ```toml
+   [build-system]
+   requires = ["setuptools>=42", "wheel"]
+   build-backend = "setuptools.build_meta"
+   ```
+
+2. Install Required Packages:
+
+   Ensure `build` and other build dependencies are installed:
+
+   ```sh
+   pip install setuptools wheel build
+   ```
+
+3. Build the Wheel:
+
+   Navigate to the root directory of your project where `pyproject.toml` is located and execute:
+
+   ```sh
+   python -m build --wheel
+   ```
+
+4. Result:
+   The built wheel file will be located in the `dist` directory.
+Pros and Cons
+
+- Pros:
+  - Ensures a clean, isolated build environment.
+  - Minimizes the impact of environment-specific issues.
+- Cons:
+  - Requires an internet connection to fetch dependencies.
+Technique 2: `python setup.py bdist_wheel`
+
+This technique uses the `setup.py` script, which can be executed offline if all dependencies are pre-installed.
+Step-by-Step Guide
+
+1. Ensure `setup.py` is Present:
+
+   Ensure you have a valid `setup.py` (see repository or local folder)
+
+
+2. Set Up Virtual Environment (optional):
+
+   Create and activate a virtual environment:
+
+   ```sh
+   python -m venv venv
+   .\venv\Scripts\activate
+   ```
+
+3. Install Required Packages:
+
+   Ensure all necessary packages are installed in the virtual environment:
+
+   ```sh
+   pip install setuptools wheel
+   ```
+
+4. Build the Wheel:
+
+   In the project root directory, run:
+
+   ```sh
+   python setup.py bdist_wheel
+   ```
+
+5. Result:
+
+   The built wheel file will be placed in the `dist` directory.
+Pros and Cons
+
+- Pros:
+  - Can be run offline if all dependencies are pre-installed.
+  - Offers control over the build environment without isolation.
+- Cons:
+  - Can be affected by environment-specific issues.
+Conclusion
+
+Both build techniques are viable, depending on your specific needs and constraints. Technique 1 ensures a clean, isolated environment but requires an internet connection, while Technique 2 can be run offline if dependencies are pre-installed but may be subject to environment-specific issues.
+
+For consistency and ease of use, consider including both methods in your build pipeline, ensuring that you can build your project both online and offline as needed.
+
+
+By following the steps in this `BUILD.md`, users can effectively build the project using either method, ensuring they have clear instructions for both online and offline scenarios.
+
+For development (often rebuilding):
+go to project root:
+
+use this command:
+
+pip uninstall ds_autom8_cli; python setup.py bdist_wheel; pip install .\dist\ds_autom8_cli-{version}-py3-none-any.whl
+----- END OF .\BUILD.md -----
+
+
+----- START OF .\LICENSE.txt -----
+Custom Personal Use License v1.4 [24.09.24]
+
+1. License Grant
+   Martin Krause ("Licensor") grants you, provided you meet the eligibility criteria, a limited, non-exclusive, non-transferable, royalty-free license to use, modify, and share the software for personal use on individual desktop PCs for automating daily tasks, subject to the following terms and conditions.
+
+2. Eligibility Criteria
+   The software is provided for free use only to individuals who:
+   * Are currently enrolled as students at an accredited institution.
+   * Have an annual income below 15,000€.
+   * Use the software solely on their personal desktop PCs and not for commercial or institutional/organizational purposes.
+   
+   Verification of student status and income may be required through appropriate documentation, such as a valid student ID and proof of income (e.g., tax return, payslip).
+
+3. Restrictions on Deployment
+   You are not permitted to:
+   * Deploy the software or any derivative works on any server, virtual machine, or any other distributed computing environment without obtaining a commercial license from the Licensor.
+   * Use the software if you cease to meet the eligibility criteria described above.
+
+4. Ownership of Derivative Works
+   Any derivative works, including modifications, enhancements, or redistributions, shall:
+   * Automatically assign ownership rights of the derivative works to Martin Krause.
+   * Apply the same license terms as the original software. This means any modifications or redistributions must also allow others to use, modify, and share under the same conditions.
+
+5. Dependencies on Third-Party Libraries
+   This software relies on third-party libraries specified in the `setup.py` file. Each of these libraries is provided under its own license terms, which you must comply with. By using this software, you agree to adhere to the licenses of all such third-party dependencies.
+
+6. Commercial Use
+   For any use beyond the specified personal desktop automation, including but not limited to server deployments or commercial applications, a separate commercial license must be obtained from the Licensor. Contact martinkrausemedia@gmail.com to negotiate the terms of a commercial license.
+
+7. Approval and Review Clause for Free Usage
+   Approval to use the software under this license is granted preemptively upon meeting the eligibility criteria. However, the Licensor reserves the right to revoke approval at any time. Additionally, the Licensor may request a review and verification of your eligibility status at any time. Failure to provide adequate proof of meeting the criteria will result in the immediate termination of this license.
+
+8. Prohibition of Proxy Usage
+   Users are prohibited from employing others who meet the eligibility criteria solely for the purpose of circumventing these terms. Any attempt to do so will result in the immediate termination of the license.
+
+9. Nonprofit Usage Clause
+   Nonprofit organizations are permitted to use the software for internal, non-commercial purposes, provided they:
+   * Are registered as a nonprofit entity.
+   * Use the software solely for internal, non-commercial purposes.
+   
+   Nonprofits must submit proof of nonprofit status (e.g., tax-exempt documentation, registration) and may be subject to the same approval and review clause as individual users.
+
+10. Audit Rights
+    The Licensor reserves the right to audit your use of the software at any time to ensure compliance with the terms of this license. Failure to comply with an audit request will result in the immediate termination of this license.
+
+11. Termination Clause
+    Any breach of these terms and conditions will result in the immediate termination of this license, and the Licensor reserves the right to take legal action.
+
+12. Disclaimer of Warranty
+    The software is provided "as is", without warranty of any kind, express or implied, including but not limited to the warranties of merchantability and fitness for a particular purpose. In no event shall the Licensor be liable for any claim, damages, or other liability arising from the use of the software.
+----- END OF .\LICENSE.txt -----
+
+
+----- START OF .\NOTICE.txt -----
+This software is developed by Martin Krause and is licensed under the terms specified in LICENSE.txt.
+
+Third-Party Libraries:
+1. Selenium - Selenium WebDriver is licensed under the Apache License, Version 2.0. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0.
+2. Requests - Requests HTTP library is licensed under the Apache License, Version 2.0. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0.
+3. urllib3 - urllib3 is licensed under the MIT License. You may obtain a copy of the License at https://opensource.org/licenses/MIT.
+4. ollama - ollama is licensed under the MIT License. You may obtain a copy of the License at https://opensource.org/licenses/MIT.
+5. kix_api - Custom Personal Use License v1.4 [24.09.24], included as LICENSE.txt
+6. nats_ticket_manager - Custom Personal Use License v1.4 [24.09.24] included as LICENSE.txt
+
+The full text of each third-party license is available in the corresponding library’s documentation or source code repository.
+
+Contact Information:
+For any inquiries regarding this software, including commercial licensing terms, please contact:
+Martin Krause
+martinkrausemedia@gmail.com
+----- END OF .\NOTICE.txt -----
+
+
+----- START OF .\README.md -----
+# ds_autom8_cli
+
+`ds_autom8_cli` is a Python CLI tool designed to automate various recurring tasks at the Datenstation, including managing tickets, generating and validating WLAN suggestions assisted by 
+AI suggestions via ollama. The user can validate recommended answers to a given task.
+
+## Features
+
+- **Ticket Management**: Fetch, answer, and close KIX tickets.
+- **WLAN Suggestions**: Generate and validate WLAN ticket suggestions based on incoming ticket information.
+- **Command-Line Interface**: Use the tool directly from the command line.
+
+## Installation
+
+You can install the `ds_autom8_cli` package locally by cloning the repository and running:
+
+```bash
+pip install .
+´´´
+
+Command-Line Interface (CLI)
+
+
+After installing the package, you can use the `dsautom8cli` commands in your terminal.
+Basic Usage
+
+
+Start the service to automatically generate WLAN suggestions:
+
+bash
+python -m ds_autom8_cli.generate_kix_wlan_suggestions
+
+
+
+Validate the generated WLAN suggestions:
+
+bash
+python -m ds_autom8_cli.validate_suggestions
+
+
+JSON Output
+
+
+The JSON output contains the following fields:
+
+- `ticketID`: The ID of the ticket.
+- `suggestions`: A list of suggestions generated.
+- `email`: The email of the person making the request.
+
+Example JSON output:
+
+json
+{
+  "ticketID": "12345",
+  "suggestions": [
+    {
+      "count": 10,
+      "daysValid": 30,
+      "dateStart": "2024-08-01",
+      "dateExpire": "2024-08-31",
+      "email": "krause@luis-hiwi.uni-hannover.de"
+    }
+  ],
+  "email": "krause@luis-hiwi.uni-hannover.de"
+}
+
+
+
+Development
+
+
+If you want to contribute or make changes to this package, follow these steps:
+
+1. Clone the repository:
+    ```bash
+    git clone https://gitlab.uni-hannover.de/mk2233/dsautom8cli.git
+    cd dsautom8cli
+    ```
+
+2. Install the package in editable mode:
+    ```bash
+    pip install -e .
+    ```
+
+3. Run tests and make changes:
+    - You can create tests to verify the functionality and make sure everything works as expected.
+
+4. Submit a pull request:
+    - Feel free to fork the repository and submit a pull request with your changes.
+License
+
+
+This project is licensed under the Custom Personal Use License v1.4 - see the LICENSE file for details.
+Contact
+
+
+If you have any questions or suggestions, please feel free to reach out to me at `krause@luis-hiwi.uni-hannover.de`.
+
+---
+Happy automating!
+
+----- END OF .\README.md -----
+
+
+----- START OF .\setup.py -----
+from setuptools import setup, find_packages
+from pathlib import Path
+
+# Read the contents of your README file
+this_directory = Path(__file__).parent
+long_description = (this_directory / "README.md").read_text()
+
+setup(
+    name="ds_autom8_cli",
+    version="0.5.0",
+    description="A CLI tool for automating various data station tasks including ticket management.",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
+    author="Martin Krause",
+    author_email="krause@luis-hiwi.uni-hannover.de",
+    license="Custom Personal Use License v1.4",
+    classifiers=[
+        "Programming Language :: Python :: 3",
+        "License :: Other/Proprietary License",
+        "Operating System :: OS Independent",
+        "Topic :: Utilities",
+        "Intended Audience :: Developers"
+    ],
+    url="https://gitlab.uni-hannover.de/mk2233/ds_autom8_cli",
+    python_requires="~=3.11.0",
+    install_requires=[
+        "requests~=2.32.0",
+        "selenium==4.17.2",
+        "urllib3~=2.1.0",
+        "ollama~=0.3.0",
+        "kix_api>=0.6",
+        "nats_ticket_manager>=0.8.4"
+    ],
+    packages=find_packages(),
+    entry_points={
+        "console_scripts": [
+            "ds_autom8_cli=ds_autom8_cli.core:cli_invoke",
+        ],
+    },
+)
+
+----- END OF .\setup.py -----
+
+
+----- START OF .\pdf2anki\core.py -----
+"""
+This software is licensed under the terms specified in LICENSE,
+authored by Martin Krause.
+
+Usage is limited to:
+- Students enrolled at accredited institutions
+- Individuals with an annual income below 15,000€
+- Personal desktop PC automation tasks
+
+For commercial usage, including server deployments, please contact:
+martinkrausemedia@gmail.com
+
+Refer to the NOTICE file for dependencies and third-party libraries used.
+"""
+
+import sys
+
+import .pdf2pic
+import .pic2text
+import .text2anki
+
+#from .generate_kix_wlan_suggestions import generate_forever
+
+def cli_invoke():
+    if len(sys.argv) != 2:
+        print("Usage: python cli.py [generate|validate]")
+        sys.exit(1)
+    
+    command = sys.argv[1]
+
+    if command == "generate":
+        generate_forever(debug=True)
+    elif command == "validate":
+        validate_forever(debug=True)
+    else:
+        print("Unknown command. Use 'generate' or 'validate'.")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    cli_invoke()
+----- END OF .\pdf2anki\core.py -----
+
+
+----- START OF .\pdf2anki\pdf2pic.py -----
+"""
+This software is licensed under the terms specified in LICENSE,
+authored by Martin Krause.
+
+Usage is limited to:
+- Students enrolled at accredited institutions
+- Individuals with an annual income below 15,000€
+- Personal desktop PC automation tasks
+
+For commercial usage, including server deployments, please contact:
+martinkrausemedia@gmail.com
+
+Refer to the NOTICE file for dependencies and third-party libraries used.
+"""
+
+from .core import cli_invoke
+
+if __name__ == "__main__":
+    cli_invoke()
+----- END OF .\pdf2anki\pdf2pic.py -----
+
+
+----- START OF .\pdf2anki\pic2text.py -----
+"""
+This software is licensed under the terms specified in LICENSE,
+authored by Martin Krause.
+
+Usage is limited to:
+- Students enrolled at accredited institutions
+- Individuals with an annual income below 15,000€
+- Personal desktop PC automation tasks
+
+For commercial usage, including server deployments, please contact:
+martinkrausemedia@gmail.com
+
+Refer to the NOTICE file for dependencies and third-party libraries used.
+
+Code partially from https://pub.towardsai.net/enhance-ocr-with-llama-3-2-vision-using-ollama-0b15c7b8905c
+"""
+
+from .core import cli_invoke
+
+from PIL import Image
+import base64
+import io
+import ollama
+
+def _image_to_base64(image_path):
+    # Open the image file
+    with Image.open(image_path) as img:
+        # Create a BytesIO object to hold the image data
+        buffered = io.BytesIO()
+        # Save the image to the BytesIO object in a specific format (e.g., JPEG)
+        img.save(buffered, format="PNG")
+        # Get the byte data from the BytesIO object
+        img_bytes = buffered.getvalue()
+        # Encode the byte data to base64
+        img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+        return img_base64
+
+def convert(image_path='image.png'):
+    # Example usage
+    #image_path = 'image.png'  # Replace with your image path
+    base64_image = _image_to_base64(image_path)
+
+    # Use Ollama to clean and structure the OCR output
+    response = ollama.chat(
+        model="x/llama3.2-vision:latest",
+        messages=[{
+        "role": "user",
+        "content": "The image is a slide from a presentation. Output should be in this format - <Textual content>: <Text>,<Visual content>: <Visual description>. Do not output anything else",
+        "images": [base64_image]
+        }],
+    )
+    # Extract cleaned text
+    cleaned_text = response['message']['content'].strip()
+    print(cleaned_text)
+    return cleaned_text
+
+if __name__ == "__main__":
+    cli_invoke()
+----- END OF .\pdf2anki\pic2text.py -----
+
+
+----- START OF .\pdf2anki\text2anki.py -----
+"""
+This software is licensed under the terms specified in LICENSE,
+authored by Martin Krause.
+
+Usage is limited to:
+- Students enrolled at accredited institutions
+- Individuals with an annual income below 15,000€
+- Personal desktop PC automation tasks
+
+For commercial usage, including server deployments, please contact:
+martinkrausemedia@gmail.com
+
+Refer to the NOTICE file for dependencies and third-party libraries used.
+"""
+
+from .core import cli_invoke
+
+if __name__ == "__main__":
+    cli_invoke()
+----- END OF .\pdf2anki\text2anki.py -----
+
+
+----- START OF .\pdf2anki\__init__.py -----
+"""
+This software is licensed under the terms specified in LICENSE,
+authored by Martin Krause.
+
+Usage is limited to:
+- Students enrolled at accredited institutions
+- Individuals with an annual income below 15,000€
+- Personal desktop PC automation tasks
+
+For commercial usage, including server deployments, please contact:
+martinkrausemedia@gmail.com
+
+Refer to the NOTICE file for dependencies and third-party libraries used.
+"""
+
+from .core import cli_invoke
+__all__ = [
+    "cli_invoke"
+]
+
+
+----- END OF .\pdf2anki\__init__.py -----
+
+
