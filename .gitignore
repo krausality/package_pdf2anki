@@ -1,0 +1,21 @@
+# Ignore everything
+*
+
+# But not these files...
+!.gitignore
+!pdf2anki/*
+!dist/*
+!setup.py
+!test.py
+!README.md
+!LICENSE.txt
+!MANIFEST.in
+!NOTICE.txt
+!pyproject.toml
+!README.md
+!BUILD.md
+
+# etc...
+
+# ...even if they are in subdirectories
+!*/
