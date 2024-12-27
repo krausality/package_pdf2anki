@@ -22,12 +22,15 @@ setup(
         "Intended Audience :: Education",
     ],
     url="https://your-repo-url/pdf2anki",
-    python_requires="~=3.11.0",
+    python_requires=">=3.11, <3.14",
     install_requires=[
         "ollama>=0.3.3",
         "pdf2image>=1.16.3",
         "Pillow>=9.1.0",
-        "genanki~=0.13.1"
+        "genanki~=0.13.1",
+        "PyMuPDF~=1.24.13",
+        "requests~=2.32.0",
+        "python-dotenv~=1.0.1"
     ],
     packages=find_packages(),
     entry_points={

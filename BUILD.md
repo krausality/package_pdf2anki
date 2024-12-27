@@ -1,9 +1,10 @@
 # BUILD.md
 
-This `BUILD.md` provides instructions for building the `pdf2anki` project. You can choose between two build techniques:
+This `BUILD.md` provides instructions for building the `pdf2anki` project. You can choose between three build techniques:
 
 1. **Technique 1 (Online)**: Using `python -m build --wheel`
 2. **Technique 2 (Offline)**: Using `python setup.py bdist_wheel`
+3. **Technique 3 (Offline via TOML)**: Using `python -m build --wheel` with cached dependencies
 
 ## Table of Contents
 
@@ -12,6 +13,7 @@ This `BUILD.md` provides instructions for building the `pdf2anki` project. You c
 3. [Build Techniques](#build-techniques)
    - [Technique 1 (Online)](#technique-1-online-python--m-build---wheel)
    - [Technique 2 (Offline)](#technique-2-offline-python-setup.py-bdist_wheel)
+   - [Technique 3 (Offline via TOML)](#technique-3-offline-via-toml-python--m-build---wheel-with-cached-dependencies)
 4. [Conclusion](#conclusion)
 
 ## Introduction
@@ -21,7 +23,7 @@ This `BUILD.md` provides instructions for building the `pdf2anki` project. You c
 ## Prerequisites
 
 - **Python 3.11** installed.
-- Required packages as defined in `setup.py`.
+- Required packages as defined in `setup.py` or `pyproject.toml`.
 - A virtual environment is recommended for dependency management.
 
 ## Build Techniques
@@ -89,6 +91,46 @@ This method can be executed offline if all dependencies are pre-installed.
 
    The built wheel file will be placed in the `dist` directory.
 
+### Technique 3 (Offline via TOML): `python -m build --wheel` with Cached Dependencies
+
+This method allows you to build offline by caching dependencies locally beforehand.
+
+#### Step-by-Step Guide
+
+1. **Set Up Virtual Environment (Optional)**:
+
+   ```sh
+   python -m venv venv
+   .\venv\Scripts\activate
+   ```
+
+2. **Prepare Dependencies While Online**:
+
+   Download all required dependencies and cache them locally:
+
+   ```sh
+   pip download setuptools wheel build -d ./offline_cache
+   ```
+
+
+3. **Install Dependencies from the Cache**:
+
+   Ensure no internet connection is needed by installing from the cache:
+
+   ```sh
+   pip install --no-index --find-links=./offline_cache setuptools wheel build
+   ```
+
+4. **Build the Wheel**:
+
+   ```sh
+   python -m build --wheel
+   ```
+
+5. **Result**:
+
+   The built wheel file will be located in the `dist` directory, similar to Technique 1.
+
 ## Conclusion
 
 Choose the build technique that best suits your needs. For development purposes, you might frequently rebuild the package:
@@ -99,5 +141,5 @@ python setup.py bdist_wheel
 pip install .\dist\pdf2anki-{version}-py3-none-any.whl
 ```
 
-By following this `BUILD.md`, you can effectively build the `pdf2anki` project using either method, ensuring flexibility for both online and offline scenarios.
-```
+By following this `BUILD.md`, you can effectively build the `pdf2anki` project using any of the three methods, ensuring flexibility for both online and offline scenarios.
+

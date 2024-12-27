@@ -15,16 +15,32 @@ Refer to the NOTICE file for dependencies and third-party libraries used.
 Code partially from https://pub.towardsai.net/enhance-ocr-with-llama-3-2-vision-using-ollama-0b15c7b8905c
 """
 
+# Import the necessary secrets handling module
+# https://www.geeksforgeeks.org/using-python-environment-variables-with-python-dotenv/
+from dotenv import load_dotenv
+
+
 #from .core import cli_invoke
 
+import os
+import re
 from PIL import Image
 import base64
-import re  # Import regex module for extracting numbers
 import io
-import ollama
-import os
+import requests
+import json
 import traceback
-from collections import defaultdict
+
+# Load environment variables from the .env file (if present)
+load_dotenv()
+
+# Access environment variables as if they came from the actual environment
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
+
+
+def extract_page_number(filename):
+    match = re.search(r'page_(\d+)', filename)
+    return int(match.group(1)) if match else float('inf')
 
 def _image_to_base64(image_path):
     # Open the image file
@@ -39,72 +55,59 @@ def _image_to_base64(image_path):
         img_base64 = base64.b64encode(img_bytes).decode('utf-8')
         return img_base64
 
-def extract_page_number(filename):
-    """Extract the page number from a filename like 'page_x.ext'."""
-    match = re.search(r'page_(\d+)', filename)
-    return int(match.group(1)) if match else float('inf')  # If no number found, put at end
-
 def convert_images_to_text(images_dir, output_file):
-    # Clear the output file first to start fresh
     with open(output_file, 'w', encoding='utf-8') as f:
-        f.write("")  # Create/clear the file
-    
+        f.write("")
+
     processed_count = 0
 
-    # Collect and sort image filenames based on the extracted page number
     image_files = [f for f in os.listdir(images_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-    image_files.sort(key=extract_page_number)  # Sort using the page number
+    image_files.sort(key=extract_page_number)
 
     for image_name in image_files:
         image_path = os.path.join(images_dir, image_name)
         
         try:
-            # Convert image to Base64
             base64_image = _image_to_base64(image_path)
-            
-            """
-            response=defaultdict(dict)
-            response['message']['content'] = "Kuhl"
-            """
 
-            # Use Ollama to process OCR on the image
-            response = ollama.chat(
-                model="x/llama3.2-vision:11b",
-                messages=[{
-                    "role": "user",
-                    "content": "The image is a slide from a presentation. Output should be in this format - : ,: . Do not output anything else",
-                    "images": [base64_image]
-                }],
+            response = requests.post(
+                url="https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                data=json.dumps({
+                    #"model": "openai/gpt-4o-2024-05-13",
+                    "model": "meta-llama/llama-3.2-90b-vision-instruct:free",
+                    "messages": [{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Read the content of the image word by word. Do not output anything else"},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                        ]
+                    }]
+                })
             )
-            
-        
-            
-            # Extract and format the OCR result
-            cleaned_text = response['message']['content'].strip()
-            entry_text = f"Image: {image_name}\n{cleaned_text}"
-            
-            # Append the result to the file
+
+            response.raise_for_status()
+            response_data = response.json()
+            cleaned_text = response_data['choices'][0]['message']['content'].strip()
+
             with open(output_file, 'a', encoding='utf-8') as f:
                 if processed_count > 0:
                     f.write("\n\n")
-                f.write(entry_text)
-            
+                f.write(f"Image: {image_name}\n{cleaned_text}")
+
             processed_count += 1
             print(f"Processed and saved {image_name}.")
-            
-        # Inside the function
+
         except Exception as e:
             print(f"Error processing {image_name}: {str(e)}")
             with open(output_file, 'a', encoding='utf-8') as f:
                 if processed_count > 0:
                     f.write("\n\n")
-                # Write the traceback to the file for detailed error context
                 f.write(f"Error processing {image_name}: {str(e)}\n{traceback.format_exc()}")
             continue
-    
-    print(f"OCR results saved to {output_file}. Processed {processed_count} images.")
-    
-    return output_file
 
-# if __name__ == "__main__":
-#     cli_invoke()
+    print(f"OCR results saved to {output_file}. Processed {processed_count} images.")
+    return output_file

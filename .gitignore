@@ -17,5 +17,9 @@
 
 # etc...
 
+
 # ...even if they are in subdirectories
 !*/
+
+# Ignore everything in the .venv directory
+.venv/*

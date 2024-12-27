@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "A CLI tool for converting PDFs into Anki flashcards."
 readme = "README.md"
 license = {text = "Custom Personal Use License v1.4"}
-requires-python = "~=3.11.0"
+requires-python = ">=3.11, <3.14"
 authors = [
     {name = "Martin Krause", email = "martinkrausemedia@gmail.com"}
 ]
@@ -24,7 +24,10 @@ dependencies = [
     "ollama>=0.3.3",
     "pdf2image>=1.16.3",
     "Pillow>=9.1.0",
-    "genanki~=0.13.1"
+    "genanki~=0.13.1",
+    "PyMuPDF~=1.24.13",
+    "requests~=2.32.0",
+    "python-dotenv~=1.0.1"
 ]
 
 [project.scripts]
