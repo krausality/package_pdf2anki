@@ -22,10 +22,19 @@ from . import text2anki
 
 def pdf_to_images(args):
     """
-    Convert a PDF file into a sequence of images, saving each page as an individual image.
+    Convert a PDF file into a sequence of images, optionally cropping.
     """
-    pdf2pic.convert_pdf_to_images(args.pdf_path, args.output_dir)
+    # 1. Convert the list of rectangle strings into tuples
+    parsed_rectangles = []
+    for rect_str in args.rectangles:
+        parsed_rectangles.append(pdf2pic.parse_rectangle(rect_str))
 
+    # 2. Pass them along to the function
+    pdf2pic.convert_pdf_to_images(
+        pdf_path=args.pdf_path,
+        output_dir=args.output_dir,
+        rectangles=parsed_rectangles
+    )
 
 def images_to_text(args):
     """
@@ -67,7 +76,15 @@ def cli_invoke():
     )
     parser_pdf2pic.add_argument("pdf_path", type=str, help="Path to the PDF file.")
     parser_pdf2pic.add_argument("output_dir", type=str, help="Directory to save the output images.")
+    parser_pdf2pic.add_argument(
+        "rectangles",
+        type=str,
+        nargs="*",
+        default=[],
+        help="Zero or more rectangles to crop, each in 'left,top,right,bottom' format."
+    )
     parser_pdf2pic.set_defaults(func=pdf_to_images)
+
 
     # Images to Text Command
     parser_pic2text = subparsers.add_parser(

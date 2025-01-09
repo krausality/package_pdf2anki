@@ -78,12 +78,13 @@ def convert_images_to_text(images_dir, output_file):
                 },
                 data=json.dumps({
                     #"model": "openai/gpt-4o-2024-05-13",
-                    "model": "meta-llama/llama-3.2-90b-vision-instruct:free",
+                    "model": "meta-llama/llama-3.2-11b-vision-instruct",
                     "messages": [{
                         "role": "user",
                         "content": [
                             {"type": "text", "text": "Read the content of the image word by word. Do not output anything else"},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}},
+#                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}} #Todo option to use multiple images pictures?
                         ]
                     }]
                 })
