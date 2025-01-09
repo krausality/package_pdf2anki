@@ -40,6 +40,10 @@ def convert_pdf_to_images(pdf_path, output_dir, target_dpi=300, rectangles=None)
                        *at 300 dpi*. E.g. [(100, 150, 300, 400), (350, 450, 500, 600)].
     :return: List of image-file paths generated (full-page + cropped).
     """
+
+    # Extract the base name of the PDF file
+    pdf_base_name = os.path.splitext(os.path.basename(pdf_path))[0]  # e.g., "example"
+
     os.makedirs(output_dir, exist_ok=True)
     images = []         # paths to all generated images
     cropped_images = [] # paths to only the cropped images
@@ -52,7 +56,7 @@ def convert_pdf_to_images(pdf_path, output_dir, target_dpi=300, rectangles=None)
     # Or if user asked for 72 (very low), we still do 2400 for the cropping.
     hi_dpi = max(target_dpi, 300)  # at least 300
     if rectangles:
-        hi_dpi = min(2400, max(300, target_dpi * 10))
+        hi_dpi = min(1200, max(300, target_dpi * 10))
         # ^ For demonstration, we pick 'target_dpi * 10' just as an example factor.
         #   Or simply: hi_dpi = 2400  # always, if rectangles exist
 
@@ -134,15 +138,15 @@ def convert_pdf_to_images(pdf_path, output_dir, target_dpi=300, rectangles=None)
     # 5) Create "recrop.pdf" if we have any cropped images
     # ======================
     if cropped_images:
-        create_recrop_pdf(cropped_images, output_dir)
-        print("Created recrop.pdf from all cropped images.\n")
+        create_recrop_pdf(cropped_images, output_dir, pdf_base_name)
+        print(f"Created {pdf_base_name}_recrop.pdf from all cropped images.\n")
 
     return images
 
 
-def create_recrop_pdf(cropped_paths, output_dir):
+def create_recrop_pdf(cropped_paths, output_dir, pdf_base_name):
     """
-    Create 'recrop.pdf' from the given list of cropped image paths,
+    Create '{pdf_base_name}_recrop.pdf' from the given list of cropped image paths,
     placing each on a separate A4 page. Automatically choose landscape
     if the image is wider than tall, else portrait.
     """
@@ -175,7 +179,7 @@ def create_recrop_pdf(cropped_paths, output_dir):
             # Insert the image
             page.insert_image(fitz.Rect(x0, y0, x1, y1), filename=cropped_path)
 
-    recrop_pdf_path = os.path.join(output_dir, "recrop.pdf")
+    recrop_pdf_path = os.path.join(output_dir, f"{pdf_base_name}_recrop.pdf")
     pdf_doc.save(recrop_pdf_path)
     pdf_doc.close()
 
