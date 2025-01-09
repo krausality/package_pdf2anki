@@ -121,10 +121,10 @@ def convert_pdf_to_images(pdf_path, output_dir, target_dpi=300, rectangles=None)
                 bottom_px = int(round(fb * hi_h))
 
                 cropped = img_hi.crop((left_px, top_px, right_px, bottom_px))
-                cropped_path = os.path.join(output_dir, f"page_{page_num}_crop_{i}.png")
+                cropped_path = os.path.join(output_dir, f"page_{page_num}_crop_{i}.jpg")
                 
                 # Save with hi_dpi
-                cropped.save(cropped_path, format="PNG", dpi=(hi_dpi, hi_dpi))
+                cropped.save(cropped_path, format="JPEG", quality=100, dpi=(hi_dpi, hi_dpi))
                 print(f"  Cropped rectangle {i} saved at {hi_dpi} dpi: {cropped_path}")
 
                 images.append(cropped_path)
