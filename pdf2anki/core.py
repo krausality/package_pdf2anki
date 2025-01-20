@@ -1,4 +1,3 @@
-
 """
 This software is licensed under the terms specified in LICENSE.txt,
 authored by Martin Krause.
@@ -36,11 +35,26 @@ def pdf_to_images(args):
         rectangles=parsed_rectangles
     )
 
+
 def images_to_text(args):
     """
     Perform OCR on a directory of images, extracting text and saving it to a file.
+    Includes logic to:
+      - Handle single or multiple models.
+      - Optionally invoke a judge model when multiple models are specified.
+      - Respect the --repeat argument for repeated calls to each model.
+      - Ignore ensemble-strategy and trust-score placeholders.
     """
-    pic2text.convert_images_to_text(args.images_dir, args.output_file)
+    pic2text.convert_images_to_text(
+        images_dir=args.images_dir,
+        output_file=args.output_file,
+        models=args.model,                     # list of model names, or None
+        judge_model=args.judge_model,          # single judge model or None
+        judge_mode=args.judge_mode,            # 'authoritative' by default
+        ensemble_strategy=args.ensemble_strategy,  # placeholder
+        trust_score=args.trust_score,          # placeholder
+        repeat=args.repeat                     # integer repeat count
+    )
 
 
 def text_to_anki(args):
@@ -57,7 +71,19 @@ def process_pdf_to_anki(args):
     # Intermediate file paths
     output_text_file = 'temp_text.txt'
     pdf_to_images(args)
-    images_to_text(argparse.Namespace(images_dir=args.output_dir, output_file=output_text_file))
+    images_to_text(
+        argparse.Namespace(
+            images_dir=args.output_dir,
+            output_file=output_text_file,
+            # Provide default placeholders for the new pic2text arguments.
+            model=None,
+            judge_model=None,
+            judge_mode='authoritative',
+            ensemble_strategy=None,
+            trust_score=None,
+            repeat=1
+        )
+    )
     text_to_anki(argparse.Namespace(text_file=output_text_file, anki_file=args.anki_file))
 
 
@@ -85,7 +111,6 @@ def cli_invoke():
     )
     parser_pdf2pic.set_defaults(func=pdf_to_images)
 
-
     # Images to Text Command
     parser_pic2text = subparsers.add_parser(
         "pic2text",
@@ -94,6 +119,46 @@ def cli_invoke():
     )
     parser_pic2text.add_argument("images_dir", type=str, help="Directory containing images to be processed.")
     parser_pic2text.add_argument("output_file", type=str, help="File path to save extracted text.")
+
+    # Below: The new CLI arguments requested by the extended pic2text specification
+    parser_pic2text.add_argument(
+        "--model",
+        action="append",
+        default=None,
+        help="Name of an OCR model to use. Can be specified multiple times for multiple models."
+    )
+    parser_pic2text.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="Number of times to call each model per image (default=1)."
+    )
+    parser_pic2text.add_argument(
+        "--judge-model",
+        type=str,
+        default=None,
+        help="Separate model to adjudicate multiple-model outputs. Required for multi-model usage."
+    )
+    parser_pic2text.add_argument(
+        "--judge-mode",
+        type=str,
+        default="authoritative",
+        help="Judge mode. Currently only 'authoritative' is implemented."
+    )
+    # Placeholders for future ensemble logic
+    parser_pic2text.add_argument(
+        "--ensemble-strategy",
+        type=str,
+        default=None,
+        help="(Placeholder) Ensemble strategy. E.g., 'majority-vote', 'similarity-merge'. Not currently active."
+    )
+    parser_pic2text.add_argument(
+        "--trust-score",
+        type=float,
+        default=None,
+        help="(Placeholder) Per-model weighting factor in ensemble or judge. Not currently active."
+    )
+
     parser_pic2text.set_defaults(func=images_to_text)
 
     # Text to Anki Command
