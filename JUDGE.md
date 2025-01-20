@@ -562,3 +562,12 @@ Below are **production-ready** updates to `core.py` and `pic2text.py` implementi
 - The placeholder ensemble arguments (`--ensemble-strategy`, `--trust-score`) do nothing by design (per specification).
 
 Enjoy your new, fully-featured `pic2text` CLI!
+
+
+
+------------
+**Example**
+
+ PS C:\Users\Maddin\Meine Ablage\Github\package_pdf2anki> python -m pdf2anki pic2text "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_25\Vorlesung_Einführung_in_die_theoretische_Philosophie\test" "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_25\Vorlesung_Einführung_in_die_theoretische_Philosophie\test\output.txt" --model meta-llama/llama-3.2-90b-vision-instruct --repeat 2 --model meta-llama/llama-3.2-11b-vision-instruct --repeat 2 --judge-model openai/gpt-4o-2024-11-20 --judge-mode authoritative --judge-with-image
+
+ PS C:\Users\Maddin\Meine Ablage\Github\package_pdf2anki> python -m pdf2anki pic2text "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_25\Vorlesung_Einführung_in_die_theoretische_Philosophie\02sitzung_tp_wissensbedingungen_crop" "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_25\Vorlesung_Einführung_in_die_theoretische_Philosophie\02sitzung_tp_wissensbedingungen_crop\output.txt" --model meta-llama/llama-3.2-90b-vision-instruct --repeat 2 --model meta-llama/llama-3.2-11b-vision-instruct --repeat 2 --judge-model openai/gpt-4o-2024-11-20 --judge-mode authoritative --judge-with-image

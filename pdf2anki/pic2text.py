@@ -23,6 +23,7 @@ import json
 import traceback
 import base64
 import io
+import shutil
 from datetime import datetime
 from PIL import Image
 from dotenv import load_dotenv
@@ -32,7 +33,7 @@ load_dotenv()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
 # --------------------------------------------------------------------
-# LOG FILE PATHS (can be customized in production)
+# LOG FILE PATHS (adjust as needed in production)
 OCR_LOG_FILE = "ocr.log"
 JUDGE_DECISION_LOG_FILE = "decisionmaking.log"
 # --------------------------------------------------------------------
@@ -68,7 +69,6 @@ def _post_ocr_request(model_name, base64_image):
     # For logging, time stamp and partial request info
     start_time = datetime.now()
 
-    # We keep the prompt minimal as an example. Production usage might be more advanced.
     request_payload = {
         "model": model_name,
         "messages": [{
@@ -76,7 +76,7 @@ def _post_ocr_request(model_name, base64_image):
             "content": [
                 {
                     "type": "text",
-                    "text": "Read the content of the image word by word. Do not output anything else."
+                    "text": "Read the content of the image word by word, if exitsting, also precisly describe graphics/figures/Infographic and their semantic meaning in context to the written text. Do not output anything else. Use the original language e.g. german. Avoid unnecessary translation to english."
                 },
                 {
                     "type": "image_url",
@@ -86,7 +86,6 @@ def _post_ocr_request(model_name, base64_image):
         }]
     }
 
-    # Try the request
     try:
         response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
@@ -99,9 +98,8 @@ def _post_ocr_request(model_name, base64_image):
         )
         response.raise_for_status()
         response_data = response.json()
-
-        # Extract the text from the response
         cleaned_text = response_data["choices"][0]["message"]["content"].strip()
+
     except Exception as exc:
         # Log error to OCR log
         with open(OCR_LOG_FILE, "a", encoding="utf-8") as lf:
@@ -131,47 +129,61 @@ def _post_ocr_request(model_name, base64_image):
 
 
 def _post_judge_request(
-    judge_model,  # string
-    model_outputs,  # list of text outputs from multiple calls (including repeats)
-    image_name
+    judge_model,
+    model_outputs,
+    image_name,
+    base64_image=None,
+    with_image=False
 ):
     """
     Sends multiple candidate outputs to the judge model for a decision.
-    For 'authoritative' mode, we supply a direct prompt that enumerates
-    the possibilities and asks the judge to pick the best.
-
+    If 'with_image' is True and 'base64_image' is provided, the judge also
+    receives the reference image.
+    
+    For 'authoritative' mode, we supply a direct prompt enumerating all candidate outputs.
     Returns the chosen text from the judge or raises an exception on errors.
-    Also logs the judge's final choice into 'decisionmaking.log'.
+    Logs the judge's final choice into 'decisionmaking.log'.
     """
-    # Build the prompt enumerating each possible text
-    # For example:
-    # "You have these candidate OCR texts from multiple models (possibly repeated):
-    # 1) ...
-    # 2) ...
-    # Please pick the best, and ONLY output that text."
+
+    # Build the enumerations listing each candidate text
     enumerations = []
     for idx, text_candidate in enumerate(model_outputs, start=1):
         enumerations.append(f"{idx}) {text_candidate}")
-
-    # We combine them into a single string with newlines
     enumerations_str = "\n".join(enumerations)
-    judge_prompt = (
+
+    # We create a minimal text prompt in a single user message
+    # Possibly also include the image as a separate item if requested.
+    content_blocks = []
+
+    # If user wants to feed the image, insert the image reference first.
+    if with_image and base64_image:
+        content_blocks.append({
+            "type": "text",
+            "text": "Here is the reference image to help you judge correctness."
+        })
+        content_blocks.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{base64_image}"}
+        })
+
+    # Now the actual text prompt enumerating the model outputs
+    main_prompt = (
         "You have these candidate OCR outputs:\n"
         f"{enumerations_str}\n\n"
-        "Please pick the single best textual result (no explanation). Output ONLY the chosen text."
+        "Please pick the single best textual result. Output ONLY that text, with no explanation."
     )
+    content_blocks.append({"type": "text", "text": main_prompt})
 
-    # For logging, capture start time
-    start_time = datetime.now()
-
-    # We try the judge request
+    # Prepare the request payload
     request_payload = {
         "model": judge_model,
         "messages": [{
             "role": "user",
-            "content": judge_prompt
+            "content": content_blocks
         }]
     }
+
+    start_time = datetime.now()
 
     try:
         response = requests.post(
@@ -207,7 +219,7 @@ def _post_judge_request(
         df.write(
             f"\n[Judge Decision] {start_time.isoformat()} => {end_time.isoformat()} ({duration:.2f}s)\n"
             f"Image: {image_name}\n"
-            f"Model Outputs:\n"
+            "Model Outputs:\n"
         )
         for m_out in model_outputs:
             df.write(f"  - {m_out}\n")
@@ -215,6 +227,19 @@ def _post_judge_request(
         df.write("-------------------------------------\n")
 
     return final_text
+
+
+def _archive_old_logs(output_file):
+    # Determine archive folder path
+    archive_folder = os.path.join(os.path.dirname(output_file), "log_archive")
+    os.makedirs(archive_folder, exist_ok=True)
+
+    # For each log file, move it if it exists
+    for log_file in (OCR_LOG_FILE, JUDGE_DECISION_LOG_FILE):
+        if os.path.exists(log_file):
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            archived_name = f"{os.path.splitext(log_file)[0]}_{timestamp}.log"
+            shutil.move(log_file, os.path.join(archive_folder, archived_name))
 
 
 def convert_images_to_text(
@@ -225,7 +250,8 @@ def convert_images_to_text(
     judge_mode="authoritative",
     ensemble_strategy=None,  # placeholder (ignored)
     trust_score=None,        # placeholder (ignored)
-    repeat=1
+    repeat=1,
+    judge_with_image=False
 ):
     """
     Main driver function to perform OCR on a directory of images,
@@ -236,12 +262,12 @@ def convert_images_to_text(
       - Multi-model usage (len(models) >= 2) requiring a judge_model for final output.
       - 'repeat' calls per model per image.
       - Logging of OCR calls and judge decisions.
+      - Optionally feed the judge the base64-encoded image, if 'judge_with_image' is True.
 
     NOTE: The parameters 'ensemble_strategy' and 'trust_score' are currently
           placeholders and have no effect on the final result.
     """
 
-    # Basic input validation
     if not models or len(models) == 0:
         raise ValueError(
             "No OCR model specified. Please provide at least one --model."
@@ -254,15 +280,13 @@ def convert_images_to_text(
             "This is not currently supported. Please provide --judge-model or reduce to a single --model."
         )
 
-    # If judge mode is anything other than "authoritative", warn or raise
-    # but per docs, we only handle "authoritative" right now.
+    # If judge mode is anything other than "authoritative", raise
     if judge_mode != "authoritative":
         raise NotImplementedError(
             f"Judge mode '{judge_mode}' not implemented. Only 'authoritative' is supported."
         )
 
-    # Flatten the usage: single model or multi-model with a judge.
-    # Prepare output file by clearing/creating it.
+    # Prepare or clear the output file
     with open(output_file, "w", encoding="utf-8") as f:
         f.write("")
 
@@ -284,25 +308,26 @@ def convert_images_to_text(
             # Convert once to base64 for efficiency
             base64_image = _image_to_base64(image_path)
 
-            # For each image, we'll gather the text from each model * repeat times
+            # For each image, gather the text from each model * repeat times
             all_candidates = []
             for model_name in models:
                 for _ in range(repeat):
-                    # Perform OCR call
                     ocr_text = _post_ocr_request(model_name, base64_image)
                     all_candidates.append(ocr_text)
 
             # Decide final output
             if len(models) == 1:
-                # Single-model scenario => no judge, just take the last call's result
-                # or we might combine them. The doc states it simply "comes direct to output".
-                # We'll produce the *first* successful result. If you prefer the last or a join, you can adapt.
+                # Single-model scenario => no judge, just use the last OCR result
                 final_text = all_candidates[-1] if all_candidates else ""
             else:
                 # Multi-model scenario => must have judge model
-                # all_candidates will contain multiple outputs from different models (and repeats)
-                # judge_mode is "authoritative"
-                final_text = _post_judge_request(judge_model, all_candidates, image_name)
+                final_text = _post_judge_request(
+                    judge_model=judge_model,
+                    model_outputs=all_candidates,
+                    image_name=image_name,
+                    base64_image=base64_image if judge_with_image else None,
+                    with_image=judge_with_image
+                )
 
             # Append final text to the output file
             with open(output_file, "a", encoding="utf-8") as f:
@@ -319,8 +344,8 @@ def convert_images_to_text(
                 if processed_count > 0:
                     f.write("\n\n")
                 f.write(f"Error processing {image_name}: {str(e)}\n{traceback.format_exc()}")
-            # Continue to next image
             continue
 
+    _archive_old_logs(output_file)
     print(f"OCR results saved to {output_file}. Processed {processed_count} images.")
     return output_file

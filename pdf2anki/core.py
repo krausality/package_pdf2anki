@@ -44,6 +44,7 @@ def images_to_text(args):
       - Optionally invoke a judge model when multiple models are specified.
       - Respect the --repeat argument for repeated calls to each model.
       - Ignore ensemble-strategy and trust-score placeholders.
+      - Optionally feed the judge the base64-encoded image (if --judge-with-image is used).
     """
     pic2text.convert_images_to_text(
         images_dir=args.images_dir,
@@ -53,7 +54,8 @@ def images_to_text(args):
         judge_mode=args.judge_mode,            # 'authoritative' by default
         ensemble_strategy=args.ensemble_strategy,  # placeholder
         trust_score=args.trust_score,          # placeholder
-        repeat=args.repeat                     # integer repeat count
+        repeat=args.repeat,                    # integer repeat count
+        judge_with_image=args.judge_with_image # new boolean for feeding image to judge
     )
 
 
@@ -81,7 +83,8 @@ def process_pdf_to_anki(args):
             judge_mode='authoritative',
             ensemble_strategy=None,
             trust_score=None,
-            repeat=1
+            repeat=1,
+            judge_with_image=False
         )
     )
     text_to_anki(argparse.Namespace(text_file=output_text_file, anki_file=args.anki_file))
@@ -157,6 +160,14 @@ def cli_invoke():
         type=float,
         default=None,
         help="(Placeholder) Per-model weighting factor in ensemble or judge. Not currently active."
+    )
+
+    # NEW argument: feed the judge the image (optional)
+    parser_pic2text.add_argument(
+        "--judge-with-image",
+        action="store_true",
+        default=False,
+        help="If set, the judge model will also receive the base64-encoded image to help pick the best text."
     )
 
     parser_pic2text.set_defaults(func=images_to_text)
