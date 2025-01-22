@@ -581,3 +581,6 @@ python -m pdf2anki pic2text "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_
  --judge-with-image
 
 python -m pdf2anki pic2text "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_25\Vorlesung_Einführung_in_die_theoretische_Philosophie\01sitzung_orga_tp_crop" "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_25\Vorlesung_Einführung_in_die_theoretische_Philosophie\01sitzung_orga_tp_crop\output.txt" --model google/gemini-pro-1.5 --repeat 3 --judge-model google/gemini-pro-1.5 --judge-mode authoritative --judge-with-image
+
+
+python -m pdf2anki pdf2text "C:\Users\Maddin\Downloads\trial\Homework_07.pdf" "C:\Users\Maddin\Downloads\trial\pics" "C:\Users\Maddin\Downloads\trial\Homework_07.txt" --model google/gemini-flash-1.5 --repeat 2 --model meta-llama/llama-3.2-11b-vision-instruct --repeat 1 --judge-model google/gemini-flash-1.5 --judge-mode authoritative --judge-with-image
