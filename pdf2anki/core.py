@@ -104,6 +104,59 @@ def images_to_text(args: argparse.Namespace) -> None:
         judge_with_image=args.judge_with_image
     )
 
+def pdf_to_text(args: argparse.Namespace) -> None:
+    """
+    Full pipeline: Convert a PDF to images, then extract text, and finally create an Anki deck.
+    
+    Args:
+        args: Namespace containing combination of all arguments from:
+            - pdf_to_images()
+            - images_to_text() 
+            - text_to_anki()
+    """
+
+
+    pdf_to_images(args)
+
+    """
+        Calls:
+        pic2text.convert_images_to_text(
+            images_dir: str,
+            output_file: str,
+            model_repeats: List[Tuple[str, int]], !!!!!!!!!
+            judge_model: Optional[str],
+            judge_mode: str,
+            ensemble_strategy: Optional[str],
+            trust_score: Optional[float],
+            judge_with_image: bool
+        ) -> str
+    """
+
+    # Temporarily collect all remaining args
+    remaining = []
+    if args.model:
+        for idx, model_name in enumerate(args.model):
+            rp = 1
+            if args.repeat and idx < len(args.repeat):
+                rp = args.repeat[idx]
+            remaining.append((model_name, rp))
+
+    # Create proper namespace for images_to_text
+    images_args = argparse.Namespace(
+        images_dir=args.output_dir,
+        output_file=args.output_file,
+        model=args.model,  # Pass the original model list
+        repeat=args.repeat,  # Pass the original repeat list
+        judge_model=args.judge_model,
+        judge_mode=args.judge_mode,
+        ensemble_strategy=args.ensemble_strategy,
+        trust_score=args.trust_score,
+        judge_with_image=args.judge_with_image
+    )
+    
+    images_to_text(images_args)
+
+
 
 def text_to_anki(args: argparse.Namespace) -> None:
     """
@@ -127,14 +180,40 @@ def process_pdf_to_anki(args: argparse.Namespace) -> None:
             - images_to_text() 
             - text_to_anki()
     """
+
+    
     # Intermediate file paths
     output_text_file = 'temp_text.txt'
     pdf_to_images(args)
+
+    """
+        Calls:
+        pic2text.convert_images_to_text(
+            images_dir: str,
+            output_file: str,
+            model_repeats: List[Tuple[str, int]], !!!!!!!!!
+            judge_model: Optional[str],
+            judge_mode: str,
+            ensemble_strategy: Optional[str],
+            trust_score: Optional[float],
+            judge_with_image: bool
+        ) -> str
+    """
+
+    # Temporarily collect all remaining args
+    remaining = []
+    if args.model:
+        for idx, model_name in enumerate(args.model):
+            rp = 1
+            if args.repeat and idx < len(args.repeat):
+                rp = args.repeat[idx]
+            remaining.append((model_name, rp))
+
     images_to_text(
             argparse.Namespace(
-            images_dir=??? # should be comming from pdf_to_images, but how do I get the output_dir?,
+            images_dir=args.images_dir,
             output_file=args.output_file,
-            model_repeats=???,        # pass list of (model, repeat)
+            model_repeats=remaining,  # pass list of (model, repeat), [(m,r),...]
             judge_model=args.judge_model,
             judge_mode=args.judge_mode,
             ensemble_strategy=args.ensemble_strategy,
@@ -232,6 +311,75 @@ def cli_invoke() -> None:
 
     parser_pic2text.set_defaults(func=images_to_text)
 
+    parser_pdf2text = subparsers.add_parser(
+        "pdf2text",
+        help="Convert a PDF directly to text in one step (without creating an Anki deck)."
+    )
+
+    # 1. Arguments for the PDF → Images step:
+    parser_pdf2text.add_argument("pdf_path", type=str, help="Path to the PDF file.")
+
+    parser_pdf2text.add_argument("output_dir", type=str, help="Directory  to store and read generated images.")
+ 
+    parser_pdf2text.add_argument(
+        "rectangles",
+        type=str,
+        nargs="*",
+        default=[],
+        help="Zero or more rectangles to crop, each in 'left,top,right,bottom' format."
+    )
+     # 2. Arguments for the Images → Text step:
+    parser_pdf2text.add_argument("output_file", type=str, help="File path to save extracted text.")
+
+    # 3. Optional OCR flags (same as pic2text):
+    parser_pdf2text.add_argument(
+        "--model",
+        action="append",
+        default=[],
+        help="Name of an OCR model to use. Can be specified multiple times."
+    )
+    parser_pdf2text.add_argument(
+        "--repeat",
+        action="append",
+        type=int,
+        default=[],
+        help="Number of times to call each model per image (default=1)."
+    )
+    parser_pdf2text.add_argument(
+        "--judge-model",
+        type=str,
+        default=None,
+        help="Separate model to adjudicate multiple outputs."
+    )
+    parser_pdf2text.add_argument(
+        "--judge-mode",
+        type=str,
+        default="authoritative",
+        help="Judge mode. Currently only 'authoritative' is implemented."
+    )
+    parser_pdf2text.add_argument(
+        "--ensemble-strategy",
+        type=str,
+        default=None,
+        help="(Placeholder) Ensemble strategy, e.g., 'majority-vote'. Not active yet."
+    )
+    parser_pdf2text.add_argument(
+        "--trust-score",
+        type=float,
+        default=None,
+        help="(Placeholder) Per-model weighting factor. Not currently active."
+    )
+    parser_pdf2text.add_argument(
+        "--judge-with-image",
+        action="store_true",
+        default=False,
+        help="If set, the judge model also receives the base64-encoded image."
+    )
+
+    parser_pdf2text.set_defaults(func=pdf_to_text)
+
+
+
     # Text to Anki Command
     parser_text2anki = subparsers.add_parser(
         "text2anki",
@@ -296,19 +444,6 @@ def cli_invoke() -> None:
         default=False,
         help="If set, the judge model will also receive the base64-encoded image to help pick the best text."
     )
-    parser_process.set_defaults(func=process_pdf_to_anki)
-
-    args = parser.parse_args()
-
-    if args.command:
-        args.func(args)
-    else:
-        parser.print_help()
-
-
-if __name__ == "__main__":
-    cli_invoke()
-
     parser_process.set_defaults(func=process_pdf_to_anki)
 
     args = parser.parse_args()
