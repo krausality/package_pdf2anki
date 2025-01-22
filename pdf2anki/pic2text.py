@@ -28,6 +28,7 @@ from datetime import datetime
 from PIL import Image
 from dotenv import load_dotenv
 import asyncio
+from typing import List, Tuple, Optional, Dict, Any
 
 # Load environment variables (e.g., OPENROUTER_API_KEY) from .env if present
 load_dotenv()
@@ -40,7 +41,7 @@ JUDGE_DECISION_LOG_FILE = "decisionmaking.log"
 # --------------------------------------------------------------------
 
 
-def extract_page_number(filename):
+def extract_page_number(filename: str) -> int:
     """
     Helper function to extract a page index from a filename
     with pattern 'page_<NUM>'. If not found, returns +inf
@@ -50,7 +51,7 @@ def extract_page_number(filename):
     return int(match.group(1)) if match else float('inf')
 
 
-def _image_to_base64(image_path):
+def _image_to_base64(image_path: str) -> str:
     """
     Converts an image to a base64-encoded string for inclusion in OpenRouter calls.
     """
@@ -61,7 +62,7 @@ def _image_to_base64(image_path):
     return base64.b64encode(img_bytes).decode("utf-8")
 
 
-def _post_ocr_request(model_name, base64_image):
+def _post_ocr_request(model_name: str, base64_image: str) -> str:
     """
     Posts an OCR request to the OpenRouter API using the specified model_name.
     Returns the text output if successful, or raises an exception on errors.
@@ -130,13 +131,13 @@ def _post_ocr_request(model_name, base64_image):
 
 
 def _post_judge_request(
-    judge_model,
-    model_outputs,
-    image_name,
-    model_info=None,  # new: list of (model_name, repeat_num) for each output
-    base64_image=None,
-    with_image=False
-):
+    judge_model: str,
+    model_outputs: List[str],
+    image_name: str,
+    model_info: List[Tuple[str, int]],  # new: list of (model_name, repeat_num) for each output
+    base64_image: Optional[str] = None,
+    with_image: bool = False
+) -> str:
     """
     Enhanced judge request with better candidate formatting.
     model_info tracks which model and repeat number produced each output.
@@ -231,7 +232,7 @@ def _post_judge_request(
     return final_text
 
 
-def _archive_old_logs(output_file):
+def _archive_old_logs(output_file: str) -> None:
     # Determine archive folder path
     archive_folder = os.path.join(os.path.dirname(output_file), "log_archive")
     os.makedirs(archive_folder, exist_ok=True)
@@ -244,16 +245,40 @@ def _archive_old_logs(output_file):
             shutil.move(log_file, os.path.join(archive_folder, archived_name))
 
 
+async def _parallel_ocr(
+    model_repeats_list: List[Tuple[str, int]], 
+    base64_img: str
+) -> Tuple[List[str], List[Tuple[str, int]]]:
+    """
+    Create OCR tasks based on (model, repeat) pairs.
+    Returns results in order of completion.
+    """
+    loop = asyncio.get_event_loop()
+    tasks = []
+    model_info = []  # Track which model/repeat produced which result
+    
+    # Create one task per model per repeat count
+    for model_name, repeat_count in model_repeats_list:
+        for repeat_num in range(repeat_count):
+            tasks.append(
+                loop.run_in_executor(None, _post_ocr_request, model_name, base64_img)
+            )
+            model_info.append((model_name, repeat_num + 1))
+    
+    results = await asyncio.gather(*tasks)
+    return results, model_info
+
+
 def convert_images_to_text(
-    images_dir,
-    output_file,
-    model_repeats=None,  # list of tuples (modelName, repeatCount)
-    judge_model=None,
-    judge_mode="authoritative",
-    ensemble_strategy=None,
-    trust_score=None,
-    judge_with_image=False
-):
+    images_dir: str,
+    output_file: str,
+    model_repeats: List[Tuple[str, int]],  # list of tuples (modelName, repeatCount)
+    judge_model: Optional[str] = None,
+    judge_mode: str = "authoritative",
+    ensemble_strategy: Optional[str] = None,
+    trust_score: Optional[float] = None,
+    judge_with_image: bool = False
+) -> str:
     """Main driver function to perform OCR on a directory of images."""
     
     if not model_repeats:
@@ -291,7 +316,7 @@ def convert_images_to_text(
     ]
     image_files.sort(key=extract_page_number)
 
-    async def _parallel_ocr(model_repeats_list, base64_img):
+    async def _parallel_ocr(model_repeats_list: List[Tuple[str, int]], base64_img: str) -> Tuple[List[str], List[Tuple[str, int]]]:
         """
         Create OCR tasks based on (model, repeat) pairs.
         Returns results in order of completion.

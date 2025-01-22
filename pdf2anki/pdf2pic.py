@@ -18,8 +18,14 @@ import fitz     # We'll use "fitz" for certain PDF-specific calls
 from PIL import Image
 import os
 import sys
+from typing import List, Tuple, Optional
 
-def convert_pdf_to_images(pdf_path, output_dir, target_dpi=300, rectangles=None):
+def convert_pdf_to_images(
+    pdf_path: str,
+    output_dir: str,
+    target_dpi: int = 300,
+    rectangles: Optional[List[Tuple[int, int, int, int]]] = None
+) -> List[str]:
     """
     Convert each page of a PDF to a full-page image at 'target_dpi'.
     
@@ -33,12 +39,14 @@ def convert_pdf_to_images(pdf_path, output_dir, target_dpi=300, rectangles=None)
       4) We save each cropped image at the same high dpi (up to 2400).
       5) Finally, we assemble all cropped images into 'recrop.pdf'.
 
-    :param pdf_path: Path to the PDF file.
-    :param output_dir: Directory to store the generated images (and recrop.pdf if any).
-    :param target_dpi: The DPI for the main page images.
-    :param rectangles: A list of (left, top, right, bottom) in pixel coordinates
-                       *at 300 dpi*. E.g. [(100, 150, 300, 400), (350, 450, 500, 600)].
-    :return: List of image-file paths generated (full-page + cropped).
+    Args:
+        pdf_path: Path to the PDF file
+        output_dir: Directory to store the generated images
+        target_dpi: The DPI for the main page images, defaults to 300
+        rectangles: Optional list of (left, top, right, bottom) tuples in 300-dpi coordinates
+    
+    Returns:
+        List[str]: Paths to all generated images (full-page + cropped)
     """
 
     # Extract the base name of the PDF file
@@ -144,11 +152,20 @@ def convert_pdf_to_images(pdf_path, output_dir, target_dpi=300, rectangles=None)
     return images
 
 
-def create_recrop_pdf(cropped_paths, output_dir, pdf_base_name):
+def create_recrop_pdf(
+    cropped_paths: List[str],
+    output_dir: str,
+    pdf_base_name: str
+) -> None:
     """
     Create '{pdf_base_name}_recrop.pdf' from the given list of cropped image paths,
     placing each on a separate A4 page. Automatically choose landscape
     if the image is wider than tall, else portrait.
+
+    Args:
+        cropped_paths: List of paths to cropped image files
+        output_dir: Directory to save the recrop PDF
+        pdf_base_name: Base name for the output PDF file
     """
     pdf_doc = fitz.open()  # new, empty PDF
     A4_PORTRAIT = (595, 842)   # width, height in points
@@ -184,10 +201,19 @@ def create_recrop_pdf(cropped_paths, output_dir, pdf_base_name):
     pdf_doc.close()
 
 
-def parse_rectangle(rect_str):
+def parse_rectangle(rect_str: str) -> Tuple[int, int, int, int]:
     """
     Parse a rectangle string "left,top,right,bottom" into a tuple of ints.
     These coords are assumed to be based on 300 dpi space.
+
+    Args:
+        rect_str: String in format "left,top,right,bottom"
+    
+    Returns:
+        Tuple[int, int, int, int]: (left, top, right, bottom) coordinates
+        
+    Raises:
+        ValueError: If string format is invalid
     """
     coords = rect_str.split(",")
     if len(coords) != 4:
