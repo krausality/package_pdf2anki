@@ -579,3 +579,5 @@ PS C:\Users\Maddin\Meine Ablage\Github\package_pdf2anki> python -m pdf2anki pic2
 
 python -m pdf2anki pic2text "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_25\Vorlesung_Einführung_in_die_theoretische_Philosophie\test" "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_25\Vorlesung_Einführung_in_die_theoretische_Philosophie\test\output.txt" --model google/gemini-pro-1.5 --repeat 3 --judge-model openai/gpt-4o-2024-11-20 --judge-mode authoritative
  --judge-with-image
+
+python -m pdf2anki pic2text "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_25\Vorlesung_Einführung_in_die_theoretische_Philosophie\01sitzung_orga_tp_crop" "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_25\Vorlesung_Einführung_in_die_theoretische_Philosophie\01sitzung_orga_tp_crop\output.txt" --model google/gemini-pro-1.5 --repeat 3 --judge-model google/gemini-pro-1.5 --judge-mode authoritative --judge-with-image
