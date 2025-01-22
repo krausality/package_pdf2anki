@@ -133,30 +133,24 @@ def _post_judge_request(
     judge_model,
     model_outputs,
     image_name,
+    model_info=None,  # new: list of (model_name, repeat_num) for each output
     base64_image=None,
     with_image=False
 ):
     """
-    Sends multiple candidate outputs to the judge model for a decision.
-    If 'with_image' is True and 'base64_image' is provided, the judge also
-    receives the reference image.
-    
-    For 'authoritative' mode, we supply a direct prompt enumerating all candidate outputs.
-    Returns the chosen text from the judge or raises an exception on errors.
-    Logs the judge's final choice into 'decisionmaking.log'.
+    Enhanced judge request with better candidate formatting.
+    model_info tracks which model and repeat number produced each output.
     """
-
-    # Build the enumerations listing each candidate text
+    # Build enhanced enumerations with source information
     enumerations = []
-    for idx, text_candidate in enumerate(model_outputs, start=1):
-        enumerations.append(f"{idx}) {text_candidate}")
-    enumerations_str = "\n".join(enumerations)
+    for idx, (text_candidate, (model, repeat)) in enumerate(zip(model_outputs, model_info), 1):
+        # Format: NUM) [MODEL-NAME : REPEAT-NUM] Text...
+        enum = f"{idx}) [{model} : attempt {repeat}]\n{text_candidate}"
+        enumerations.append(enum)
+    
+    enumerations_str = "\n\n".join(enumerations)  # Double-space between candidates
 
-    # We create a minimal text prompt in a single user message
-    # Possibly also include the image as a separate item if requested.
     content_blocks = []
-
-    # If user wants to feed the image, insert the image reference first.
     if with_image and base64_image:
         content_blocks.append({
             "type": "text",
@@ -167,11 +161,15 @@ def _post_judge_request(
             "image_url": {"url": f"data:image/png;base64,{base64_image}"}
         })
 
-    # Now the actual text prompt enumerating the model outputs
+    # Enhanced judge prompt
     main_prompt = (
-        "You have these candidate OCR outputs:\n"
+        "Below are OCR outputs from different models or repeated attempts.\n"
+        "Each is formatted as: [MODEL-NAME : attempt NUMBER]\n"
+        "---\n\n"
         f"{enumerations_str}\n\n"
-        "Please pick the single best textual result. Output ONLY that text, with no explanation."
+        "---\n"
+        "Please select the single most accurate and complete text result.\n"
+        "Output ONLY the chosen text, without the model name or attempt number."
     )
     content_blocks.append({"type": "text", "text": main_prompt})
 
@@ -220,12 +218,15 @@ def _post_judge_request(
         df.write(
             f"\n[Judge Decision] {start_time.isoformat()} => {end_time.isoformat()} ({duration:.2f}s)\n"
             f"Image: {image_name}\n"
-            "Model Outputs:\n"
+            "Decision Propmpt:\n"
         )
-        for m_out in model_outputs:
-            df.write(f"  - {m_out}\n")
+        for block in content_blocks:
+            if block["type"] == "text":
+                df.write(f"{block['text']}\n")
+
+        df.write("+++++++++++++++++++++++++++\n")
         df.write(f"Judge Picked: {final_text}\n")
-        df.write("-------------------------------------\n")
+        df.write("###########################\n")
 
     return final_text
 
@@ -246,45 +247,35 @@ def _archive_old_logs(output_file):
 def convert_images_to_text(
     images_dir,
     output_file,
-    models=None,
+    model_repeats=None,  # list of tuples (modelName, repeatCount)
     judge_model=None,
     judge_mode="authoritative",
-    ensemble_strategy=None,  # placeholder (ignored)
-    trust_score=None,        # placeholder (ignored)
-    repeat=1,
+    ensemble_strategy=None,
+    trust_score=None,
     judge_with_image=False
 ):
-    """
-    Main driver function to perform OCR on a directory of images,
-    saving the textual results to 'output_file'.
-
-    Supports:
-      - Single model usage (models=[...], len=1).
-      - Multi-model usage (len(models) >= 2) requiring a judge_model for final output.
-      - 'repeat' calls per model per image.
-      - Logging of OCR calls and judge decisions.
-      - Optionally feed the judge the base64-encoded image, if 'judge_with_image' is True.
-
-    NOTE: The parameters 'ensemble_strategy' and 'trust_score' are currently
-          placeholders and have no effect on the final result.
-    """
-
-    if not models or len(models) == 0:
+    """Main driver function to perform OCR on a directory of images."""
+    
+    if not model_repeats:
+        raise ValueError("No OCR model specified. Provide at least one model.")
+        
+    # Extract just the model names for counting distinct models
+    distinct_models = list(set(model for model, _ in model_repeats))
+    
+    if len(distinct_models) > 1 and not judge_model:
         raise ValueError(
-            "No OCR model specified. Please provide at least one --model."
+            "Multiple models supplied but no judge model specified.\n"
+            "Provide --judge-model or reduce to a single model."
         )
 
-    # If multiple models but no judge => error (as per docs)
-    if len(models) > 1 and not judge_model:
+    # Count total calls across all models
+    total_calls = sum(repeat_count for _, repeat_count in model_repeats)
+    
+    # If single model with multiple repeats, we need a judge
+    if len(distinct_models) == 1 and total_calls > 1 and not judge_model:
         raise ValueError(
-            "Multiple models supplied but no judge model was specified.\n"
-            "This is not currently supported. Please provide --judge-model or reduce to a single --model."
-        )
-
-    # If judge mode is anything other than "authoritative", raise
-    if judge_mode != "authoritative":
-        raise NotImplementedError(
-            f"Judge mode '{judge_mode}' not implemented. Only 'authoritative' is supported."
+            "Single model with multiple repeats requires a judge model.\n"
+            "Please provide --judge-model to select best result from repeated calls."
         )
 
     # Prepare or clear the output file
@@ -300,25 +291,25 @@ def convert_images_to_text(
     ]
     image_files.sort(key=extract_page_number)
 
-    # Define a helper function that uses asyncio to collect OCR text in parallel
-    async def _parallel_ocr(models, repeat, base64_img):
+    async def _parallel_ocr(model_repeats_list, base64_img):
         """
-        This async function creates tasks for each model OCR call, allowing them
-        to run in parallel. That way, multiple OCR requests don't block each other.
-        An undergrad compsci newbie can note that 'run_in_executor' runs sync calls
-        in a separate thread, letting us concurrently wait for each to finish.
+        Create OCR tasks based on (model, repeat) pairs.
+        Returns results in order of completion.
         """
-        loop = asyncio.get_event_loop()  # Access the current event loop responsible for scheduling async tasks
+        loop = asyncio.get_event_loop()
         tasks = []
-        # We enqueue one task per (model, repeat) pair
-        for m_name in models:
-            for _ in range(repeat):
-                # run_in_executor schedules _post_ocr_request on a thread so it won't freeze our main loop
-                tasks.append(loop.run_in_executor(None, _post_ocr_request, m_name, base64_img))
-
-        # gather(...) waits for all tasks to finish concurrently and returns their results in a list
+        model_info = []  # Track which model/repeat produced which result
+        
+        # Create one task per model per repeat count
+        for model_name, repeat_count in model_repeats_list:
+            for repeat_num in range(repeat_count):
+                tasks.append(
+                    loop.run_in_executor(None, _post_ocr_request, model_name, base64_img)
+                )
+                model_info.append((model_name, repeat_num + 1))
+        
         results = await asyncio.gather(*tasks)
-        return results
+        return results, model_info
 
     for image_name in image_files:
         image_path = os.path.join(images_dir, image_name)
@@ -329,19 +320,20 @@ def convert_images_to_text(
             # Convert once to base64 for efficiency
             base64_image = _image_to_base64(image_path)
 
-            # Gather OCR text in parallel by running our async helper within a single image pass
-            # The rest of the logic (like judging) remains sequential.
-            all_candidates = asyncio.run(_parallel_ocr(models, repeat, base64_image))
+            # Get all OCR results in parallel
+            all_candidates, candidate_info = asyncio.run(_parallel_ocr(model_repeats, base64_image))
 
-            # Decide final output
-            if len(models) == 1: # and repeat(?) = 1
-                # Single-model scenario => no judge, just use the last OCR result
-                final_text = all_candidates[-1] if all_candidates else ""
+            # single-call single-model scenario
+            if len(distinct_models) == 1 and total_calls == 1:
+                # True single-call scenario: just use the one result
+                final_text = all_candidates[0] if all_candidates else ""
             else:
-                # Multi-model scenario => must have judge model
+                # Multiple results (either from different models or repeats)
+                # => use judge to pick the best one
                 final_text = _post_judge_request(
                     judge_model=judge_model,
                     model_outputs=all_candidates,
+                    model_info=candidate_info,  # Pass source info to judge
                     image_name=image_name,
                     base64_image=base64_image if judge_with_image else None,
                     with_image=judge_with_image

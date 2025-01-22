@@ -46,16 +46,24 @@ def images_to_text(args):
       - Ignore ensemble-strategy and trust-score placeholders.
       - Optionally feed the judge the base64-encoded image (if --judge-with-image is used).
     """
+    # Temporarily collect all remaining args
+    remaining = []
+    if args.model:
+        for idx, model_name in enumerate(args.model):
+            rp = 1
+            if args.repeat and idx < len(args.repeat):
+                rp = args.repeat[idx]
+            remaining.append((model_name, rp))
+
     pic2text.convert_images_to_text(
         images_dir=args.images_dir,
         output_file=args.output_file,
-        models=args.model,                     # list of model names, or None
-        judge_model=args.judge_model,          # single judge model or None
-        judge_mode=args.judge_mode,            # 'authoritative' by default
-        ensemble_strategy=args.ensemble_strategy,  # placeholder
-        trust_score=args.trust_score,          # placeholder
-        repeat=args.repeat,                    # integer repeat count
-        judge_with_image=args.judge_with_image # new boolean for feeding image to judge
+        model_repeats=remaining,        # pass list of (model, repeat)
+        judge_model=args.judge_model,
+        judge_mode=args.judge_mode,
+        ensemble_strategy=args.ensemble_strategy,
+        trust_score=args.trust_score,
+        judge_with_image=args.judge_with_image
     )
 
 
@@ -127,13 +135,14 @@ def cli_invoke():
     parser_pic2text.add_argument(
         "--model",
         action="append",
-        default=None,
+        default=[],
         help="Name of an OCR model to use. Can be specified multiple times for multiple models."
     )
     parser_pic2text.add_argument(
         "--repeat",
+        action="append",
         type=int,
-        default=1,
+        default=[],
         help="Number of times to call each model per image (default=1)."
     )
     parser_pic2text.add_argument(
