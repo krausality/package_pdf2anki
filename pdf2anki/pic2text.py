@@ -27,6 +27,7 @@ import shutil
 from datetime import datetime
 from PIL import Image
 from dotenv import load_dotenv
+import asyncio
 
 # Load environment variables (e.g., OPENROUTER_API_KEY) from .env if present
 load_dotenv()
@@ -299,6 +300,26 @@ def convert_images_to_text(
     ]
     image_files.sort(key=extract_page_number)
 
+    # Define a helper function that uses asyncio to collect OCR text in parallel
+    async def _parallel_ocr(models, repeat, base64_img):
+        """
+        This async function creates tasks for each model OCR call, allowing them
+        to run in parallel. That way, multiple OCR requests don't block each other.
+        An undergrad compsci newbie can note that 'run_in_executor' runs sync calls
+        in a separate thread, letting us concurrently wait for each to finish.
+        """
+        loop = asyncio.get_event_loop()  # Access the current event loop responsible for scheduling async tasks
+        tasks = []
+        # We enqueue one task per (model, repeat) pair
+        for m_name in models:
+            for _ in range(repeat):
+                # run_in_executor schedules _post_ocr_request on a thread so it won't freeze our main loop
+                tasks.append(loop.run_in_executor(None, _post_ocr_request, m_name, base64_img))
+
+        # gather(...) waits for all tasks to finish concurrently and returns their results in a list
+        results = await asyncio.gather(*tasks)
+        return results
+
     for image_name in image_files:
         image_path = os.path.join(images_dir, image_name)
         final_text = ""
@@ -308,15 +329,12 @@ def convert_images_to_text(
             # Convert once to base64 for efficiency
             base64_image = _image_to_base64(image_path)
 
-            # For each image, gather the text from each model * repeat times
-            all_candidates = []
-            for model_name in models:
-                for _ in range(repeat):
-                    ocr_text = _post_ocr_request(model_name, base64_image)
-                    all_candidates.append(ocr_text)
+            # Gather OCR text in parallel by running our async helper within a single image pass
+            # The rest of the logic (like judging) remains sequential.
+            all_candidates = asyncio.run(_parallel_ocr(models, repeat, base64_image))
 
             # Decide final output
-            if len(models) == 1:
+            if len(models) == 1: # and repeat(?) = 1
                 # Single-model scenario => no judge, just use the last OCR result
                 final_text = all_candidates[-1] if all_candidates else ""
             else:
