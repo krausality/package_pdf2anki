@@ -146,7 +146,10 @@ def _post_judge_request(
     enumerations = []
     for idx, (text_candidate, (model, repeat)) in enumerate(zip(model_outputs, model_info), 1):
         # Format: NUM) [MODEL-NAME : REPEAT-NUM] Text...
-        enum = f"{idx}) [{model} : attempt {repeat}]\n{text_candidate}"
+        enum = f"{idx}) [{model} : attempt {repeat}]\n"
+        enum += "+" * 5 + f"[{model} : attempt {repeat}] START" + "+" * 5 + "\n"
+        enum += text_candidate
+        enum += "\n" + "-" * 5 + f"[{model} : attempt {repeat}] END" + "-" * 5 + "\n"
         enumerations.append(enum)
     
     enumerations_str = "\n\n".join(enumerations)  # Double-space between candidates
@@ -225,9 +228,10 @@ def _post_judge_request(
             if block["type"] == "text":
                 df.write(f"{block['text']}\n")
 
-        df.write("+++++++++++++++++++++++++++\n")
-        df.write(f"Judge Picked: {final_text}\n")
-        df.write("###########################\n")
+        df.write("\n")
+        df.write("+" * 10 + "JUDGE PICK START" + "+" * 10 + "\n")
+        df.write(f"{final_text}\n")
+        df.write("#" * 10 + "JUDGE PICK END" + "#" * 10 + "\n")
 
     return final_text
 
@@ -244,29 +248,6 @@ def _archive_old_logs(output_file: str) -> None:
             archived_name = f"{os.path.splitext(log_file)[0]}_{timestamp}.log"
             shutil.move(log_file, os.path.join(archive_folder, archived_name))
 
-
-async def _parallel_ocr(
-    model_repeats_list: List[Tuple[str, int]], 
-    base64_img: str
-) -> Tuple[List[str], List[Tuple[str, int]]]:
-    """
-    Create OCR tasks based on (model, repeat) pairs.
-    Returns results in order of completion.
-    """
-    loop = asyncio.get_event_loop()
-    tasks = []
-    model_info = []  # Track which model/repeat produced which result
-    
-    # Create one task per model per repeat count
-    for model_name, repeat_count in model_repeats_list:
-        for repeat_num in range(repeat_count):
-            tasks.append(
-                loop.run_in_executor(None, _post_ocr_request, model_name, base64_img)
-            )
-            model_info.append((model_name, repeat_num + 1))
-    
-    results = await asyncio.gather(*tasks)
-    return results, model_info
 
 
 def convert_images_to_text(
