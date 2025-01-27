@@ -78,7 +78,7 @@ def _post_ocr_request(model_name: str, base64_image: str) -> str:
             "content": [
                 {
                     "type": "text",
-                    "text": "Read the content of the image word by word, if exitsting, also precisly describe graphics/figures/Infographic and their semantic meaning in context to the written text. Do not output anything else. Use the original language e.g. german. Avoid unnecessary translation to english."
+                    "text": "Read the content of the image word by word, if exitsting, also precisly describe graphics/figures/Infographic and their semantic meaning in context to the written text. Do not output anything else. Use the original language e.g. german. Avoid unnecessary translation to english. Describe the context expressivly and its inherent meaning."
                 },
                 {
                     "type": "image_url",
