@@ -585,3 +585,9 @@ python -m pdf2anki pic2text "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_
 python -m pdf2anki pdf2text "C:\Users\Maddin\Downloads\trial\Homework_07.pdf" "C:\Users\Maddin\Downloads\trial\pics" "C:\Users\Maddin\Downloads\trial\Homework_07.txt" --model google/gemini-flash-1.5 --repeat 2 --model meta-llama/llama-3.2-11b-vision-instruct --repeat 1 --judge-model google/gemini-flash-1.5 --judge-mode authoritative --judge-with-image
 
 python -m pdf2anki pic2text "H:\The_Philo_Rep\selection\sol" "H:\The_Philo_Rep\selection\sol\output.txt" --model google/gemini-flash-1.5 --repeat 2 --judge-model google/gemini-flash-1.5 --judge-mode authoritative --judge-with-image
+
+python -m pdf2anki pic2text "H:\The_Philo_Rep\selection\sol" "H:\The_Philo_Rep\selection\sol\output.txt" --model google/gemini-flash-1.5 --repeat 2 --judge-model google/gemini-flash-1.5 --judge-mode authoritative --judge-with-image
+
+python -m pdf2anki pic2text "H:\The_Philo_Rep\selection\sol" "H:\The_Philo_Rep\selection\sol\output.txt" --model google/gemini-flash-1.5 --repeat 2 --judge-model google/gemini-flash-1.5 --judge-mode authoritative --judge-with-image
+
+python -m pdf2anki pdf2text "C:\Users\Maddin\Meine Ablage\Uni\IT_Secu\Vorlesung_Grundlagen_der_IT-Sicherheit\01_Krypto-Grundlagen.pdf" "C:\Users\Maddin\Meine Ablage\Uni\IT_Secu\Vorlesung_Grundlagen_der_IT-Sicherheit\pics" "C:\Users\Maddin\Meine Ablage\Uni\IT_Secu\Vorlesung_Grundlagen_der_IT-Sicherheit\01_Krypto-Grundlagen.txt" --model google/gemini-flash-1.5 --repeat 2 --judge-model google/gemini-flash-1.5 --judge-mode authoritative --judge-with-image

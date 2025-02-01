@@ -78,7 +78,7 @@ def _post_ocr_request(model_name: str, base64_image: str) -> str:
             "content": [
                 {
                     "type": "text",
-                    "text": "Read the content of the image word by word, if exitsting, also precisly describe graphics/figures/Infographic and their semantic meaning in context to the written text. Do not output anything else. Use the original language e.g. german. Avoid unnecessary translation to english. Describe the context expressivly and its inherent meaning."
+                    "text": "Read the content of the image word by word. If exitsting, also describe graphics/figures/Infographic verbosely and precisly - and their semantic meaning in context to the written text. Do not output anything else. Use the original language e.g. german. Avoid unnecessary translation to english."
                 },
                 {
                     "type": "image_url",
@@ -172,7 +172,7 @@ def _post_judge_request(
         "---\n\n"
         f"{enumerations_str}\n\n"
         "---\n"
-        "Please select the single most accurate and complete text result.\n"
+        "Please select the single most accurate and most complete text result.\n"
         "Output ONLY the chosen text, without the model name or attempt number."
     )
     content_blocks.append({"type": "text", "text": main_prompt})
