@@ -2,7 +2,7 @@ import os
 import subprocess
 
 # Base directory to process
-base_dir = r"C:\Users\Maddin\Meine Ablage\Uni\IT_Secu\Übung"
+base_dir = r"C:\Users\Maddin\Meine Ablage\Uni\IT_Secu\Finf\altklausuren_und_protokolle"
 # Virtual environment path
 venv_dir = r"C:\Users\Maddin\Meine Ablage\Github\package_pdf2anki"
 venv_python = os.path.join(venv_dir, ".venv", "Scripts", "python.exe")

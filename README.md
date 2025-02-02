@@ -157,6 +157,18 @@ This example will:
 
 ---
 
+## Enhanced Anki Card Generation
+
+The Anki card generation process has been extended to use template‑driven OpenRouter calls.
+Based on the input text’s context (e.g. philosophical essays, algorithm explanations, or math formulas), the system dynamically generates cards that either:
+- Educate on factual key concepts and keywords.
+- Provide step‑by‑step guidance on algorithms and problem-solving.
+- Show mathematical formulas with explanations.
+
+This solution emphasizes logging, archival of previous logs, and thorough error reporting to enable future enhancements and maintainability.
+
+---
+
 ## Examples
 
 Here are comprehensive examples covering all functions.
