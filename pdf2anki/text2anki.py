@@ -36,6 +36,10 @@ def _post_openrouter_for_anki(model_name: str, text_content: str) -> str:
     Expected response is a JSON string representing a list of cards (each a dict with 'front' and 'back' keys).
     
     The function logs request and response details to ANKI_LOG_FILE.
+    After retrieving the response, the function:
+      - Removes any text before the first "{" and after the last "}".
+      - Wraps the result in [ ... ] if it does not already begin with a square bracket.
+    This ensures that json.loads() will successfully parse the result.
     """
     start_time = datetime.now()
     
@@ -50,7 +54,10 @@ def _post_openrouter_for_anki(model_name: str, text_content: str) -> str:
                     "text": (
                         "You are an expert education content generator. Analyze the following text and generate a list of Anki cards "
                         "that best help a learner understand the content. Depending on the context, produce cards that either explain key concepts, "
-                        "give step-by-step guidance for algorithms, or provide mathematical formulas with explanations. "
+                        "give step-by-step guidance for algorithms, provide mathematical formulas with explanations. "
+                        "Be sure to include all relevant information that a learner would need to understand the content. "
+                        "If you have the choice between more detailed card or multiple cards, prefer the one overview card and multiple detailed cards. "
+                        "Use the original language e.g. german. Avoid unnecessary translation to english. Always keep technical terms in their provided language."
                         "Output the result as a JSON list, e.g.: "
                         '[{"front": "Card front text", "back": "Card back text"}, ...]. '
                         "Do not include any additional commentary."
@@ -77,6 +84,18 @@ def _post_openrouter_for_anki(model_name: str, text_content: str) -> str:
         response.raise_for_status()
         response_data = response.json()
         result_text = response_data["choices"][0]["message"]["content"].strip()
+        
+        # Remove any extraneous text before the first "{" and after the last "}"
+        first_brace = result_text.find("{")
+        last_brace = result_text.rfind("}")
+        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+            result_text = result_text[first_brace:last_brace+1]
+        
+        # If the result does not start with '[' then assume it's a list of JSON objects separated by commas.
+        # Wrap the result in square brackets so that json.loads() succeeds.
+        if not result_text.startswith('['):
+            result_text = "[" + result_text + "]"
+        
     except Exception as exc:
         with open(ANKI_LOG_FILE, "a", encoding="utf-8") as lf:
             lf.write(
@@ -96,7 +115,7 @@ def _post_openrouter_for_anki(model_name: str, text_content: str) -> str:
             f"\n[ANKI GENERATION] {start_time.isoformat()} => {end_time.isoformat()} ({duration:.2f}s)\n"
             f"Model: {model_name}\n"
             f"Request: (prompt omitted for brevity)\n"
-            f"Response (truncated): {result_text[:120]!r}\n"
+            f"Response (not truncated): {result_text}\n"
             "-----------------------------------------\n"
         )
     
@@ -122,7 +141,6 @@ def convert_text_to_anki(text_file: str, anki_file: str, model: str) -> None:
     
     The `model` parameter allows you to specify which OpenRouter model to use.
     """
-
     if not model:
         print("No OpenRouter model specified. Exiting.")
         return
@@ -143,10 +161,13 @@ def convert_text_to_anki(text_file: str, anki_file: str, model: str) -> None:
         print("No cards generated. Exiting.")
         return
 
+    # Get the base file name without the extension
+    anki_file_name = os.path.splitext(os.path.basename(anki_file))[0]
+
     # Create an Anki deck (deck_id can be customized or randomized)
     deck = genanki.Deck(
         deck_id=1234567890,
-        name='Enhanced PDF to Anki Deck'
+        name=anki_file_name
     )
 
     for card in cards:
@@ -163,6 +184,5 @@ def convert_text_to_anki(text_file: str, anki_file: str, model: str) -> None:
     print(f"Saved Anki deck to {anki_file}")
 
     _archive_old_logs(anki_file)
-
 
 
