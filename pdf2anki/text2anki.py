@@ -116,12 +116,17 @@ def _archive_old_logs(output_file: str) -> None:
             shutil.move(log_file, os.path.join(archive_folder, archived_name))
 
 
-def convert_text_to_anki(text_file: str, anki_file: str, model: str = "gpt-4") -> None:
+def convert_text_to_anki(text_file: str, anki_file: str, model: str) -> None:
     """
     Convert an input text file to a set of context-aware Anki cards using OpenRouter.
     
     The `model` parameter allows you to specify which OpenRouter model to use.
     """
+
+    if not model:
+        print("No OpenRouter model specified. Exiting.")
+        return
+    
     with open(text_file, 'r', encoding='utf-8') as f:
         text = f.read()
     
@@ -160,19 +165,4 @@ def convert_text_to_anki(text_file: str, anki_file: str, model: str = "gpt-4") -
     _archive_old_logs(anki_file)
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Convert text to an Anki deck using OpenRouter.")
-    parser.add_argument("text_file", help="Path to the input text file.")
-    parser.add_argument("anki_file", help="Path to the output Anki deck file.")
-    parser.add_argument(
-        "--model",
-        default="gpt-4",
-        help="OpenRouter model to use for generating Anki cards (default: gpt-4)."
-    )
-    args = parser.parse_args()
-    
-    convert_text_to_anki(args.text_file, args.anki_file, args.model)
 
-
-if __name__ == "__main__":
-    main()

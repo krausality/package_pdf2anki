@@ -591,3 +591,6 @@ python -m pdf2anki pic2text "H:\The_Philo_Rep\selection\sol" "H:\The_Philo_Rep\s
 python -m pdf2anki pic2text "H:\The_Philo_Rep\selection\sol" "H:\The_Philo_Rep\selection\sol\output.txt" --model google/gemini-flash-1.5 --repeat 2 --judge-model google/gemini-flash-1.5 --judge-mode authoritative --judge-with-image
 
 python -m pdf2anki pdf2text "C:\Users\Maddin\Meine Ablage\Uni\IT_Secu\Vorlesung_Grundlagen_der_IT-Sicherheit\01_Krypto-Grundlagen.pdf" "C:\Users\Maddin\Meine Ablage\Uni\IT_Secu\Vorlesung_Grundlagen_der_IT-Sicherheit\pics" "C:\Users\Maddin\Meine Ablage\Uni\IT_Secu\Vorlesung_Grundlagen_der_IT-Sicherheit\01_Krypto-Grundlagen.txt" --model google/gemini-flash-1.5 --repeat 2 --judge-model google/gemini-flash-1.5 --judge-mode authoritative --judge-with-image
+
+
+python -m pdf2anki text2anki "C:\Users\maddin\Meine Ablage\Uni\IT_Secu\Übung\ue09_Wiederholung_Abschluss_transscript.txt" "C:\Users\maddin\Meine Ablage\Uni\IT_Secu\Übung\abschluss.apkg" google/gemini-flash-1.5

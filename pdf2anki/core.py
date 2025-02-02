@@ -166,8 +166,9 @@ def text_to_anki(args: argparse.Namespace) -> None:
         args: Namespace containing:
             - text_file (str): Path to input text file
             - anki_file (str): Path to save Anki deck
+            - model (str): Name of the OpenRouter model to use
     """
-    text2anki.convert_text_to_anki(args.text_file, args.anki_file)
+    text2anki.convert_text_to_anki(args.text_file, args.anki_file, args.anki_model)
 
 
 def process_pdf_to_anki(args: argparse.Namespace) -> None:
@@ -388,6 +389,7 @@ def cli_invoke() -> None:
     )
     parser_text2anki.add_argument("text_file", type=str, help="Path to the text file with content for Anki cards.")
     parser_text2anki.add_argument("anki_file", type=str, help="Output path for the Anki package file.")
+    parser_text2anki.add_argument("anki_model", type=str, help="OpenRouter model to use for generating Anki cards.")
     parser_text2anki.set_defaults(func=text_to_anki)
 
     # Full Pipeline Command
