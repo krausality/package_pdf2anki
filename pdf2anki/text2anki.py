@@ -55,8 +55,9 @@ def _post_openrouter_for_anki(model_name: str, text_content: str) -> str:
                         "You are an expert education content generator. Analyze the following text and generate a list of Anki cards "
                         "that best help a learner understand the content. Depending on the context, produce cards that either explain key concepts, "
                         "give step-by-step guidance for algorithms, provide mathematical formulas with explanations. "
-                        "Be sure to include all relevant information that a learner would need to understand the content. "
+                        "Be sure to include cover information. "
                         "If you have the choice between more detailed card or multiple cards, prefer the one overview card and multiple detailed cards. "
+                        "Rather make to many cards than to few. "
                         "Use the original language e.g. german. Avoid unnecessary translation to english. Always keep technical terms in their provided language."
                         "Output the result as a JSON list, e.g.: "
                         '[{"front": "Card front text", "back": "Card back text"}, ...]. '
@@ -153,6 +154,12 @@ def convert_text_to_anki(text_file: str, anki_file: str, model: str) -> None:
         response_cards = _post_openrouter_for_anki(model, text)
         # Expecting a JSON list of cards
         cards = json.loads(response_cards)
+        # Save pre-anki card data as human readable JSON next to the .apkg file
+        json_output_file = os.path.splitext(anki_file)[0] + ".json"
+        with open(json_output_file, 'w', encoding="utf-8") as jf:
+            json.dump(cards, jf, indent=2, ensure_ascii=False)
+        print(f"Saved raw card data to {json_output_file}")
+
     except Exception as e:
         print("Error generating cards:", e)
         cards = []
