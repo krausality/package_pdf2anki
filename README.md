@@ -9,7 +9,7 @@
   3. **Personal desktop PC** automation tasks only  
 
   For commercial usage (including any server-based deployments), please contact the author at:  
-  **[martinkrausemedia@gmail.com](mailto:martinkrausemedia@gmail.com)**  
+  martinkrausemediaATgmail.com
 
   Refer to the `NOTICE.txt` file for details on dependencies and third-party libraries.
 
@@ -396,4 +396,4 @@ mytool process mynotes.pdf images_dir mydeck.apkg
 - **Ensemble & Trust Score**:  
   These placeholders (`--ensemble-strategy`, `--trust-score`) do not currently have active logic in the script. They exist for future expansion.
 
-**Enjoy automating your PDF → OCR → Anki workflows!** If you require commercial/server usage, please remember to contact **[martinkrausemedia@gmail.com](mailto:martinkrausemedia@gmail.com)** for licensing.
+**Enjoy automating your PDF → OCR → Anki workflows!** If you require commercial/server usage, please remember to contact **martinkrausemediaATgmail.com** for licensing.
