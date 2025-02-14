@@ -20,6 +20,57 @@ import os
 import sys
 from typing import List, Tuple, Optional
 
+def find_acceptable_dpi(
+    page,
+    output_path: str,
+    initial_dpi: int,
+    format_str: str = "PNG"
+) -> int:
+    """
+    Iteratively find a DPI that results in an image size between ~750KB and 800KB,
+    starting with 'initial_dpi'. Uses a divide-and-conquer approach.
+    """
+    import os
+    import math
+    import fitz
+    from PIL import Image
+    
+    lower_dpi = 50
+    upper_dpi = initial_dpi
+    acceptable_dpi = initial_dpi
+
+    while lower_dpi <= upper_dpi:
+        mid_dpi = (lower_dpi + upper_dpi) // 2
+        zoom = mid_dpi / 72.0
+        mat = fitz.Matrix(zoom, zoom)
+        pix = page.get_pixmap(matrix=mat, alpha=False)
+        img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+
+        # Save temporarily in memory (or to a temp file) to check size
+        temp_path = output_path + ".temp"
+        img.save(temp_path, format=format_str, dpi=(mid_dpi, mid_dpi))
+        size_kb = os.path.getsize(temp_path) / 1024
+
+        print(f"[DEBUG] Tried {mid_dpi} dpi => {size_kb:.1f} KB")
+
+        if 750 <= size_kb < 800:
+            print(f"[DEBUG] Found acceptable size {size_kb:.1f} KB at {mid_dpi} dpi")
+            acceptable_dpi = mid_dpi
+            break
+        elif size_kb >= 800:
+            # reduce dpi
+            upper_dpi = mid_dpi - 1
+        else:
+            # size < 750
+            acceptable_dpi = mid_dpi  # might still be best so far
+            lower_dpi = mid_dpi + 1
+
+    # Clean up temporary file
+    if os.path.exists(temp_path):
+        os.remove(temp_path)
+
+    return acceptable_dpi
+
 def convert_pdf_to_images(
     pdf_path: str,
     output_dir: str,
@@ -83,8 +134,16 @@ def convert_pdf_to_images(
 
             # If rectangles are provided, skip the regular page save
             if not rectangles:            
-                img_300.save(img_path, format="PNG", dpi=(target_dpi, target_dpi))
-                print(f"Saved page {page_num} at {target_dpi} dpi: {img_path}")
+                # ======================
+                # Use the new helper to find acceptable dpi
+                # ======================
+                chosen_dpi = find_acceptable_dpi(page, img_path, target_dpi, "PNG")
+                zoom_chosen = chosen_dpi / 72.0
+                mat_chosen = fitz.Matrix(zoom_chosen, zoom_chosen)
+                pix_chosen = page.get_pixmap(matrix=mat_chosen, alpha=False)
+                img_chosen = Image.frombytes("RGB", (pix_chosen.width, pix_chosen.height), pix_chosen.samples)
+                img_chosen.save(img_path, format="PNG", dpi=(chosen_dpi, chosen_dpi))
+                print(f"Saved page {page_num} at final {chosen_dpi} dpi: {img_path}")
                 images.append(img_path)
 
             # If no rectangles, skip cropping

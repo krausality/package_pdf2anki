@@ -594,3 +594,9 @@ python -m pdf2anki pdf2text "C:\Users\Maddin\Meine Ablage\Uni\IT_Secu\Vorlesung_
 
 
 python -m pdf2anki text2anki "C:\Users\maddin\Meine Ablage\Uni\IT_Secu\Übung\ue09_Wiederholung_Abschluss_transscript.txt" "C:\Users\maddin\Meine Ablage\Uni\IT_Secu\Übung\abschluss.apkg" google/gemini-flash-1.5
+
+
+python -m pdf2anki pdf2text "C:\Users\Maddin\Meine Ablage\Uni\MCI\Mensch Computer Interaktion 1\altklausuren_und_protokolle\altklausuren\WS_18_19.pdf" "C:\Users\Maddin\Meine Ablage\Uni\MCI\Mensch Computer Interaktion 1\altklausuren_und_protokolle\altklausuren\pics_WS_18_19" "C:\Users\Maddin\Meine Ablage\Uni\MCI\Mensch Computer Interaktion 1\altklausuren_und_protokolle\altklausuren\WS_18_19.txt" --model google/gemini-flash-1.5 --repeat 2 --judge-model google/gemini-flash-1.5 --judge-mode authoritative --judge-with-image
+
+
+python -m pdf2anki pdf2text "C:\Users\Maddin\Meine Ablage\Uni\Proseminar_Comp_NeuSc\The Formation of Longterm memory through synaptic consollidation.pdf" "C:\Users\Maddin\Meine Ablage\Uni\Proseminar_Comp_NeuSc\pics_TFoLmtsc" "C:\Users\Maddin\Meine Ablage\Uni\Proseminar_Comp_NeuSc\The Formation of Longterm memory through synaptic consollidation.txt" --model google/gemini-flash-1.5 --repeat 2 --judge-model google/gemini-flash-1.5 --judge-mode authoritative --judge-with-image

@@ -79,6 +79,8 @@ def _post_ocr_request(model_name: str, base64_image: str) -> str:
                 {
                     "type": "text",
                     "text": "Read the content of the image word by word. If exitsting, also describe graphics/figures/Infographic verbosely and precisly - and their semantic meaning in context to the written text. Do not output anything else. Use the original language e.g. german. Avoid unnecessary translation to english."
+
+                    ## "text": "Return in a textual form the entire content of the image with an extreme level of detail.Describe every visible element, including objects, text, shapes, figures, backgrounds, lighting, shadows, materials, colors, patterns, textures, reflections, distortions, and fine details.Provide exact spatial positioning: relative placements, distances, angles, perspective distortions, and size proportions.Specify colors precisely, including gradients, reflections, shadows, and material-dependent effects (e.g., matte vs. glossy).Capture textural qualities (e.g., roughness, softness, transparency).Detail human elements (e.g., expressions, pose, gaze, attire, context, posture, micro-expressions).Include semantic meaning for all symbolic, contextual, and referential elements.If present, decode text and symbols, describing their font, alignment, size, and placement.Preserve the original language of the image without unnecessary translation.Output information in a structured format, such as hierarchical sections, to ensure clarity."
                 },
                 {
                     "type": "image_url",
@@ -100,6 +102,7 @@ def _post_ocr_request(model_name: str, base64_image: str) -> str:
         )
         response.raise_for_status()
         response_data = response.json()
+
         cleaned_text = response_data["choices"][0]["message"]["content"].strip()
 
     except Exception as exc:
@@ -110,6 +113,8 @@ def _post_ocr_request(model_name: str, base64_image: str) -> str:
                 f"Model: {model_name}\n"
                 f"Exception: {str(exc)}\n"
                 f"Traceback:\n{traceback.format_exc()}\n"
+                f"Request (truncated): {request_payload[:120]!r}\n"
+                f"Response (not truncated): {response_data!r}\n"
                 "-----------------------------------------\n"
             )
         raise
@@ -123,7 +128,7 @@ def _post_ocr_request(model_name: str, base64_image: str) -> str:
             f"\n[OCR CALL] {start_time.isoformat()} => {end_time.isoformat()} ({duration:.2f}s)\n"
             f"Model: {model_name}\n"
             f"Request: <base64 image omitted>\n"
-            f"Response (truncated to 120 chars): {cleaned_text[:120]!r}\n"
+            f"Response (truncated): {cleaned_text[:120]!r}\n"
             "-----------------------------------------\n"
         )
 
