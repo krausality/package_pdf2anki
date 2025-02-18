@@ -1,8 +1,10 @@
 import os
 import subprocess
+import concurrent.futures
+from datetime import datetime
 
 # Base directory to process
-base_dir = r"C:\Users\Maddin\Meine Ablage\Uni\IT_Secu\Finf\altklausuren_und_protokolle"
+base_dir = r"C:\Users\Maddin\Meine Ablage\Uni\GBS\Vorlesung_Grundlagen_der_Betriebssysteme"
 # Virtual environment path
 venv_dir = r"C:\Users\Maddin\Meine Ablage\Github\package_pdf2anki"
 venv_python = os.path.join(venv_dir, ".venv", "Scripts", "python.exe")
@@ -45,11 +47,12 @@ def run_command(pdf_file: str, output_txt_file: str, image_output_dir: str):
 
 def process_pdfs():
     """
-    Iterates through each PDF file in base_dir, calling `run_command`
-    for every valid PDF file.
+    Iterates through each PDF file in base_dir and schedules them for concurrent processing.
     """
+    tasks = []
+    # Gather all PDF files along with their respective output paths.
     for file in os.listdir(base_dir):
-        if file.lower().endswith(".pdf"):  # Only process PDF files
+        if file.lower().endswith(".pdf"):
             pdf_file_path = os.path.join(base_dir, file)
             
             # Define output paths
@@ -60,9 +63,23 @@ def process_pdfs():
             # Ensure image output directory exists
             os.makedirs(image_output_dir, exist_ok=True)
 
-            run_command(pdf_file_path, output_txt_file, image_output_dir)
+            tasks.append((pdf_file_path, output_txt_file, image_output_dir))
+    
+    # Use a ThreadPoolExecutor to process tasks concurrently.
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        # Submit all tasks to the executor.
+        future_to_task = {
+            executor.submit(run_command, pdf, out_txt, img_dir): pdf 
+            for pdf, out_txt, img_dir in tasks
+        }
+        # Optionally, wait for completion and handle any exceptions.
+        for future in concurrent.futures.as_completed(future_to_task):
+            pdf = future_to_task[future]
+            try:
+                future.result()
+            except Exception as exc:
+                print(f"[ERROR] Exception occurred while processing {pdf}: {exc}")
 
-# Entry point
 if __name__ == "__main__":
     process_pdfs()
-    print("\n[INFO] All PDF files in base directory processed sequentially.")
+    print("\n[INFO] All PDF files in base directory processed concurrently.")

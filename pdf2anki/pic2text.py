@@ -28,24 +28,24 @@ from datetime import datetime
 from PIL import Image
 from dotenv import load_dotenv
 import asyncio
-from typing import List, Tuple, Optional, Dict, Any
+from typing import List, Tuple, Optional
 
 # Load environment variables (e.g., OPENROUTER_API_KEY) from .env if present
 load_dotenv()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
 # --------------------------------------------------------------------
-# LOG FILE PATHS (adjust as needed in production)
-OCR_LOG_FILE = "ocr.log"
-JUDGE_DECISION_LOG_FILE = "decisionmaking.log"
+# Default log basename patterns and extension (unique filenames will be created)
+DEFAULT_OCR_LOG_BASENAME = "ocr"
+DEFAULT_JUDGE_LOG_BASENAME = "decisionmaking"
+LOG_EXTENSION = ".log"
 # --------------------------------------------------------------------
 
 
 def extract_page_number(filename: str) -> int:
     """
     Helper function to extract a page index from a filename
-    with pattern 'page_<NUM>'. If not found, returns +inf
-    for sorting.
+    with pattern 'page_<NUM>'. If not found, returns +inf for sorting.
     """
     match = re.search(r'page_(\d+)', filename)
     return int(match.group(1)) if match else float('inf')
@@ -62,15 +62,13 @@ def _image_to_base64(image_path: str) -> str:
     return base64.b64encode(img_bytes).decode("utf-8")
 
 
-def _post_ocr_request(model_name: str, base64_image: str) -> str:
+def _post_ocr_request(model_name: str, base64_image: str, ocr_log_file: str) -> str:
     """
     Posts an OCR request to the OpenRouter API using the specified model_name.
     Returns the text output if successful, or raises an exception on errors.
-    This function logs request/response details in 'ocr.log'.
+    Logs details in the provided ocr_log_file.
     """
-    # For logging, time stamp and partial request info
     start_time = datetime.now()
-
     request_payload = {
         "model": model_name,
         "messages": [{
@@ -78,9 +76,12 @@ def _post_ocr_request(model_name: str, base64_image: str) -> str:
             "content": [
                 {
                     "type": "text",
-                    "text": "Read the content of the image word by word. If exitsting, also describe graphics/figures/Infographic verbosely and precisly - and their semantic meaning in context to the written text. Do not output anything else. Use the original language e.g. german. Avoid unnecessary translation to english."
-
-                    ## "text": "Return in a textual form the entire content of the image with an extreme level of detail.Describe every visible element, including objects, text, shapes, figures, backgrounds, lighting, shadows, materials, colors, patterns, textures, reflections, distortions, and fine details.Provide exact spatial positioning: relative placements, distances, angles, perspective distortions, and size proportions.Specify colors precisely, including gradients, reflections, shadows, and material-dependent effects (e.g., matte vs. glossy).Capture textural qualities (e.g., roughness, softness, transparency).Detail human elements (e.g., expressions, pose, gaze, attire, context, posture, micro-expressions).Include semantic meaning for all symbolic, contextual, and referential elements.If present, decode text and symbols, describing their font, alignment, size, and placement.Preserve the original language of the image without unnecessary translation.Output information in a structured format, such as hierarchical sections, to ensure clarity."
+                    "text": (
+                        "Read the content of the image word by word. If existing, also describe "
+                        "graphics/figures/Infographic/embeddedimages verbosely and precisely - and their semantic "
+                        "meaning in context to the written text. Do not output anything else. Use the "
+                        "original language e.g. german. Avoid unnecessary translation to english."
+                    )
                 },
                 {
                     "type": "image_url",
@@ -90,6 +91,7 @@ def _post_ocr_request(model_name: str, base64_image: str) -> str:
         }]
     }
 
+    response_data = None
     try:
         response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
@@ -102,19 +104,16 @@ def _post_ocr_request(model_name: str, base64_image: str) -> str:
         )
         response.raise_for_status()
         response_data = response.json()
-
         cleaned_text = response_data["choices"][0]["message"]["content"].strip()
-
     except Exception as exc:
-        # Log error to OCR log
-        with open(OCR_LOG_FILE, "a", encoding="utf-8") as lf:
+        with open(ocr_log_file, "a", encoding="utf-8") as lf:
             lf.write(
                 f"\n[ERROR OCR CALL] {datetime.now().isoformat()}\n"
                 f"Model: {model_name}\n"
                 f"Exception: {str(exc)}\n"
                 f"Traceback:\n{traceback.format_exc()}\n"
-                f"Request (truncated): {request_payload[:120]!r}\n"
-                f"Response (not truncated): {response_data!r}\n"
+                f"Request (truncated): {str(request_payload)[:120]!r}\n"
+                f"Response (not truncated): {str(response_data)!r}\n"
                 "-----------------------------------------\n"
             )
         raise
@@ -122,8 +121,7 @@ def _post_ocr_request(model_name: str, base64_image: str) -> str:
     end_time = datetime.now()
     duration = (end_time - start_time).total_seconds()
 
-    # Log success to OCR log
-    with open(OCR_LOG_FILE, "a", encoding="utf-8") as lf:
+    with open(ocr_log_file, "a", encoding="utf-8") as lf:
         lf.write(
             f"\n[OCR CALL] {start_time.isoformat()} => {end_time.isoformat()} ({duration:.2f}s)\n"
             f"Model: {model_name}\n"
@@ -139,25 +137,24 @@ def _post_judge_request(
     judge_model: str,
     model_outputs: List[str],
     image_name: str,
-    model_info: List[Tuple[str, int]],  # new: list of (model_name, repeat_num) for each output
+    model_info: List[Tuple[str, int]],  # list of (model_name, attempt_number)
+    judge_decision_log_file: str,
     base64_image: Optional[str] = None,
     with_image: bool = False
 ) -> str:
     """
-    Enhanced judge request with better candidate formatting.
-    model_info tracks which model and repeat number produced each output.
+    Enhanced judge request with candidate formatting.
+    Logs the judge decision in the provided judge_decision_log_file.
     """
-    # Build enhanced enumerations with source information
     enumerations = []
     for idx, (text_candidate, (model, repeat)) in enumerate(zip(model_outputs, model_info), 1):
-        # Format: NUM) [MODEL-NAME : REPEAT-NUM] Text...
         enum = f"{idx}) [{model} : attempt {repeat}]\n"
         enum += "+" * 5 + f"[{model} : attempt {repeat}] START" + "+" * 5 + "\n"
         enum += text_candidate
         enum += "\n" + "-" * 5 + f"[{model} : attempt {repeat}] END" + "-" * 5 + "\n"
         enumerations.append(enum)
     
-    enumerations_str = "\n\n".join(enumerations)  # Double-space between candidates
+    enumerations_str = "\n\n".join(enumerations)
 
     content_blocks = []
     if with_image and base64_image:
@@ -170,7 +167,6 @@ def _post_judge_request(
             "image_url": {"url": f"data:image/png;base64,{base64_image}"}
         })
 
-    # Enhanced judge prompt
     main_prompt = (
         "Below are OCR outputs from different models or repeated attempts.\n"
         "Each is formatted as: [MODEL-NAME : attempt NUMBER]\n"
@@ -182,7 +178,6 @@ def _post_judge_request(
     )
     content_blocks.append({"type": "text", "text": main_prompt})
 
-    # Prepare the request payload
     request_payload = {
         "model": judge_model,
         "messages": [{
@@ -192,7 +187,6 @@ def _post_judge_request(
     }
 
     start_time = datetime.now()
-
     try:
         response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
@@ -207,8 +201,7 @@ def _post_judge_request(
         response_data = response.json()
         final_text = response_data["choices"][0]["message"]["content"].strip()
     except Exception as exc:
-        # Log to decisionmaking.log that we failed
-        with open(JUDGE_DECISION_LOG_FILE, "a", encoding="utf-8") as df:
+        with open(judge_decision_log_file, "a", encoding="utf-8") as df:
             df.write(
                 f"\n[Judge Decision ERROR] {datetime.now().isoformat()}\n"
                 f"Image: {image_name}\n"
@@ -222,37 +215,36 @@ def _post_judge_request(
     end_time = datetime.now()
     duration = (end_time - start_time).total_seconds()
 
-    # Log judge's final decision
-    with open(JUDGE_DECISION_LOG_FILE, "a", encoding="utf-8") as df:
+    with open(judge_decision_log_file, "a", encoding="utf-8") as df:
         df.write(
             f"\n[Judge Decision] {start_time.isoformat()} => {end_time.isoformat()} ({duration:.2f}s)\n"
             f"Image: {image_name}\n"
-            "Decision Propmpt:\n"
+            "Decision Prompt:\n"
         )
         for block in content_blocks:
             if block["type"] == "text":
                 df.write(f"{block['text']}\n")
-
-        df.write("\n")
-        df.write("+" * 10 + "JUDGE PICK START" + "+" * 10 + "\n")
+        df.write("\n" + "+" * 10 + "JUDGE PICK START" + "+" * 10 + "\n")
         df.write(f"{final_text}\n")
         df.write("#" * 10 + "JUDGE PICK END" + "#" * 10 + "\n")
 
     return final_text
 
 
-def _archive_old_logs(output_file: str) -> None:
-    # Determine archive folder path
+def _archive_old_logs(output_file: str, log_files: List[str]) -> None:
+    """
+    Archives each log file (if it exists) by moving it into a 'log_archive'
+    folder next to the output_file. Works correctly with unique log filenames.
+    """
     archive_folder = os.path.join(os.path.dirname(output_file), "log_archive")
     os.makedirs(archive_folder, exist_ok=True)
 
-    # For each log file, move it if it exists
-    for log_file in (OCR_LOG_FILE, JUDGE_DECISION_LOG_FILE):
+    for log_file in log_files:
         if os.path.exists(log_file):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            archived_name = f"{os.path.splitext(log_file)[0]}_{timestamp}.log"
+            base = os.path.splitext(os.path.basename(log_file))[0]
+            archived_name = f"{base}_{timestamp}{LOG_EXTENSION}"
             shutil.move(log_file, os.path.join(archive_folder, archived_name))
-
 
 
 def convert_images_to_text(
@@ -270,32 +262,38 @@ def convert_images_to_text(
     if not model_repeats:
         raise ValueError("No OCR model specified. Provide at least one model.")
         
-    # Extract just the model names for counting distinct models
     distinct_models = list(set(model for model, _ in model_repeats))
+    total_calls = sum(repeat_count for _, repeat_count in model_repeats)
     
     if len(distinct_models) > 1 and not judge_model:
         raise ValueError(
             "Multiple models supplied but no judge model specified.\n"
             "Provide --judge-model or reduce to a single model."
         )
-
-    # Count total calls across all models
-    total_calls = sum(repeat_count for _, repeat_count in model_repeats)
-    
-    # If single model with multiple repeats, we need a judge
     if len(distinct_models) == 1 and total_calls > 1 and not judge_model:
         raise ValueError(
             "Single model with multiple repeats requires a judge model.\n"
             "Please provide --judge-model to select best result from repeated calls."
         )
 
-    # Prepare or clear the output file
+    # Clear the output file.
     with open(output_file, "w", encoding="utf-8") as f:
         f.write("")
 
     processed_count = 0
 
-    # Gather images
+    # Determine the output directory.
+    output_dir = os.path.dirname(os.path.abspath(output_file))
+    # Get and sanitize the base name of the output file (without extension).
+    # Replace any character that is not a letter, digit, or underscore with an underscore
+    file_name = re.sub(r'\W+', '_', os.path.basename(output_file).split(".")[0])
+    # Create a unique identifier for this instance (timestamp + process ID).
+    instance_id = file_name + "_" + datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + str(os.getpid())
+    # Create unique log filenames.
+    ocr_log_file = os.path.join(output_dir, f"{DEFAULT_OCR_LOG_BASENAME}_{instance_id}{LOG_EXTENSION}")
+    judge_decision_log_file = os.path.join(output_dir, f"{DEFAULT_JUDGE_LOG_BASENAME}_{instance_id}{LOG_EXTENSION}")
+
+    # Gather and sort image files.
     image_files = [
         f for f in os.listdir(images_dir)
         if f.lower().endswith((".png", ".jpg", ".jpeg"))
@@ -305,20 +303,17 @@ def convert_images_to_text(
     async def _parallel_ocr(model_repeats_list: List[Tuple[str, int]], base64_img: str) -> Tuple[List[str], List[Tuple[str, int]]]:
         """
         Create OCR tasks based on (model, repeat) pairs.
-        Returns results in order of completion.
+        Returns results along with info on which model/attempt produced each result.
         """
         loop = asyncio.get_event_loop()
         tasks = []
-        model_info = []  # Track which model/repeat produced which result
-        
-        # Create one task per model per repeat count
+        model_info = []  # To track (model_name, attempt_number)
         for model_name, repeat_count in model_repeats_list:
             for repeat_num in range(repeat_count):
                 tasks.append(
-                    loop.run_in_executor(None, _post_ocr_request, model_name, base64_img)
+                    loop.run_in_executor(None, _post_ocr_request, model_name, base64_img, ocr_log_file)
                 )
                 model_info.append((model_name, repeat_num + 1))
-        
         results = await asyncio.gather(*tasks)
         return results, model_info
 
@@ -328,29 +323,22 @@ def convert_images_to_text(
         base64_image = None
 
         try:
-            # Convert once to base64 for efficiency
             base64_image = _image_to_base64(image_path)
-
-            # Get all OCR results in parallel
             all_candidates, candidate_info = asyncio.run(_parallel_ocr(model_repeats, base64_image))
 
-            # single-call single-model scenario
             if len(distinct_models) == 1 and total_calls == 1:
-                # True single-call scenario: just use the one result
                 final_text = all_candidates[0] if all_candidates else ""
             else:
-                # Multiple results (either from different models or repeats)
-                # => use judge to pick the best one
                 final_text = _post_judge_request(
                     judge_model=judge_model,
                     model_outputs=all_candidates,
-                    model_info=candidate_info,  # Pass source info to judge
+                    model_info=candidate_info,
                     image_name=image_name,
+                    judge_decision_log_file=judge_decision_log_file,
                     base64_image=base64_image if judge_with_image else None,
                     with_image=judge_with_image
                 )
 
-            # Append final text to the output file
             with open(output_file, "a", encoding="utf-8") as f:
                 if processed_count > 0:
                     f.write("\n\n")
@@ -367,6 +355,6 @@ def convert_images_to_text(
                 f.write(f"Error processing {image_name}: {str(e)}\n{traceback.format_exc()}")
             continue
 
-    _archive_old_logs(output_file)
+    _archive_old_logs(output_file, [ocr_log_file, judge_decision_log_file])
     print(f"OCR results saved to {output_file}. Processed {processed_count} images.")
     return output_file
