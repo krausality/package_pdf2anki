@@ -41,6 +41,7 @@
         "*.svg",
         ".git",
         "pdf2anki.egg-info",
-        ".venv"
+        ".venv",
+        "*.pyc"
     ]
 }

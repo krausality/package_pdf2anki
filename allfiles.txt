@@ -1,50 +1,63 @@
 File Structure:
 .
+├── .gitignore
 ├── BUILD.md
+├── CROPPING.md
+├── JUDGE.md
 ├── LICENSE.txt
 ├── NOTICE.txt
 ├── README.md
 ├── pdf2anki
 │   ├── __init__.py
+│   ├── __main__.py
+│   ├── __pycache__
 │   ├── core.py
 │   ├── pdf2pic.py
 │   ├── pic2text.py
 │   └── text2anki.py
+├── process_folder.py
 ├── pyproject.toml
-└── setup.py
+├── setup.py
+└── subfolders_to_text.py
 
 ----- START OF .\BUILD.md -----
-md
 # BUILD.md
 
-Here is an exhaustive `BUILD.md` that explains the two build techniques: one using `python -m build --wheel` (which requires an internet connection for isolated builds), and the other using `python setup.py bdist_wheel` (which can be done offline).
+This `BUILD.md` provides instructions for building the `pdf2anki` project. You can choose between three build techniques:
 
-This document details two techniques for building the `ds_autom8_cli` project.
-Table of Contents
+1. **Technique 1 (Online)**: Using `python -m build --wheel`
+2. **Technique 2 (Offline)**: Using `python setup.py bdist_wheel`
+3. **Technique 3 (Offline via TOML)**: Using `python -m build --wheel` with cached dependencies
 
-1. Introduction
-2. Prerequisites
-3. Build Techniques
-    - Technique 1  (Online): `python -m build --wheel`
-    - Technique 2 (Offline): `python setup.py bdist_wheel`
-Introduction
+## Table of Contents
 
-This project handles the automation of multiple recurring tasks at the Datenstation. 
-The project is licensed under the Custom Personal Use License v1.4; see LICENSE file for more information.
-Prerequisites
+1. [Introduction](#introduction)
+2. [Prerequisites](#prerequisites)
+3. [Build Techniques](#build-techniques)
+   - [Technique 1 (Online)](#technique-1-online-python--m-build---wheel)
+   - [Technique 2 (Offline)](#technique-2-offline-python-setup.py-bdist_wheel)
+   - [Technique 3 (Offline via TOML)](#technique-3-offline-via-toml-python--m-build---wheel-with-cached-dependencies)
+4. [Conclusion](#conclusion)
 
-Before building the project, ensure you have the following:
+## Introduction
 
-- Python 3.11 installed.
-- Required packages listed in `requirements.txt` or as defined in `setup.py`.
-- Virtual environment to manage dependencies (recommended).
-Build Techniques
-Technique 1: `python -m build --wheel`
+`pdf2anki` is a CLI tool that converts PDF documents into Anki flashcards. It automates the process of creating study materials by extracting text from PDFs and formatting it for Anki.
 
-This technique utilizes the `build` tool, which requires an internet connection for isolated builds.
-Step-by-Step Guide
+## Prerequisites
 
-1. Ensure `pyproject.toml` is Present:
+- **Python 3.11** installed.
+- Required packages as defined in `setup.py` or `pyproject.toml`.
+- A virtual environment is recommended for dependency management.
+
+## Build Techniques
+
+### Technique 1 (Online): `python -m build --wheel`
+
+This method requires an internet connection to fetch dependencies.
+
+#### Step-by-Step Guide
+
+1. **Ensure `pyproject.toml` is Present**:
 
    ```toml
    [build-system]
@@ -52,92 +65,744 @@ Step-by-Step Guide
    build-backend = "setuptools.build_meta"
    ```
 
-2. Install Required Packages:
-
-   Ensure `build` and other build dependencies are installed:
+2. **Install Required Packages**:
 
    ```sh
    pip install setuptools wheel build
    ```
 
-3. Build the Wheel:
-
-   Navigate to the root directory of your project where `pyproject.toml` is located and execute:
+3. **Build the Wheel**:
 
    ```sh
    python -m build --wheel
    ```
 
-4. Result:
+4. **Result**:
+
    The built wheel file will be located in the `dist` directory.
-Pros and Cons
 
-- Pros:
-  - Ensures a clean, isolated build environment.
-  - Minimizes the impact of environment-specific issues.
-- Cons:
-  - Requires an internet connection to fetch dependencies.
-Technique 2: `python setup.py bdist_wheel`
+### Technique 2 (Offline): `python setup.py bdist_wheel`
 
-This technique uses the `setup.py` script, which can be executed offline if all dependencies are pre-installed.
-Step-by-Step Guide
+This method can be executed offline if all dependencies are pre-installed.
 
-1. Ensure `setup.py` is Present:
+#### Step-by-Step Guide
 
-   Ensure you have a valid `setup.py` (see repository or local folder)
+1. **Ensure `setup.py` is Present**:
 
+   Confirm you have a valid `setup.py` file.
 
-2. Set Up Virtual Environment (optional):
-
-   Create and activate a virtual environment:
+2. **Set Up Virtual Environment (Optional)**:
 
    ```sh
    python -m venv venv
    .\venv\Scripts\activate
    ```
 
-3. Install Required Packages:
-
-   Ensure all necessary packages are installed in the virtual environment:
+3. **Install Required Packages**:
 
    ```sh
    pip install setuptools wheel
    ```
 
-4. Build the Wheel:
-
-   In the project root directory, run:
+4. **Build the Wheel**:
 
    ```sh
    python setup.py bdist_wheel
    ```
 
-5. Result:
+5. **Result**:
 
    The built wheel file will be placed in the `dist` directory.
-Pros and Cons
 
-- Pros:
-  - Can be run offline if all dependencies are pre-installed.
-  - Offers control over the build environment without isolation.
-- Cons:
-  - Can be affected by environment-specific issues.
-Conclusion
+### Technique 3 (Offline via TOML): `python -m build --wheel` with Cached Dependencies
 
-Both build techniques are viable, depending on your specific needs and constraints. Technique 1 ensures a clean, isolated environment but requires an internet connection, while Technique 2 can be run offline if dependencies are pre-installed but may be subject to environment-specific issues.
+This method allows you to build offline by caching dependencies locally beforehand.
 
-For consistency and ease of use, consider including both methods in your build pipeline, ensuring that you can build your project both online and offline as needed.
+#### Step-by-Step Guide
+
+1. **Set Up Virtual Environment (Optional)**:
+
+   ```sh
+   python -m venv venv
+   .\venv\Scripts\activate
+   ```
+
+2. **Prepare Dependencies While Online**:
+
+   Download all required dependencies and cache them locally:
+
+   ```sh
+   pip download setuptools wheel build -d ./offline_cache
+   ```
 
 
-By following the steps in this `BUILD.md`, users can effectively build the project using either method, ensuring they have clear instructions for both online and offline scenarios.
+3. **Install Dependencies from the Cache**:
 
-For development (often rebuilding):
-go to project root:
+   Ensure no internet connection is needed by installing from the cache:
 
-use this command:
+   ```sh
+   pip install --no-index --find-links=./offline_cache setuptools wheel build
+   ```
 
-pip uninstall ds_autom8_cli; python setup.py bdist_wheel; pip install .\dist\ds_autom8_cli-{version}-py3-none-any.whl
+4. **Build the Wheel**:
+
+   ```sh
+   python -m build --wheel
+   ```
+
+5. **Result**:
+
+   The built wheel file will be located in the `dist` directory, similar to Technique 1.
+
+## Conclusion
+
+Choose the build technique that best suits your needs. For development purposes, you might frequently rebuild the package:
+
+```sh
+pip uninstall pdf2anki
+python setup.py bdist_wheel
+pip install .\dist\pdf2anki-{version}-py3-none-any.whl
+```
+
+By following this `BUILD.md`, you can effectively build the `pdf2anki` project using any of the three methods, ensuring flexibility for both online and offline scenarios.
+
+
 ----- END OF .\BUILD.md -----
+
+
+----- START OF .\CROPPING.md -----
+Below is an example implementation that adds support for **optional cropping** of up to 4 rectangular areas per page. Each rectangle is specified by its top-left and bottom-right pixel coordinates once the page has been rendered to an image. If you supply **no** rectangles, you will just get the full-page PNG(s). If you supply one or more rectangles, you will additionally get cropped PNG files for each rectangle. 
+
+---
+
+### How to specify rectangles on the command line
+
+This example assumes you pass each rectangle’s coordinates as a comma-separated string. For example, if you want to crop two rectangles:
+
+```bash
+python pdf2pic.py mydoc.pdf out "100,150,300,400" "350,450,500,600"
+```
+
+- `100,150,300,400` means top-left = (100, 150), bottom-right = (300, 400).
+- `350,450,500,600` means top-left = (350, 450), bottom-right = (500, 600).
+
+You can pass up to four such strings:
+
+```bash
+python pdf2pic.py mydoc.pdf out "x1,y1,x2,y2" "x1,y1,x2,y2" "x1,y1,x2,y2" "x1,y1,x2,y2"
+```
+
+If no coordinates are provided, the script will behave exactly as before, saving only the uncropped page images.
+
+---
+
+----- END OF .\CROPPING.md -----
+
+
+----- START OF .\JUDGE.md -----
+Assume the role of an elite, detail-oriented Python software engineer operating at the +4 sigma level. Your expertise encompasses designing clean, production-ready, and feature-complete solutions.
+
+Given the attached documentation, implement the described CLI functionality into the provided `core.py` and `pic2text.py` files. The implementation must:
+
+1. **Feature-Match the Documentation**: Ensure every documented CLI behavior is implemented to match its specification.
+2. **Maintain Code Quality**: Adhere to best practices in Python programming, emphasizing readability, modularity, and performance.
+3. **Handle Edge Cases**: Anticipate and robustly handle the most probably potential errors or edge cases associated with the CLI usage.
+4. **Integrate Seamlessly**: Structure the changes so that they integrate naturally with the existing codebase.
+5. **Provide Production-Ready Code**: Ensure the resulting files are polished, debugged, and ready for immediate deployment.
+
+After completing the implementation:
+
+- Deliver the fully updated `core.py` and `pic2text.py` with clear, concise comments explaining key changes and logic.
+- Ensure the files are formatted for direct copy-paste into a production environment.
+
+Your output should exemplify the hallmarks of +4 sigma software engineering excellence: precision, elegance, and robustness.
+
+
+# **Extended `pic2text` Documentation**
+
+## **Purpose**
+
+Der Befehl `pic2text` führt OCR (Optical Character Recognition) auf einem Verzeichnis mit Bildern durch und schreibt das Endergebnis in eine Ausgabedatei. Er unterstützt:
+
+1. **Single-Model**-OCR (klassischer Anwendungsfall).
+2. **Multi-Model**-OCR, wobei mehrere Modelle parallel ihre Ergebnisse liefern und ein **Judge** das finale Ergebnis bestimmt.
+3. Optionale — aber noch **nicht funktionale** — **Ensemble-Strategien** wie `majority-vote`, `similarity-merge` oder ein **Trust-Score** zur Gewichtung der Modelle. Diese sind aktuell nur Platzhalter in der CLI.
+
+---
+
+## **Basic Syntax**
+
+```bash
+python -m mypackage pic2text <IMAGES_DIR> <OUTPUT_FILE> [options]
+```
+
+- **`<IMAGES_DIR>`**: Ordner mit den zu verarbeitenden Bilddateien.
+- **`<OUTPUT_FILE>`**: Textdatei, in die die endgültigen OCR-Ergebnisse (ggf. pro Bild) geschrieben werden.
+
+---
+
+## **Options Overview**
+
+| **Option**                                       | **Type**       | **Default**     | **Beschreibung**                                                                                                                                             |
+| ------------------------------------------------ | -------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--model MODEL_NAME`                             | string         | _None_          | Eines oder mehrere Modelle für OCR. Wird **mehr als ein** Modell angegeben, ist ein Judge (falls vorhanden) standardmäßig aktiv.                             |
+| `--repeat N`                                     | int            | `1`             | Anzahl an Aufrufen pro Modell, um z. B. mehrere Antworten (Samples) zu erhalten.                                                                             |
+| `--judge-model MODEL_NAME`                       | string         | _None_          | Separates Modell, das bei Mehrfachmodellen (Multi-Model-Setup) die finalen Ergebnisse _autorisiert_. Ist kein Judge vorhanden, wird ein fehler zurückgegeben |
+| `--judge-mode MODE`                              | string         | `authoritative` | Aktuell nur `"authoritative"` umgesetzt. Der Judge wählt das Ergebnis aus einer Auswahl aus.                                                                 |
+| **(Platzhalter)** `--ensemble-strategy STRATEGY` | string         | _nicht aktiv_   | **Noch nicht funktional**. Vorgesehene Strategien: `majority-vote`, `similarity-merge`, etc. Zurzeit ignoriert.                                              |
+| **(Platzhalter)** `--trust-score W`              | float oder int | _nicht aktiv_   | **Noch nicht funktional**. Künftige Idee: zur Gewichtung bestimmter Modelle im Ensemble oder im Judge. Momentan ohne Auswirkung.                             |
+| `--help`                                         | _Flag_         | _None_          | Zeigt Hilfe an und beendet das Programm.                                                                                                                     |
+
+> **Achtung**
+> 
+> - **Multi-Model**-Use-Case, bei dem kein Judge angegeben ist, ist (noch nicht) möglich. Es existiert aktuell kein vollwertiges Ensemble-Feature. Ohne Judge wird eine aussagekräftige Fehlermeldung zurückgegeben.
+> - Die Platzhalter-Parameter (`--ensemble-strategy`, `--trust-score` etc.) sind vorhanden, aber **nicht implementiert** (werden im Code ignoriert).
+
+---
+
+## **Workflow & Internes Verhalten**
+
+1. **Single-Model OCR**
+    
+    - Genau **ein** Modell per `--model` angegeben.
+    - Pro Bild wird das Modell (bzw. `N`-mal, falls `--repeat N` gesetzt) aufgerufen.
+    - Das Ergebnis kommt direkt ins Output, ein Judge wird nicht befragt.
+2. **Multi-Model OCR**
+    
+    - **Mehrere** Modelle per `--model` angegeben.
+    - Jedes Modell wird unabhängig aufgerufen und liefert sein Ergebnis.
+    - Im **"authoritative" Judge Mode** (Standard, wenn `--judge-model` existiert):
+        - Alle Model-Ausgaben gehen als Input an den Judge.
+        - Der Judge entscheidet, welcher Text als finales Ergebnis in die Datei geschrieben wird.
+    - **Ohne Judge** (kein `--judge-model`), aber mehrere Modelle:
+        - Aktuell keine echte Abstimmung/Mehrheitsverfahren implementiert.
+        - aussagekräftige fehlermeldung
+3. **Zukünftige Ensemble-Strategien** _(Platzhalter)_
+    
+    - `majority-vote`, `similarity-merge`, `weighted-merge` etc.
+    - Wenn implementiert, können sie Wort-für-Wort oder Zeilen-für-Zeilen Mehrheiten bilden.
+    - `--trust-score` könnte dann eine Rolle spielen, um einzelne Modelle stärker zu gewichten.
+
+---
+
+## **Logging & Transparenz**
+
+Damit das System für Debugging, Nachvollziehbarkeit und Audits geeignet ist, wird **ausgiebig geloggt**:
+
+1. **API-Calls**
+    
+    - Jeder OCR-Aufruf (pro Modell) kann in einer Logdatei oder in der Konsole festgehalten werden.
+    - Empfohlener Loginhalt: Zeitstempel, Modell-Name, Bildname, ggf. gekürzte Request-/Response-Inhalte (Achtung bei sensiblen Daten).
+    - Fehler (z. B. Zeitüberschreitung, ungültige HTTP-Statuscodes) werden mit dem zugehörigen Traceback protokolliert.
+2. **Judge-Entscheidungen**
+    
+    - Wenn ein Judge verwendet wird, werden alle vom Judge betrachteten Optionen und die letztendliche Wahl in `decisionmaking.log` (oder einer anderen Logdatei) protokolliert.
+    - Typische Struktur:
+        
+        ```
+        [Judge Decision]
+        Zeitpunkt: ...
+        Image: <Bild-Dateiname>
+        Model Outputs:
+          - Model "XYZ": "erkannter Text..."
+          - Model "ABC": "erkannter Text..."
+        Judge Picked: "..."
+        ------------------------------------
+        ```
+        
+    - Dadurch ist transparent, wie und warum sich der Judge für einen bestimmten Text entschieden hat.
+3. **Konfigurierbarkeit**
+    
+    - Je nach Produktionsumgebung kann das Logging-Level angepasst werden (`INFO`, `DEBUG`, `ERROR` etc.).
+    - Sensible Informationen (z. B. API-Schlüssel) sollten nie in Klartext in den Logs auftauchen.
+
+---
+
+## **Usage Examples**
+
+### **1. Single Model, Minimal OCR**
+
+```bash
+python -m mypackage pic2text my_images output.txt \
+    --model meta-llama/llama-3.2-11b-vision-instruct
+```
+
+- **Keine** Ensemble-Strategie, **kein** Judge.
+- Pro Bild wird das Modell aufgerufen, Ergebnis sofort in `output.txt`.
+- Einfacher Anwendungsfall.
+
+---
+
+### **2. Single Model + Wiederholungen**
+
+```bash
+python -m mypackage pic2text my_images output.txt \
+    --model meta-llama/llama-3.2-11b-vision-instruct \
+    --repeat 3
+```
+- Für **jedes Bild** wird das eine Modell **dreimal** aufgerufen.
+- Aktuell erzeugt dieser Aufruf, wegen multipler Single-Modell nutzung eine no-judge fehlermeldung.
+
+---
+
+### **3. Multi-Model, Kein Judge (noch rudimentär)**
+
+```bash
+python -m mypackage pic2text my_images output.txt \
+    --model meta-llama/llama-3.2-11b-vision-instruct \
+    --model openai/gpt-4-vision-2024-05-13
+```
+
+- **Zwei** Modelle liefern ihre Ergebnisse, aber **kein** Judge ist angegeben.
+
+- Aktuell erzeugt dieser Aufruf, wegen multipler Single-Modell nutzung eine no-judge fehlermeldung.
+- 
+- (Zukünftige Implementierung könnte hier “Mehrheits-Voting� oder Ähnliches nutzen.)
+
+---
+
+### **4. Multi-Model, Standard “Judge Mode�**
+
+```bash
+python -m mypackage pic2text my_images output.txt \
+    --model meta-llama/llama-3.2-11b-vision-instruct \
+    --model openai/gpt-4-vision-2024-05-13 \
+    --judge-model my-own/judge-llm \
+    --judge-mode authoritative
+```
+
+1. **Pro Bild** rufen beide Modelle ihre OCR-Funktion auf.
+2. Die jeweiligen Texte werden gesammelt und an `my-own/judge-llm` gesendet.
+3. Der Judge sichtet die Optionen und entscheidet, welcher Text am **besten** ist (Stichwort: authoritative).
+4. Ergebnis wird in `output.txt` notiert, und alle Details inkl. “Welche Modelle haben was erkannt?� und “Wofür hat sich der Judge entschieden?� werden in `decisionmaking.log` protokolliert.
+
+**Beispiel** (vereinfacht) eines Logs für ein Bild `page_001.png`:
+
+```
+[Judge Decision]
+Zeitpunkt: 2025-01-20 14:42:13
+Image: page_001.png
+Model Outputs:
+  - Model meta-llama/llama-3.2-11b-vision-instruct => "Slide 1: Introduction to Machine Learning..."
+  - Model openai/gpt-4-vision-2024-05-13 => "Intro: ML Crash Course"
+Judge Picked: "Slide 1: Introduction to Machine Learning..."
+------------------------------------------------------------
+```
+
+---
+
+### **5. Platzhalter-Ensemble & Trust-Score (Noch nicht wirksam)**
+
+```bash
+python -m mypackage pic2text my_images output.txt \
+    --model meta-llama/llama-3.2-11b-vision-instruct \
+    --model openai/gpt-4-vision-2024-05-13 \
+    --ensemble-strategy majority-vote \
+    --trust-score 2.0
+```
+
+- Aktuell **ignoriert** das System `--ensemble-strategy` und `--trust-score`.
+- Zukünftig möglich: Wort-für-Wort-Voting, wobei das Modell mit `trust-score 2.0` doppelt so stark gewichtet wird.
+
+---
+
+### **6. Weitere Logging-Beispiele & Fehlerfälle**
+
+- **Netzwerkfehler**:  
+    Falls ein Modell-API-Aufruf fehlschlägt (z. B. Timeout, 500-Error), erscheint im Konsolen-Log oder einer dedizierten Logdatei eine Fehlermeldung und ein Python-Traceback. Das entsprechende Bild wird ggf. mit einer Fehlermeldung in `output.txt` markiert.
+    
+- **Leer-Text-Ergebnis**:  
+    Wenn ein Modell “keinen sinnvollen Text� liefert, protokolliert das System dies. Mit Judge aktiv wird es dem Judge gemeldet (der evtl. das andere Modell-Resultat nimmt).
+    
+- **Entscheidungs-Überschreibung**:  
+    Falls der Judge ein anderes Ergebnis wählt als der naive Code, wird dies explizit in `decisionmaking.log` vermerkt.
+    
+
+---
+
+## **Konfigurations-Hinweise**
+
+- **.env-Datei**:  
+    Die verwendeten Modelle benötigen meist einen API-Schlüssel (`OPENROUTER_API_KEY`) oder vergleichbare Tokens. Diese können über eine `.env`-Datei oder Umgebungsvariablen gesetzt werden.
+- **Logfiles**:
+    - Typischerweise `decisionmaking.log` für Judge-spezifische Entscheidungen.
+    - Weitere Logs (z. B. `ocr.log`) könnten für generelle OCR-Verarbeitung genutzt werden.
+    - Empfohlen wird, sensible Infos wie API-Schlüssel zu anonymisieren oder gar nicht zu loggen.
+
+---
+
+## **Abschließende Hinweise**
+
+- Das “**Judge Mode**�-Konzept ersetzt aktuell eine umfassende Ensemble-Logik.
+- Die CLI-Argumente `--ensemble-strategy`, `--trust-score` etc. sind bereits angelegt und können bei einem späteren Upgrade voll genutzt werden.
+
+this is the current core.py:
+
+
+"""
+This software is licensed under the terms specified in LICENSE.txt,
+authored by Martin Krause.
+
+Usage is limited to:
+- Students enrolled at accredited institutions
+- Individuals with an annual income below 15,000€
+- Personal desktop PC automation tasks
+
+For commercial usage, including server deployments, please contact:
+martinkrausemedia@gmail.com
+
+Refer to the NOTICE.txt file for dependencies and third-party libraries used.
+"""
+
+import argparse
+from . import pdf2pic
+from . import pic2text
+from . import text2anki
+
+
+def pdf_to_images(args):
+    """
+    Convert a PDF file into a sequence of images, optionally cropping.
+    """
+    # 1. Convert the list of rectangle strings into tuples
+    parsed_rectangles = []
+    for rect_str in args.rectangles:
+        parsed_rectangles.append(pdf2pic.parse_rectangle(rect_str))
+
+    # 2. Pass them along to the function
+    pdf2pic.convert_pdf_to_images(
+        pdf_path=args.pdf_path,
+        output_dir=args.output_dir,
+        rectangles=parsed_rectangles
+    )
+
+def images_to_text(args):
+    """
+    Perform OCR on a directory of images, extracting text and saving it to a file.
+    """
+    pic2text.convert_images_to_text(args.images_dir, args.output_file)
+
+
+def text_to_anki(args):
+    """
+    Convert a text file into an Anki-compatible format, creating an Anki deck.
+    """
+    text2anki.convert_text_to_anki(args.text_file, args.anki_file)
+
+
+def process_pdf_to_anki(args):
+    """
+    Full pipeline: Convert a PDF to images, then extract text, and finally create an Anki deck.
+    """
+    # Intermediate file paths
+    output_text_file = 'temp_text.txt'
+    pdf_to_images(args)
+    images_to_text(argparse.Namespace(images_dir=args.output_dir, output_file=output_text_file))
+    text_to_anki(argparse.Namespace(text_file=output_text_file, anki_file=args.anki_file))
+
+
+def cli_invoke():
+    parser = argparse.ArgumentParser(
+        description="Convert PDFs to Anki flashcards through a multi-step pipeline involving image extraction, OCR, and Anki formatting."
+    )
+
+    subparsers = parser.add_subparsers(title="Commands", dest="command")
+
+    # PDF to Images Command
+    parser_pdf2pic = subparsers.add_parser(
+        "pdf2pic",
+        help="Convert PDF pages into individual images.",
+        description="This command converts each page of a PDF into a separate PNG image."
+    )
+    parser_pdf2pic.add_argument("pdf_path", type=str, help="Path to the PDF file.")
+    parser_pdf2pic.add_argument("output_dir", type=str, help="Directory to save the output images.")
+    parser_pdf2pic.add_argument(
+        "rectangles",
+        type=str,
+        nargs="*",
+        default=[],
+        help="Zero or more rectangles to crop, each in 'left,top,right,bottom' format."
+    )
+    parser_pdf2pic.set_defaults(func=pdf_to_images)
+
+
+    # Images to Text Command
+    parser_pic2text = subparsers.add_parser(
+        "pic2text",
+        help="Extract text from images using OCR.",
+        description="This command performs OCR on images in a directory and saves the extracted text to a file."
+    )
+    parser_pic2text.add_argument("images_dir", type=str, help="Directory containing images to be processed.")
+    parser_pic2text.add_argument("output_file", type=str, help="File path to save extracted text.")
+    parser_pic2text.set_defaults(func=images_to_text)
+
+    # Text to Anki Command
+    parser_text2anki = subparsers.add_parser(
+        "text2anki",
+        help="Convert extracted text into an Anki-compatible format.",
+        description="This command takes a text file and formats its contents as Anki flashcards, outputting an Anki package file."
+    )
+    parser_text2anki.add_argument("text_file", type=str, help="Path to the text file with content for Anki cards.")
+    parser_text2anki.add_argument("anki_file", type=str, help="Output path for the Anki package file.")
+    parser_text2anki.set_defaults(func=text_to_anki)
+
+    # Full Pipeline Command
+    parser_process = subparsers.add_parser(
+        "process",
+        help="Run the entire pipeline: PDF to Images, Images to Text, and Text to Anki.",
+        description="This command automates the full process of converting a PDF to Anki flashcards."
+    )
+    parser_process.add_argument("pdf_path", type=str, help="Path to the PDF file.")
+    parser_process.add_argument("output_dir", type=str, help="Directory to save intermediate images.")
+    parser_process.add_argument("anki_file", type=str, help="Output path for the final Anki package file.")
+    parser_process.set_defaults(func=process_pdf_to_anki)
+
+    args = parser.parse_args()
+
+    if args.command:
+        args.func(args)
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    cli_invoke()
+
+
+This is the current pic2text.py:
+
+"""
+This software is licensed under the terms specified in LICENSE,
+authored by Martin Krause.
+
+Usage is limited to:
+- Students enrolled at accredited institutions
+- Individuals with an annual income below 15,000€
+- Personal desktop PC automation tasks
+
+For commercial usage, including server deployments, please contact:
+martinkrausemedia@gmail.com
+
+Refer to the NOTICE file for dependencies and third-party libraries used.
+
+Code partially from https://pub.towardsai.net/enhance-ocr-with-llama-3-2-vision-using-ollama-0b15c7b8905c
+"""
+
+# Import the necessary secrets handling module
+# https://www.geeksforgeeks.org/using-python-environment-variables-with-python-dotenv/
+from dotenv import load_dotenv
+
+
+#from .core import cli_invoke
+
+import os
+import re
+from PIL import Image
+import base64
+import io
+import requests
+import json
+import traceback
+
+# Load environment variables from the .env file (if present)
+load_dotenv()
+
+# Access environment variables as if they came from the actual environment
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
+
+
+def extract_page_number(filename):
+    match = re.search(r'page_(\d+)', filename)
+    return int(match.group(1)) if match else float('inf')
+
+def _image_to_base64(image_path):
+    # Open the image file
+    with Image.open(image_path) as img:
+        # Create a BytesIO object to hold the image data
+        buffered = io.BytesIO()
+        # Save the image to the BytesIO object in a specific format (e.g., JPEG)
+        img.save(buffered, format="PNG")
+        # Get the byte data from the BytesIO object
+        img_bytes = buffered.getvalue()
+        # Encode the byte data to base64
+        img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+        return img_base64
+
+def convert_images_to_text(images_dir, output_file):
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write("")
+
+    processed_count = 0
+
+    image_files = [f for f in os.listdir(images_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    image_files.sort(key=extract_page_number)
+
+    for image_name in image_files:
+        image_path = os.path.join(images_dir, image_name)
+        
+        try:
+            base64_image = _image_to_base64(image_path)
+
+            response = requests.post(
+                url="https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                data=json.dumps({
+                    #"model": "openai/gpt-4o-2024-05-13",
+                    "model": "meta-llama/llama-3.2-11b-vision-instruct",
+                    "messages": [{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Read the content of the image word by word. Do not output anything else"},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}},
+#                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}} #Todo option to use multiple images pictures?
+                        ]
+                    }]
+                })
+            )
+
+            response.raise_for_status()
+            response_data = response.json()
+            cleaned_text = response_data['choices'][0]['message']['content'].strip()
+
+            with open(output_file, 'a', encoding='utf-8') as f:
+                if processed_count > 0:
+                    f.write("\n\n")
+                f.write(f"Image: {image_name}\n{cleaned_text}")
+
+            processed_count += 1
+            print(f"Processed and saved {image_name}.")
+
+        except Exception as e:
+            print(f"Error processing {image_name}: {str(e)}")
+            with open(output_file, 'a', encoding='utf-8') as f:
+                if processed_count > 0:
+                    f.write("\n\n")
+                f.write(f"Error processing {image_name}: {str(e)}\n{traceback.format_exc()}")
+            continue
+
+    print(f"OCR results saved to {output_file}. Processed {processed_count} images.")
+    return output_file
+
+
+Below are **production-ready** updates to `core.py` and `pic2text.py` implementing the requested `pic2text` CLI functionality and underlying logic. All changes are extensively commented for clarity. You can safely copy-paste these files into your environment.
+
+---
+
+
+
+
+---
+
+## **Key Implementation Details & Highlights**
+
+1. **Argument Parsing**  
+   In `core.py`, the `pic2text` subparser now has:
+   - `--model` (multiple usage allowed via `action="append"`)
+   - `--repeat`
+   - `--judge-model`
+   - `--judge-mode`
+   - `--ensemble-strategy` (placeholder)
+   - `--trust-score` (placeholder)
+
+2. **Single vs. Multiple Models**  
+   - **Single Model**: We simply call `_post_ocr_request` `repeat` times per image but use the *last* OCR result as final output (or you can adapt to combine them as needed).
+   - **Multi-Model**: If the user supplies more than one `--model`, we **require** a `--judge-model`. We gather all OCR results (from all models, times `repeat`) and pass them into `_post_judge_request`.
+
+3. **Judge Flow** (`_post_judge_request`)  
+   - Constructs a prompt enumerating all candidate outputs.
+   - Calls OpenRouter with the given judge model and logs the final pick to `decisionmaking.log`.
+   - Only `authoritative` mode is supported; other modes raise `NotImplementedError`.
+
+4. **Logging**  
+   - **OCR Logging**: Each `_post_ocr_request` logs to `ocr.log`, capturing timestamps, model name, truncated response, and errors if any.
+   - **Judge Decision Logging**: `_post_judge_request` writes the enumerated model outputs and the chosen text to `decisionmaking.log`, including timestamps and any errors.
+
+5. **Placeholder Ensemble Logic**  
+   - `--ensemble-strategy` and `--trust-score` are parsed but not used. They are simply **ignored** in the code, as per the documentation’s instruction.
+
+6. **Error Handling**  
+   - Raises `ValueError` if `--model` is not specified or if multi-model usage is attempted without `--judge-model`.
+   - Catches request errors with the OpenRouter API, logs them, and continues to the next image.
+
+7. **Code Quality**  
+   - Strict PEP8-ish styling, thorough docstrings, modular design.
+   - **No** leaking of API keys in logs.
+   - Ready for direct deployment.
+
+---
+
+**Usage Examples** (mirroring the extended documentation):
+
+1. **Single Model**  
+   ```bash
+   python -m mypackage pic2text my_images output.txt \
+       --model meta-llama/llama-3.2-11b-vision-instruct
+   ```
+2. **Single Model + Repeat**  
+   ```bash
+   python -m mypackage pic2text my_images output.txt \
+       --model meta-llama/llama-3.2-11b-vision-instruct \
+       --repeat 3
+   ```
+3. **Multi-Model + Judge**  
+   ```bash
+   python -m mypackage pic2text my_images output.txt \
+       --model meta-llama/llama-3.2-11b-vision-instruct \
+       --model openai/gpt-4-vision-2024-05-13 \
+       --judge-model my-own/judge-llm \
+       --judge-mode authoritative
+   ```
+
+---
+
+**Important**:  
+- Ensure you have a valid `OPENROUTER_API_KEY` set in your environment or `.env` file.  
+- Adjust logging paths (`ocr.log` & `decisionmaking.log`) as necessary for your production environment.  
+- The placeholder ensemble arguments (`--ensemble-strategy`, `--trust-score`) do nothing by design (per specification).
+
+Enjoy your new, fully-featured `pic2text` CLI!
+
+
+
+------------
+**Example**
+
+cd "C:\Users\Maddin\Meine Ablage\Github\package_pdf2anki" && .venv\Scripts\activate
+
+PS C:\Users\Maddin\Meine Ablage\Github\package_pdf2anki> python -m pdf2anki pic2text "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_25\Vorlesung_Einführung_in_die_theoretische_Philosophie\test" "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_25\Vorlesung_Einführung_in_die_theoretische_Philosophie\test\output.txt" --model meta-llama/llama-3.2-11b-vision-instruct --repeat 3 --judge-model google/gemini-pro-1.5 --judge-mode authoritative --judge-with-image
+
+PS C:\Users\Maddin\Meine Ablage\Github\package_pdf2anki> python -m pdf2anki pic2text "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_25\Vorlesung_Einführung_in_die_theoretische_Philosophie\02sitzung_tp_wissensbedingungen_crop" "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_25\Vorlesung_Einführung_in_die_theoretische_Philosophie\02sitzung_tp_wissensbedingungen_crop\output.txt" --model meta-llama/llama-3.2-90b-vision-instruct --repeat 1 --model google/gemini-pro-1.5 --repeat 2 --judge-model openai/gpt-4o-2024-11-20 --judge-mode authoritative --judge-with-image
+
+PS C:\Users\Maddin\Meine Ablage\Github\package_pdf2anki> python -m pdf2anki pic2text "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_25\Vorlesung_Einführung_in_die_theoretische_Philosophie\02sitzung_tp_wissensbedingungen_crop" "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_25\Vorlesung_Einführung_in_die_theoretische_Philosophie\02sitzung_tp_wissensbedingungen_crop\output.txt" --model google/gemini-pro-1.5 --repeat 3 --judge-model openai/gpt-4o-2024-11-20 --judge-mode authoritative
+ --judge-with-image
+
+python -m pdf2anki pic2text "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_25\Vorlesung_Einführung_in_die_theoretische_Philosophie\test" "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_25\Vorlesung_Einführung_in_die_theoretische_Philosophie\test\output.txt" --model google/gemini-pro-1.5 --repeat 3 --judge-model openai/gpt-4o-2024-11-20 --judge-mode authoritative
+ --judge-with-image
+
+python -m pdf2anki pic2text "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_25\Vorlesung_Einführung_in_die_theoretische_Philosophie\01sitzung_orga_tp_crop" "C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_25\Vorlesung_Einführung_in_die_theoretische_Philosophie\01sitzung_orga_tp_crop\output.txt" --model google/gemini-pro-1.5 --repeat 3 --judge-model google/gemini-pro-1.5 --judge-mode authoritative --judge-with-image
+
+python -m pdf2anki pdf2text "C:\Users\Maddin\Downloads\trial\Homework_07.pdf" "C:\Users\Maddin\Downloads\trial\pics" "C:\Users\Maddin\Downloads\trial\Homework_07.txt" --model google/gemini-flash-1.5 --repeat 2 --model meta-llama/llama-3.2-11b-vision-instruct --repeat 1 --judge-model google/gemini-flash-1.5 --judge-mode authoritative --judge-with-image
+
+python -m pdf2anki pic2text "H:\The_Philo_Rep\selection\sol" "H:\The_Philo_Rep\selection\sol\output.txt" --model google/gemini-flash-1.5 --repeat 2 --judge-model google/gemini-flash-1.5 --judge-mode authoritative --judge-with-image
+
+python -m pdf2anki pic2text "H:\The_Philo_Rep\selection\sol" "H:\The_Philo_Rep\selection\sol\output.txt" --model google/gemini-flash-1.5 --repeat 2 --judge-model google/gemini-flash-1.5 --judge-mode authoritative --judge-with-image
+
+python -m pdf2anki pic2text "H:\The_Philo_Rep\selection\sol" "H:\The_Philo_Rep\selection\sol\output.txt" --model google/gemini-flash-1.5 --repeat 2 --judge-model google/gemini-flash-1.5 --judge-mode authoritative --judge-with-image
+
+python -m pdf2anki pdf2text "C:\Users\Maddin\Meine Ablage\Uni\IT_Secu\Vorlesung_Grundlagen_der_IT-Sicherheit\01_Krypto-Grundlagen.pdf" "C:\Users\Maddin\Meine Ablage\Uni\IT_Secu\Vorlesung_Grundlagen_der_IT-Sicherheit\pics" "C:\Users\Maddin\Meine Ablage\Uni\IT_Secu\Vorlesung_Grundlagen_der_IT-Sicherheit\01_Krypto-Grundlagen.txt" --model google/gemini-flash-1.5 --repeat 2 --judge-model google/gemini-flash-1.5 --judge-mode authoritative --judge-with-image
+
+
+python -m pdf2anki text2anki "C:\Users\maddin\Meine Ablage\Uni\IT_Secu\Übung\ue09_Wiederholung_Abschluss_transscript.txt" "C:\Users\maddin\Meine Ablage\Uni\IT_Secu\Übung\abschluss.apkg" google/gemini-flash-1.5
+
+
+python -m pdf2anki pdf2text "C:\Users\Maddin\Meine Ablage\Uni\MCI\Mensch Computer Interaktion 1\altklausuren_und_protokolle\altklausuren\WS_18_19.pdf" "C:\Users\Maddin\Meine Ablage\Uni\MCI\Mensch Computer Interaktion 1\altklausuren_und_protokolle\altklausuren\pics_WS_18_19" "C:\Users\Maddin\Meine Ablage\Uni\MCI\Mensch Computer Interaktion 1\altklausuren_und_protokolle\altklausuren\WS_18_19.txt" --model google/gemini-flash-1.5 --repeat 2 --judge-model google/gemini-flash-1.5 --judge-mode authoritative --judge-with-image
+
+
+python -m pdf2anki pdf2text "C:\Users\Maddin\Meine Ablage\Uni\Proseminar_Comp_NeuSc\The Formation of Longterm memory through synaptic consollidation.pdf" "C:\Users\Maddin\Meine Ablage\Uni\Proseminar_Comp_NeuSc\pics_TFoLmtsc" "C:\Users\Maddin\Meine Ablage\Uni\Proseminar_Comp_NeuSc\The Formation of Longterm memory through synaptic consollidation.txt" --model google/gemini-flash-1.5 --repeat 2 --judge-model google/gemini-flash-1.5 --judge-mode authoritative --judge-with-image
+----- END OF .\JUDGE.md -----
 
 
 ----- START OF .\LICENSE.txt -----
@@ -197,124 +862,581 @@ Custom Personal Use License v1.4 [24.09.24]
 ----- START OF .\NOTICE.txt -----
 This software is developed by Martin Krause and is licensed under the terms specified in LICENSE.txt.
 
-Third-Party Libraries:
-1. Selenium - Selenium WebDriver is licensed under the Apache License, Version 2.0. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0.
-2. Requests - Requests HTTP library is licensed under the Apache License, Version 2.0. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0.
-3. urllib3 - urllib3 is licensed under the MIT License. You may obtain a copy of the License at https://opensource.org/licenses/MIT.
+**Third-Party Libraries:**
+
+1. **pdf2image** - Licensed under the MIT License. [Link](https://github.com/Belval/pdf2image/blob/master/LICENSE)
+2. **Pillow** - Licensed under the PIL Software License. [Link](https://github.com/python-pillow/Pillow/blob/main/LICENSE)
+3. **AnkiConnect** - Licensed under the GNU AGPL v3. [Link](https://github.com/FooSoft/anki-connect/blob/master/LICENSE)
 4. ollama - ollama is licensed under the MIT License. You may obtain a copy of the License at https://opensource.org/licenses/MIT.
-5. kix_api - Custom Personal Use License v1.4 [24.09.24], included as LICENSE.txt
-6. nats_ticket_manager - Custom Personal Use License v1.4 [24.09.24] included as LICENSE.txt
 
 The full text of each third-party license is available in the corresponding library’s documentation or source code repository.
 
-Contact Information:
+**Contact Information:**
+
 For any inquiries regarding this software, including commercial licensing terms, please contact:
-Martin Krause
+
+Martin Krause  
 martinkrausemedia@gmail.com
+
+
+
 ----- END OF .\NOTICE.txt -----
 
 
+----- START OF .\process_folder.py -----
+import os
+import subprocess
+import concurrent.futures
+from datetime import datetime
+
+# Base directory to process
+base_dir = r"C:\Users\Maddin\Meine Ablage\Uni\GBS\Vorlesung_Grundlagen_der_Betriebssysteme"
+# Virtual environment path
+venv_dir = r"C:\Users\Maddin\Meine Ablage\Github\package_pdf2anki"
+venv_python = os.path.join(venv_dir, ".venv", "Scripts", "python.exe")
+
+def run_command(pdf_file: str, output_txt_file: str, image_output_dir: str):
+    """
+    Runs the pdf2text command using the virtual environment's Python interpreter.
+    """
+    command = [
+        venv_python, "-m", "pdf2anki", "pdf2text",
+        pdf_file,
+        image_output_dir,
+        output_txt_file,
+        "--model", "google/gemini-flash-1.5",
+        "--repeat", "2",
+        "--judge-model", "google/gemini-flash-1.5",
+        "--judge-mode", "authoritative",
+        "--judge-with-image"
+    ]
+    
+    # Set the working directory to the venv directory
+    cwd = venv_dir
+    
+    print(f"\n[INFO] Processing file: {pdf_file}")
+    print("[DEBUG] Command:", " ".join(command))
+    print(f"[DEBUG] Working directory: {cwd}")
+
+    # Run the command with the specified working directory
+    result = subprocess.run(command, capture_output=True, text=True, cwd=cwd)
+    
+    # Check and log results
+    if result.returncode == 0:
+        print(f"[INFO] Command succeeded for: {pdf_file}")
+        if result.stdout:
+            print("[DEBUG] STDOUT:\n", result.stdout)
+    else:
+        print(f"[ERROR] Command failed for: {pdf_file} (exit code: {result.returncode})")
+        if result.stderr:
+            print("[DEBUG] STDERR:\n", result.stderr)
+
+def process_pdfs():
+    """
+    Iterates through each PDF file in base_dir and schedules them for concurrent processing.
+    """
+    tasks = []
+    # Gather all PDF files along with their respective output paths.
+    for file in os.listdir(base_dir):
+        if file.lower().endswith(".pdf"):
+            pdf_file_path = os.path.join(base_dir, file)
+            
+            # Define output paths
+            base_name = os.path.splitext(file)[0]  # Get filename without extension
+            output_txt_file = os.path.join(base_dir, f"{base_name}_transscript.txt")
+            image_output_dir = os.path.join(base_dir, f"{base_name}_pics")  # Store images in "pics"
+            
+            # Ensure image output directory exists
+            os.makedirs(image_output_dir, exist_ok=True)
+
+            tasks.append((pdf_file_path, output_txt_file, image_output_dir))
+    
+    # Use a ThreadPoolExecutor to process tasks concurrently.
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        # Submit all tasks to the executor.
+        future_to_task = {
+            executor.submit(run_command, pdf, out_txt, img_dir): pdf 
+            for pdf, out_txt, img_dir in tasks
+        }
+        # Optionally, wait for completion and handle any exceptions.
+        for future in concurrent.futures.as_completed(future_to_task):
+            pdf = future_to_task[future]
+            try:
+                future.result()
+            except Exception as exc:
+                print(f"[ERROR] Exception occurred while processing {pdf}: {exc}")
+
+if __name__ == "__main__":
+    process_pdfs()
+    print("\n[INFO] All PDF files in base directory processed concurrently.")
+
+----- END OF .\process_folder.py -----
+
+
 ----- START OF .\README.md -----
-# ds_autom8_cli
+## General Notes & License Summary
 
-`ds_autom8_cli` is a Python CLI tool designed to automate various recurring tasks at the Datenstation, including managing tickets, generating and validating WLAN suggestions assisted by 
-AI suggestions via ollama. The user can validate recommended answers to a given task.
+- **License & Usage Restrictions**  
+  This software is licensed under the terms specified in `LICENSE.txt`, authored by Martin Krause.  
+  **Usage is limited** to:
+  1. Students enrolled at accredited institutions
+  2. Individuals with an annual income below 15,000€
+  3. **Personal desktop PC** automation tasks only  
 
-## Features
+  For commercial usage (including any server-based deployments), please contact the author at:  
+  martinkrausemediaATgmail.com
 
-- **Ticket Management**: Fetch, answer, and close KIX tickets.
-- **WLAN Suggestions**: Generate and validate WLAN ticket suggestions based on incoming ticket information.
-- **Command-Line Interface**: Use the tool directly from the command line.
+  Refer to the `NOTICE.txt` file for details on dependencies and third-party libraries.
 
-## Installation
+- **CLI Overview**  
+  The script is invoked through a single binary/entry-point (e.g., `python -m pdf2anki` or however you’ve packaged it), followed by a **command**. Each command has its own set of parameters and optional flags. 
 
-You can install the `ds_autom8_cli` package locally by cloning the repository and running:
+  The main commands are:
+  1. **pdf2pic** – Convert a PDF to individual images.
+  2. **pic2text** – Perform OCR (text extraction) from a set of images.
+  3. **pdf2text** – Single-step pipeline to go from PDF directly to text.
+  4. **text2anki** – Convert a text file into an Anki deck/package.
+  5. **process** – Full pipeline: PDF → images → text → Anki deck, in one go.
+
+**Installation / Invocation**  
+
+*---*
+
+## 🛠� Development Mode (Editable Installs)
+
+If you plan to **develop or modify this project locally**, it's recommended to use an **editable install**. This allows Python to load the package **directly from your source directory**, so any code changes are reflected immediately — no need to reinstall after every edit.
+
+### Setup
 
 ```bash
-pip install .
-´´´
+cd pdf2anki
+python -m venv .venv
+source .venv/bin/activate      # or .venv\Scripts\activate on Windows
+pip install --editable .
+```
 
-Command-Line Interface (CLI)
+Once installed, you can run the tool in either of the following ways:
 
+### ✅ Option 1: Module Invocation
+```bash
+python -m pdf2anki COMMAND ...
+```
+- Runs the package via the Python module system.
+- Always works inside an activated virtual environment.
 
-After installing the package, you can use the `dsautom8cli` commands in your terminal.
-Basic Usage
+### ✅ Option 2: Executable Invocation
+```bash
+pdf2anki COMMAND ...
+```
+- A **console script entry point** is automatically created during install.
+- On Windows: creates `pdf2anki.exe` in `.venv\Scripts\`
+- On macOS/Linux: creates `pdf2anki` in `.venv/bin/`
 
+💡 **Pro tip**: Check where the executable lives with:
+```bash
+where pdf2anki     # on Windows
+which pdf2anki     # on macOS/Linux
+```
 
-Start the service to automatically generate WLAN suggestions:
-
-bash
-python -m ds_autom8_cli.generate_kix_wlan_suggestions
-
-
-
-Validate the generated WLAN suggestions:
-
-bash
-python -m ds_autom8_cli.validate_suggestions
-
-
-JSON Output
-
-
-The JSON output contains the following fields:
-
-- `ticketID`: The ID of the ticket.
-- `suggestions`: A list of suggestions generated.
-- `email`: The email of the person making the request.
-
-Example JSON output:
-
-json
-{
-  "ticketID": "12345",
-  "suggestions": [
-    {
-      "count": 10,
-      "daysValid": 30,
-      "dateStart": "2024-08-01",
-      "dateExpire": "2024-08-31",
-      "email": "krause@luis-hiwi.uni-hannover.de"
-    }
-  ],
-  "email": "krause@luis-hiwi.uni-hannover.de"
-}
-
-
-
-Development
-
-
-If you want to contribute or make changes to this package, follow these steps:
-
-1. Clone the repository:
-    ```bash
-    git clone https://gitlab.uni-hannover.de/mk2233/dsautom8cli.git
-    cd dsautom8cli
-    ```
-
-2. Install the package in editable mode:
-    ```bash
-    pip install -e .
-    ```
-
-3. Run tests and make changes:
-    - You can create tests to verify the functionality and make sure everything works as expected.
-
-4. Submit a pull request:
-    - Feel free to fork the repository and submit a pull request with your changes.
-License
-
-
-This project is licensed under the Custom Personal Use License v1.4 - see the LICENSE file for details.
-Contact
-
-
-If you have any questions or suggestions, please feel free to reach out to me at `krause@luis-hiwi.uni-hannover.de`.
+If the command isn’t found, make sure your virtual environment is activated and your PATH is correctly set.
 
 ---
-Happy automating!
 
+### Optional: Strict Editable Mode
+
+If you want more control over which files are actually included in the package (e.g. to detect missing modules or simulate a release install), enable **strict mode**:
+
+```bash
+pip install -e . --config-settings editable_mode=strict
+```
+
+In this mode:
+- **New files won’t be exposed automatically** — you’ll need to reinstall to pick them up.
+- The install behaves more like a production wheel, which is useful for debugging packaging issues.
+
+---
+
+### Notes
+- Code edits are reflected **immediately** in both normal and strict modes.
+- Any changes to **dependencies**, **entry-points**, or **project metadata** require reinstallation.
+- If you encounter import issues (especially with namespace packages), consider switching to a `src/`-based layout.  
+  See the Python Packaging Authority’s recommendations for [modern package structures](https://packaging.python.org/en/latest/discussions/src-layout-vs-flat-layout/).
+
+---
+
+You might call this script like:
+```bash
+python -m pdf2anki COMMAND [OPTIONS...]
+```
+or if installed as an executable:
+```bash
+pdf2anki COMMAND [OPTIONS...]
+```
+In the examples below, we will assume `python -m pdf2anki` is your entry-point.
+
+---
+
+## 1. `pdf2pic` Command
+
+**Purpose**  
+Converts all pages of a PDF into separate image files. By default, it saves each page as a PNG image in the specified output directory.
+
+**Positional Arguments**  
+1. `pdf_path` – Path to the input PDF file.  
+2. `output_dir` – Directory where resulting images will be stored.  
+3. `rectangles` – Zero or more crop rectangles in the format `left,top,right,bottom`.  
+   - If one or more rectangles are given, **each page** of the PDF will be cropped according to those rectangles before saving to an image. Multiple rectangles can be provided to produce multiple cropped images per page.
+
+**Usage**  
+```bash
+python -m pdf2anki pdf2pic PDF_PATH OUTPUT_DIR [RECTANGLE1 RECTANGLE2 ...]
+```
+
+### Examples
+
+1. **Minimal usage (no cropping)**
+
+   ```bash
+   python -m pdf2anki pdf2pic mydocument.pdf output_images
+   ```
+   - Converts each page of `mydocument.pdf` into `output_images/page-1.png`, `output_images/page-2.png`, etc.
+
+2. **Single rectangle**  
+   ```bash
+   python -m pdf2anki pdf2pic mydocument.pdf output_images 100,150,500,600
+   ```
+   - Converts each page into a cropped version from `(left=100, top=150)` to `(right=500, bottom=600)`.
+
+3. **Multiple rectangles**  
+   ```bash
+   python -m pdf2anki pdf2pic mydocument.pdf output_images 50,100,300,400 320,100,600,400
+   ```
+   - For each PDF page, produces **two** cropped images:
+     1. Cropped to `left=50, top=100, right=300, bottom=400`
+     2. Cropped to `left=320, top=100, right=600, bottom=400`
+   - Files will typically be named like `page-1-rect0.png`, `page-1-rect1.png`, etc.
+
+---
+
+## 2. `pic2text` Command
+
+**Purpose**  
+Performs OCR on a directory of images, generating extracted text. The text can be from **one or multiple** OCR models. You can optionally specify a “judge� model to pick the best output among multiple OCR results per image. Results are saved to a single text file.
+
+**Positional Arguments**  
+1. `images_dir` – Directory containing images (e.g., PNG/JPEG files).
+2. `output_file` – Path to the final text file where OCR results will be written.
+
+**Optional Arguments**  
+
+| Parameter            | Description                                                                                                                                           |
+|----------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `--model MODEL`      | Name of an OCR model to use. Can be used **multiple times** to specify multiple models. If omitted, a default model might be assumed (depends on your code).  |
+| `--repeat N`         | Number of times to call each model per image (defaults to 1). If you provide multiple `--model` entries and multiple `--repeat` entries, each repeats entry corresponds to its respective model. **Requires `--judge-model` if any N > 1.** |
+| `--judge-model JM`   | If you have **multiple** OCR models or use `--repeat > 1`, you **must** specify a judge model to pick the best text. E.g., `--judge-model big-ocr-13b`. |
+| `--judge-mode MODE`  | Judge strategy. Currently only `"authoritative"` is implemented. If set, the judge simply picks the best result (the logic is inside your code).                                           |
+| `--ensemble-strategy STR` | **(Placeholder)** e.g., `majority-vote`, `similarity-merge`. Not active in the code yet, so setting it won't do anything.                                                              |
+| `--trust-score VAL`  | **(Placeholder)** float representing model weighting factor in an ensemble or judge scenario. Not active in the code yet.                                                                  |
+| `--judge-with-image` | Boolean flag; if set, the judge model also sees the base64-encoded image when deciding among multiple OCR outputs.                                                                          |
+
+**Usage**  
+```bash
+python -m pdf2anki pic2text IMAGES_DIR OUTPUT_FILE [--model MODEL...] [--repeat N...] 
+      [--judge-model JM] [--judge-mode authoritative]
+      [--ensemble-strategy STR] [--trust-score VAL] [--judge-with-image]
+```
+
+### Examples
+
+1. **Single model, minimal usage**  
+   ```bash
+   python -m pdf2anki pic2text scanned_pages output.txt
+   ```
+   - OCR is done on images in `scanned_pages/` with a default or built-in model, saves text to `output.txt`. (Assumes default model doesn't require a judge).
+
+2. **Single model, repeated calls (Requires Judge)**  
+   ```bash
+   python -m pdf2anki pic2text scanned_pages output.txt --model google/gemini-2.0-flash-001 --repeat 3 --judge-model some-judge-model
+   ```
+   - For each image, runs `google/gemini-2.0-flash-001` OCR **3 times**.  
+   - **Requires** `--judge-model` (here `some-judge-model`) to be specified to select the best result from the 3 attempts.
+
+3. **Multiple models (Requires Judge)**  
+   ```bash
+   python -m pdf2anki pic2text scanned_pages output.txt \
+       --model google/gemini-2.0-flash-001 --model openai/gpt-4.1 \
+       --judge-model some-judge-model
+   ```
+   - For each image, runs `google/gemini-2.0-flash-001` once and `openai/gpt-4.1` once.  
+   - **Requires** `--judge-model` to select the best result between the two models.
+
+4. **Multiple models, repeated calls, with judge**  
+   ```bash
+   python -m pdf2anki pic2text scanned_pages output.txt \
+       --model google/gemini-2.0-flash-001 --model openai/gpt-4.1 \
+       --repeat 2 --repeat 1 \
+       --judge-model big-ocr-13b --judge-mode authoritative
+   ```
+   - Runs:
+     - `google/gemini-2.0-flash-001` **2 times**  
+     - `openai/gpt-4.1` **1 time**  
+   - Then uses **`big-ocr-13b`** in “authoritative� mode to pick the best result per image.  
+   - The final best text for each image is written to `output.txt`.
+
+5. **Multiple models, judge with images**  
+   ```bash
+   python -m pdf2anki pic2text scanned_pages output.txt \
+       --model modelA --model modelB \
+       --judge-model big-ocr-13b \
+       --judge-with-image
+   ```
+   - The judge model also sees the **base64-encoded image**. This might produce more accurate adjudication if your code supports it.
+
+---
+
+## 3. `pdf2text` Command
+
+**Purpose**  
+Runs a **two-step** pipeline in a single command:
+1. Converts a PDF to images (`pdf2pic`).
+2. Performs OCR on those images (`pic2text`).
+   
+Saves the final extracted text to a single file. This is handy if you only need text output (not an Anki deck).
+
+**Positional Arguments**  
+1. `pdf_path` – Path to the PDF file.  
+2. `images_dir` – Directory to store generated images (intermediate).  
+3. `rectangles` – Crop rectangles (zero or more), same syntax as in `pdf2pic`. Must appear *before* `output_file`.
+4. `output_file` – Path to save the final text after OCR.
+
+**Optional Arguments**  
+Identical to the optional arguments for `pic2text`:
+
+- `--model MODEL` (repeats allowed)  
+- `--repeat N` (repeats allowed, requires `--judge-model` if any N > 1)
+- `--judge-model JM` (required if multiple models or repeats > 1)
+- `--judge-mode MODE`  
+- `--ensemble-strategy STR`  
+- `--trust-score VAL`  
+- `--judge-with-image`
+
+**Usage**  
+```bash
+python -m pdf2anki pdf2text PDF_PATH IMAGES_DIR [RECTANGLE1 RECTANGLE2 ...] OUTPUT_FILE
+      [--model MODEL...]
+      [--repeat N...]
+      [--judge-model JM]
+      [--judge-mode authoritative]
+      [--ensemble-strategy STR]
+      [--trust-score VAL]
+      [--judge-with-image]
+```
+  
+Note the argument order: `pdf2text <pdf_path> <images_dir> [rectangles...] <output_file> [options...]`
+
+### Examples
+
+1. **Minimal usage, no cropping**  
+   ```bash
+   python -m pdf2anki pdf2text notes.pdf temp_images output.txt
+   ```
+   - Step 1: `notes.pdf` → multiple pages in `temp_images/`.  
+   - Step 2: OCR results → `output.txt`. (Assumes default model/settings don't require a judge).
+
+2. **With cropping**  
+   ```bash
+   python -m pdf2anki pdf2text notes.pdf temp_images 50,100,300,400 320,100,600,400 output.txt
+   ```
+   - Two cropped areas per PDF page → stored in `temp_images/`.  
+   - Then OCR → final text in `output.txt`. (Assumes default model/settings don't require a judge).
+
+3. **Advanced: multiple OCR models, repeated calls, judge**  
+   ```bash
+   python -m pdf2anki pdf2text notes.pdf temp_images 100,150,500,600 output.txt \
+       --model google/gemini-2.0-flash-001 --model openai/gpt-4.1 \
+       --repeat 2 --repeat 2 \
+       --judge-model big-ocr-13b \
+       --judge-with-image
+   ```
+   - Crops each PDF page according to `(100,150,500,600)`.
+   - For each cropped image:
+     - `google/gemini-2.0-flash-001` is called 2 times
+     - `openai/gpt-4.1` is called 2 times
+     - The judge model `big-ocr-13b` sees the base64-encoded image to pick the best result.
+   - Final text is in `output.txt`.
+
+---
+
+## 4. `text2anki` Command
+
+**Purpose**  
+Takes a text file (already extracted by any means) and converts it into an Anki-compatible deck/package file. (Exact format depends on your `text2anki` implementation—some scripts produce `.apkg`, some produce `.txt` or `.csv`, etc.)
+
+**Positional Arguments**  
+1. `text_file` – Path to the text file with the content for the cards.  
+2. `anki_file` – Path to the final Anki deck output.
+
+**Usage**  
+```bash
+python -m pdf2anki text2anki TEXT_FILE ANKI_FILE
+```
+
+### Examples
+
+1. **Minimal**  
+   ```bash
+   python -m pdf2anki text2anki reading.txt flashcards.apkg
+   ```
+   - Converts `reading.txt` into an Anki package `flashcards.apkg`.
+
+2. **After manual editing**  
+   If you manually cleaned up the text from OCR, you might do:
+   ```bash
+   python -m pdf2anki text2anki cleaned_text.txt my_deck.apkg
+   ```
+   - Results in `my_deck.apkg`.
+
+---
+
+## 5. `process` Command (Full Pipeline)
+
+**Purpose**  
+Runs the **entire** process in a single shot:
+
+1. **PDF → images**  
+2. **images → text**  
+3. **text → Anki deck**  
+
+This means you get an Anki deck from the PDF in one go, without manually calling each intermediate subcommand.
+
+**Positional Arguments**  
+1. `pdf_path` – Path to the PDF file.  
+2. `output_dir` – Directory to store any intermediate images.  
+3. `anki_file` – Path to the final Anki deck file.
+
+**Optional OCR-Related Arguments**  
+All the same options as `pic2text`:
+
+- `--model MODEL` (multiple allowed)  
+- `--repeat N` (multiple allowed, requires `--judge-model` if any N > 1)
+- `--judge-model JM` (required if multiple models or repeats > 1)
+- `--judge-mode MODE` (default `authoritative`)  
+- `--ensemble-strategy STR` (placeholder)  
+- `--trust-score VAL` (placeholder)  
+- `--judge-with-image`  
+
+**Usage**  
+```bash
+python -m pdf2anki process PDF_PATH OUTPUT_DIR ANKI_FILE
+      [--model MODEL...]
+      [--repeat N...]
+      [--judge-model JM]
+      [--judge-mode authoritative]
+      [--ensemble-strategy STR]
+      [--trust-score VAL]
+      [--judge-with-image]
+```
+
+**Important Note on Cropping**  
+The `process` command **does not** explicitly accept rectangles. If you need cropping, you must do it in multiple steps (e.g., call `pdf2pic` first, then `pic2text`, then `text2anki`).
+
+### Examples
+
+1. **Minimal usage**  
+   ```bash
+   python -m pdf2anki process book.pdf images book.apkg
+   ```
+   - Step 1: `book.pdf` → images in `images/`.  
+   - Step 2: OCR all images → some internal text file (using default model/settings).
+   - Step 3: Creates `book.apkg` from that text.
+
+2. **Multiple models, judge**  
+   ```bash
+   python -m pdf2anki process slides.pdf slides_images slides.apkg \
+       --model google/gemini-2.0-flash-001 --model openai/gpt-4.1 \
+       --judge-model big-ocr-13b \
+       --judge-with-image
+   ```
+   - Generates final Anki deck `slides.apkg`, with improved OCR results selected by the judge.
+
+3. **Model repeats**  
+   ```bash
+   python -m pdf2anki process slides.pdf slides_images slides.apkg \
+       --model google/gemini-2.0-flash-001 --model openai/gpt-4.1 \
+       --repeat 2 --repeat 1 \
+       --judge-model big-ocr-13b
+   ```
+   - Calls `google/gemini-2.0-flash-001` 2 times, `openai/gpt-4.1` 1 time per image, judge picks best.
+
+---
+
+## Putting It All Together
+
+Below are some additional sequences showing how you can build multi-step pipelines manually (for maximum control) or via single commands.
+
+### A. Manual Multi-Step with Cropping
+
+You want to crop the PDF in multiple areas and run advanced OCR:
+
+1. **Step 1**: PDF → images with multiple crop zones
+   ```bash
+   python -m pdf2anki pdf2pic mynotes.pdf temp_images 50,100,300,400 400,100,600,300
+   ```
+2. **Step 2**: OCR from images to text, with repeated calls and judge
+   ```bash
+   python -m pdf2anki pic2text temp_images text_output.txt \
+       --model google/gemini-2.0-flash-001 --model openai/gpt-4.1 \
+       --repeat 3 --repeat 1 \
+       --judge-model big-ocr-13b
+   ```
+3. **Step 3**: Convert text to Anki
+   ```bash
+   python -m pdf2anki text2anki text_output.txt final_flashcards.apkg
+   ```
+
+### B. Single-Step to Text (no deck)
+
+If all you need is text (and optionally some rectangles for cropping):
+
+```bash
+python -m pdf2anki pdf2text mynotes.pdf images_dir 100,150,400,500 output.txt \
+    --model openai/gpt-4.1 --judge-model some-judge-model
+```
+*(Note: Added `--judge-model` as it might be required depending on the `openai/gpt-4.1` implementation or if multiple models were used)*
+
+### C. Full Pipeline to Anki (no cropping)
+
+If you just want the simplest route from PDF to a deck:
+
+```bash
+python -m pdf2anki process mynotes.pdf images_dir mydeck.apkg
+```
+*(Assumes default settings don't require a judge)*
+
+---
+
+## Conclusion
+
+- **Subcommands**:  
+  1. **`pdf2pic`** – Convert PDF pages to images (with optional cropping).  
+  2. **`pic2text`** – Run OCR on a directory of images, optionally with multiple models and a judge.  
+  3. **`pdf2text`** – Combine steps 1 and 2 into a single command, outputting text.  
+  4. **`text2anki`** – Convert text into an Anki deck.  
+  5. **`process`** – Automate the entire pipeline (PDF → images → text → Anki).
+
+- **Cropping**:  
+  Only possible through `pdf2pic` or `pdf2text`. The `process` command does not accept cropping arguments.
+
+- **Multiple Models & Judge**:  
+  - Use `--model` multiple times (`--model m1 --model m2 …`).  
+  - Pair each with `--repeat N` (they line up by index).  
+  - **Must** add `--judge-model` if using multiple models or if any `--repeat N` is greater than 1.
+  - `--judge-with-image` passes the images themselves to the judge model.
+
+- **Ensemble & Trust Score**:  
+  These placeholders (`--ensemble-strategy`, `--trust-score`) do not currently have active logic in the script. They exist for future expansion.
+
+**Enjoy automating your PDF → OCR → Anki workflows!** If you require commercial/server usage, please remember to contact **martinkrausemediaATgmail.com** for licensing.
 ----- END OF .\README.md -----
 
 
@@ -324,48 +1446,113 @@ from pathlib import Path
 
 # Read the contents of your README file
 this_directory = Path(__file__).parent
-long_description = (this_directory / "README.md").read_text()
+long_description = (this_directory / "README.md").read_text(encoding="utf-8")
 
 setup(
-    name="ds_autom8_cli",
-    version="0.5.0",
-    description="A CLI tool for automating various data station tasks including ticket management.",
+    name="pdf2anki",
+    version="0.1.0",
+    description="A CLI tool for converting PDFs into Anki flashcards.",
     long_description=long_description,
     long_description_content_type="text/markdown",
     author="Martin Krause",
-    author_email="krause@luis-hiwi.uni-hannover.de",
+    author_email="martinkrausemedia@gmail.com",
     license="Custom Personal Use License v1.4",
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: Other/Proprietary License",
         "Operating System :: OS Independent",
         "Topic :: Utilities",
-        "Intended Audience :: Developers"
+        "Intended Audience :: Education",
     ],
-    url="https://gitlab.uni-hannover.de/mk2233/ds_autom8_cli",
-    python_requires="~=3.11.0",
+    url="https://your-repo-url/pdf2anki",
+    python_requires=">=3.11, <3.14",
     install_requires=[
+        "ollama>=0.3.3",
+        "pdf2image>=1.16.3",
+        "Pillow>=9.1.0",
+        "genanki~=0.13.1",
+        "PyMuPDF~=1.24.13",
         "requests~=2.32.0",
-        "selenium==4.17.2",
-        "urllib3~=2.1.0",
-        "ollama~=0.3.0",
-        "kix_api>=0.6",
-        "nats_ticket_manager>=0.8.4"
+        "python-dotenv~=1.0.1"
     ],
     packages=find_packages(),
     entry_points={
         "console_scripts": [
-            "ds_autom8_cli=ds_autom8_cli.core:cli_invoke",
+            "pdf2anki=pdf2anki.core:cli_invoke",
         ],
     },
 )
-
 ----- END OF .\setup.py -----
+
+
+----- START OF .\subfolders_to_text.py -----
+import os
+import subprocess
+
+# Base directory to process
+base_dir = r"C:\Users\Maddin\Meine Ablage\Uni\Theo_Philo_WiSe24_25\Vorlesung_Einführung_in_die_theoretische_Philosophie\totext"
+# Virtual environment path
+venv_dir = r"C:\Users\Maddin\Meine Ablage\Github\package_pdf2anki"
+venv_python = os.path.join(venv_dir, ".venv", "Scripts", "python.exe")
+
+def run_command(subfolder_path: str, output_file_path: str):
+    """
+    Runs the pic2text command using the virtual environment's Python interpreter
+    """
+    command = [
+        venv_python, "-m", "pdf2anki", "pic2text",
+        subfolder_path,
+        output_file_path,
+        "--model", "google/gemini-pro-1.5",
+        "--repeat", "3",
+        "--judge-model", "google/gemini-pro-1.5",
+        "--judge-mode", "authoritative",
+        "--judge-with-image"
+    ]
+    
+    # Set the working directory to the venv directory
+    cwd = venv_dir
+    
+    print(f"\n[INFO] Processing folder: {subfolder_path}")
+    print("[DEBUG] Command:", " ".join(command))
+    print(f"[DEBUG] Working directory: {cwd}")
+
+    # Run the command with the specified working directory
+    result = subprocess.run(command, capture_output=True, text=True, cwd=cwd)
+    
+    # Check and log results
+    if result.returncode == 0:
+        print(f"[INFO] Command succeeded for: {subfolder_path}")
+        if result.stdout:
+            print("[DEBUG] STDOUT:\n", result.stdout)
+    else:
+        print(f"[ERROR] Command failed for: {subfolder_path} (exit code: {result.returncode})")
+        if result.stderr:
+            print("[DEBUG] STDERR:\n", result.stderr)
+
+def process_subfolders():
+    """
+    Iterates through each subdirectory of base_dir, calling `run_command`
+    for every valid subfolder.
+    """
+    for subfolder in os.listdir(base_dir):
+        subfolder_path = os.path.join(base_dir, subfolder)
+        if os.path.isdir(subfolder_path):
+            output_file_path = os.path.join(subfolder_path, "output.txt")
+            run_command(subfolder_path, output_file_path)
+
+# Entry point
+if __name__ == "__main__":
+    process_subfolders()
+    print("\n[INFO] All subfolders processed sequentially.")
+
+
+----- END OF .\subfolders_to_text.py -----
 
 
 ----- START OF .\pdf2anki\core.py -----
 """
-This software is licensed under the terms specified in LICENSE,
+This software is licensed under the terms specified in LICENSE.txt,
 authored by Martin Krause.
 
 Usage is limited to:
@@ -376,40 +1563,461 @@ Usage is limited to:
 For commercial usage, including server deployments, please contact:
 martinkrausemedia@gmail.com
 
-Refer to the NOTICE file for dependencies and third-party libraries used.
+Refer to the NOTICE.txt file for dependencies and third-party libraries used.
 """
 
-import sys
+import argparse
+from typing import List
+from . import pdf2pic
+from . import pic2text
+from . import text2anki
 
-import .pdf2pic
-import .pic2text
-import .text2anki
 
-#from .generate_kix_wlan_suggestions import generate_forever
-
-def cli_invoke():
-    if len(sys.argv) != 2:
-        print("Usage: python cli.py [generate|validate]")
-        sys.exit(1)
+def pdf_to_images(args: argparse.Namespace) -> None:
+    """
+    Convert a PDF file into a sequence of images, optionally cropping.
     
-    command = sys.argv[1]
+    Args:
+        args: Namespace containing:
+            - pdf_path (str): Path to the PDF file
+            - output_dir (str): Directory to save output images
+            - rectangles (List[str]): Optional list of rectangle coordinates as strings
+    
+    Calls:
+        pdf2pic.convert_pdf_to_images(
+            pdf_path: str,
+            output_dir: str, 
+            rectangles: List[Tuple[int, int, int, int]]
+        ) -> List[str]
+    """
+    # 1. Convert the list of rectangle strings into tuples
+    parsed_rectangles = []
+    for rect_str in args.rectangles:
+        parsed_rectangles.append(pdf2pic.parse_rectangle(rect_str))
 
-    if command == "generate":
-        generate_forever(debug=True)
-    elif command == "validate":
-        validate_forever(debug=True)
+    # 2. Pass them along to the function
+    pdf2pic.convert_pdf_to_images(
+        pdf_path=args.pdf_path,
+        output_dir=args.output_dir,
+        rectangles=parsed_rectangles
+    )
+
+
+def images_to_text(args: argparse.Namespace) -> None:
+    """
+    Perform OCR on a directory of images, extracting text and saving it to a file.
+    Includes logic to:
+      - Handle single or multiple models.
+      - Optionally invoke a judge model when multiple models are specified.
+      - Respect the --repeat argument for repeated calls to each model.
+      - Ignore ensemble-strategy and trust-score placeholders.
+      - Optionally feed the judge the base64-encoded image (if --judge-with-image is used).
+    
+    Args:
+        args: Namespace containing:
+            - images_dir (str): Directory containing input images
+            - output_file (str): Path to save extracted text
+            - model (List[str]): List of OCR model names
+            - repeat (List[int]): Number of calls per model
+            - judge_model (Optional[str]): Model for choosing best result
+            - judge_mode (str): Mode for judge decisions
+            - ensemble_strategy (Optional[str]): Strategy for combining results
+            - trust_score (Optional[float]): Model weighting factor
+            - judge_with_image (bool): Whether to show image to judge
+    
+    Calls:
+        pic2text.convert_images_to_text(
+            images_dir: str,
+            output_file: str,
+            model_repeats: List[Tuple[str, int]],
+            judge_model: Optional[str],
+            judge_mode: str,
+            ensemble_strategy: Optional[str],
+            trust_score: Optional[float],
+            judge_with_image: bool
+        ) -> str
+    """
+    # Temporarily collect all remaining args
+    remaining = []
+    if args.model:
+        for idx, model_name in enumerate(args.model):
+            rp = 1
+            if args.repeat and idx < len(args.repeat):
+                rp = args.repeat[idx]
+            remaining.append((model_name, rp))
+
+    pic2text.convert_images_to_text(
+        images_dir=args.images_dir,
+        output_file=args.output_file,
+        model_repeats=remaining,        # pass list of (model, repeat)
+        judge_model=args.judge_model,
+        judge_mode=args.judge_mode,
+        ensemble_strategy=args.ensemble_strategy,
+        trust_score=args.trust_score,
+        judge_with_image=args.judge_with_image
+    )
+
+def pdf_to_text(args: argparse.Namespace) -> None:
+    """
+    Full pipeline: Convert a PDF to images, then extract text, and finally create an Anki deck.
+    
+    Args:
+        args: Namespace containing combination of all arguments from:
+            - pdf_to_images()
+            - images_to_text() 
+            - text_to_anki()
+    """
+
+
+    pdf_to_images(args)
+
+    """
+        Calls:
+        pic2text.convert_images_to_text(
+            images_dir: str,
+            output_file: str,
+            model_repeats: List[Tuple[str, int]], !!!!!!!!!
+            judge_model: Optional[str],
+            judge_mode: str,
+            ensemble_strategy: Optional[str],
+            trust_score: Optional[float],
+            judge_with_image: bool
+        ) -> str
+    """
+
+    # Temporarily collect all remaining args
+    remaining = []
+    if args.model:
+        for idx, model_name in enumerate(args.model):
+            rp = 1
+            if args.repeat and idx < len(args.repeat):
+                rp = args.repeat[idx]
+            remaining.append((model_name, rp))
+
+    # Create proper namespace for images_to_text
+    images_args = argparse.Namespace(
+        images_dir=args.output_dir,
+        output_file=args.output_file,
+        model=args.model,  # Pass the original model list
+        repeat=args.repeat,  # Pass the original repeat list
+        judge_model=args.judge_model,
+        judge_mode=args.judge_mode,
+        ensemble_strategy=args.ensemble_strategy,
+        trust_score=args.trust_score,
+        judge_with_image=args.judge_with_image
+    )
+    
+    images_to_text(images_args)
+
+
+
+def text_to_anki(args: argparse.Namespace) -> None:
+    """
+    Convert a text file into an Anki-compatible format, creating an Anki deck.
+    
+    Args:
+        args: Namespace containing:
+            - text_file (str): Path to input text file
+            - anki_file (str): Path to save Anki deck
+            - model (str): Name of the OpenRouter model to use
+    """
+    text2anki.convert_text_to_anki(args.text_file, args.anki_file, args.anki_model)
+
+
+def process_pdf_to_anki(args: argparse.Namespace) -> None:
+    """
+    Full pipeline: Convert a PDF to images, then extract text, and finally create an Anki deck.
+    
+    Args:
+        args: Namespace containing combination of all arguments from:
+            - pdf_to_images()
+            - images_to_text() 
+            - text_to_anki()
+    """
+
+    
+    # Intermediate file paths
+    output_text_file = 'temp_text.txt'
+    pdf_to_images(args)
+
+    """
+        Calls:
+        pic2text.convert_images_to_text(
+            images_dir: str,
+            output_file: str,
+            model_repeats: List[Tuple[str, int]], !!!!!!!!!
+            judge_model: Optional[str],
+            judge_mode: str,
+            ensemble_strategy: Optional[str],
+            trust_score: Optional[float],
+            judge_with_image: bool
+        ) -> str
+    """
+
+    # Temporarily collect all remaining args
+    remaining = []
+    if args.model:
+        for idx, model_name in enumerate(args.model):
+            rp = 1
+            if args.repeat and idx < len(args.repeat):
+                rp = args.repeat[idx]
+            remaining.append((model_name, rp))
+
+    images_to_text(
+            argparse.Namespace(
+            images_dir=args.images_dir,
+            output_file=args.output_file,
+            model_repeats=remaining,  # pass list of (model, repeat), [(m,r),...]
+            judge_model=args.judge_model,
+            judge_mode=args.judge_mode,
+            ensemble_strategy=args.ensemble_strategy,
+            trust_score=args.trust_score,
+            judge_with_image=args.judge_with_image
+        )
+    )
+    text_to_anki(argparse.Namespace(text_file=output_text_file, anki_file=args.anki_file))
+
+
+def cli_invoke() -> None:
+    """
+    Command-line interface entry point. Sets up argument parsing and executes
+    the appropriate function based on command.
+    """
+    parser = argparse.ArgumentParser(
+        description="Convert PDFs to Anki flashcards through a multi-step pipeline involving image extraction, OCR, and Anki formatting."
+    )
+
+    subparsers = parser.add_subparsers(title="Commands", dest="command")
+
+    # PDF to Images Command
+    parser_pdf2pic = subparsers.add_parser(
+        "pdf2pic",
+        help="Convert PDF pages into individual images.",
+        description="This command converts each page of a PDF into a separate PNG image."
+    )
+    parser_pdf2pic.add_argument("pdf_path", type=str, help="Path to the PDF file.")
+    parser_pdf2pic.add_argument("output_dir", type=str, help="Directory to save the output images.")
+    parser_pdf2pic.add_argument(
+        "rectangles",
+        type=str,
+        nargs="*",
+        default=[],
+        help="Zero or more rectangles to crop, each in 'left,top,right,bottom' format."
+    )
+    parser_pdf2pic.set_defaults(func=pdf_to_images)
+
+    # Images to Text Command
+    parser_pic2text = subparsers.add_parser(
+        "pic2text",
+        help="Extract text from images using OCR.",
+        description="This command performs OCR on images in a directory and saves the extracted text to a file."
+    )
+    parser_pic2text.add_argument("images_dir", type=str, help="Directory containing images to be processed.")
+    parser_pic2text.add_argument("output_file", type=str, help="File path to save extracted text.")
+
+    # Below: The new CLI arguments requested by the extended pic2text specification
+    parser_pic2text.add_argument(
+        "--model",
+        action="append",
+        default=[],
+        help="Name of an OCR model to use. Can be specified multiple times for multiple models."
+    )
+    parser_pic2text.add_argument(
+        "--repeat",
+        action="append",
+        type=int,
+        default=[],
+        help="Number of times to call each model per image (default=1)."
+    )
+    parser_pic2text.add_argument(
+        "--judge-model",
+        type=str,
+        default=None,
+        help="Separate model to adjudicate multiple-model outputs. Required for multi-model usage."
+    )
+    parser_pic2text.add_argument(
+        "--judge-mode",
+        type=str,
+        default="authoritative",
+        help="Judge mode. Currently only 'authoritative' is implemented."
+    )
+    # Placeholders for future ensemble logic
+    parser_pic2text.add_argument(
+        "--ensemble-strategy",
+        type=str,
+        default=None,
+        help="(Placeholder) Ensemble strategy. E.g., 'majority-vote', 'similarity-merge'. Not currently active."
+    )
+    parser_pic2text.add_argument(
+        "--trust-score",
+        type=float,
+        default=None,
+        help="(Placeholder) Per-model weighting factor in ensemble or judge. Not currently active."
+    )
+
+    # NEW argument: feed the judge the image (optional)
+    parser_pic2text.add_argument(
+        "--judge-with-image",
+        action="store_true",
+        default=False,
+        help="If set, the judge model will also receive the base64-encoded image to help pick the best text."
+    )
+
+    parser_pic2text.set_defaults(func=images_to_text)
+
+    parser_pdf2text = subparsers.add_parser(
+        "pdf2text",
+        help="Convert a PDF directly to text in one step (without creating an Anki deck)."
+    )
+
+    # 1. Arguments for the PDF → Images step:
+    parser_pdf2text.add_argument("pdf_path", type=str, help="Path to the PDF file.")
+
+    parser_pdf2text.add_argument("output_dir", type=str, help="Directory  to store and read generated images.")
+ 
+    parser_pdf2text.add_argument(
+        "rectangles",
+        type=str,
+        nargs="*",
+        default=[],
+        help="Zero or more rectangles to crop, each in 'left,top,right,bottom' format."
+    )
+     # 2. Arguments for the Images → Text step:
+    parser_pdf2text.add_argument("output_file", type=str, help="File path to save extracted text.")
+
+    # 3. Optional OCR flags (same as pic2text):
+    parser_pdf2text.add_argument(
+        "--model",
+        action="append",
+        default=[],
+        help="Name of an OCR model to use. Can be specified multiple times."
+    )
+    parser_pdf2text.add_argument(
+        "--repeat",
+        action="append",
+        type=int,
+        default=[],
+        help="Number of times to call each model per image (default=1)."
+    )
+    parser_pdf2text.add_argument(
+        "--judge-model",
+        type=str,
+        default=None,
+        help="Separate model to adjudicate multiple outputs."
+    )
+    parser_pdf2text.add_argument(
+        "--judge-mode",
+        type=str,
+        default="authoritative",
+        help="Judge mode. Currently only 'authoritative' is implemented."
+    )
+    parser_pdf2text.add_argument(
+        "--ensemble-strategy",
+        type=str,
+        default=None,
+        help="(Placeholder) Ensemble strategy, e.g., 'majority-vote'. Not active yet."
+    )
+    parser_pdf2text.add_argument(
+        "--trust-score",
+        type=float,
+        default=None,
+        help="(Placeholder) Per-model weighting factor. Not currently active."
+    )
+    parser_pdf2text.add_argument(
+        "--judge-with-image",
+        action="store_true",
+        default=False,
+        help="If set, the judge model also receives the base64-encoded image."
+    )
+
+    parser_pdf2text.set_defaults(func=pdf_to_text)
+
+
+
+    # Text to Anki Command
+    parser_text2anki = subparsers.add_parser(
+        "text2anki",
+        help="Convert extracted text into an Anki-compatible format.",
+        description="This command takes a text file and formats its contents as Anki flashcards, outputting an Anki package file."
+    )
+    parser_text2anki.add_argument("text_file", type=str, help="Path to the text file with content for Anki cards.")
+    parser_text2anki.add_argument("anki_file", type=str, help="Output path for the Anki package file.")
+    parser_text2anki.add_argument("anki_model", type=str, help="OpenRouter model to use for generating Anki cards.")
+    parser_text2anki.set_defaults(func=text_to_anki)
+
+    # Full Pipeline Command
+    parser_process = subparsers.add_parser(
+        "process",
+        help="Run the entire pipeline: PDF to Images, Images to Text, and Text to Anki.",
+        description="This command automates the full process of converting a PDF to Anki flashcards."
+    )
+    parser_process.add_argument("pdf_path", type=str, help="Path to the PDF file.")
+    parser_process.add_argument("output_dir", type=str, help="Directory to save intermediate images.")
+    parser_process.add_argument("anki_file", type=str, help="Output path for the final Anki package file.")
+    
+    # Add OCR arguments to process command
+    parser_process.add_argument(
+        "--model",
+        action="append",
+        default=[],
+        help="Name of an OCR model to use. Can be specified multiple times for multiple models."
+    )
+    parser_process.add_argument(
+        "--repeat",
+        action="append",
+        type=int,
+        default=[],
+        help="Number of times to call each model per image (default=1)."
+    )
+    parser_process.add_argument(
+        "--judge-model",
+        type=str,
+        default=None,
+        help="Separate model to adjudicate multiple-model outputs. Required for multi-model usage."
+    )
+    parser_process.add_argument(
+        "--judge-mode",
+        type=str,
+        default="authoritative",
+        help="Judge mode. Currently only 'authoritative' is implemented."
+    )
+    parser_process.add_argument(
+        "--ensemble-strategy",
+        type=str,
+        default=None,
+        help="(Placeholder) Ensemble strategy. E.g., 'majority-vote', 'similarity-merge'. Not currently active."
+    )
+    parser_process.add_argument(
+        "--trust-score",
+        type=float,
+        default=None,
+        help="(Placeholder) Per-model weighting factor in ensemble or judge. Not currently active."
+    )
+    parser_process.add_argument(
+        "--judge-with-image",
+        action="store_true",
+        default=False,
+        help="If set, the judge model will also receive the base64-encoded image to help pick the best text."
+    )
+    parser_process.set_defaults(func=process_pdf_to_anki)
+
+    args = parser.parse_args()
+
+    if args.command:
+        args.func(args)
     else:
-        print("Unknown command. Use 'generate' or 'validate'.")
-        sys.exit(1)
+        parser.print_help()
+
 
 if __name__ == "__main__":
     cli_invoke()
+
 ----- END OF .\pdf2anki\core.py -----
 
 
 ----- START OF .\pdf2anki\pdf2pic.py -----
 """
-This software is licensed under the terms specified in LICENSE,
+This software is licensed under the terms specified in LICENSE.txt,
 authored by Martin Krause.
 
 Usage is limited to:
@@ -420,13 +2028,316 @@ Usage is limited to:
 For commercial usage, including server deployments, please contact:
 martinkrausemedia@gmail.com
 
-Refer to the NOTICE file for dependencies and third-party libraries used.
+Refer to the NOTICE.txt file for dependencies and third-party libraries used.
 """
 
-from .core import cli_invoke
+import pymupdf  # PyMuPDF also known as fitz
+import fitz     # We'll use "fitz" for certain PDF-specific calls
+from PIL import Image
+import os
+import sys
+from typing import List, Tuple, Optional
+
+def find_acceptable_dpi(
+    page,
+    output_path: str,
+    initial_dpi: int,
+    format_str: str = "PNG"
+) -> int:
+    """
+    Iteratively find a DPI that results in an image size between ~750KB and 800KB,
+    starting with 'initial_dpi'. Uses a divide-and-conquer approach.
+    """
+    import os
+    import math
+    import fitz
+    from PIL import Image
+    
+    lower_dpi = 50
+    upper_dpi = initial_dpi
+    acceptable_dpi = initial_dpi
+
+    while lower_dpi <= upper_dpi:
+        mid_dpi = (lower_dpi + upper_dpi) // 2
+        zoom = mid_dpi / 72.0
+        mat = fitz.Matrix(zoom, zoom)
+        pix = page.get_pixmap(matrix=mat, alpha=False)
+        img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+
+        # Save temporarily in memory (or to a temp file) to check size
+        temp_path = output_path + ".temp"
+        img.save(temp_path, format=format_str, dpi=(mid_dpi, mid_dpi))
+        size_kb = os.path.getsize(temp_path) / 1024
+
+        print(f"[DEBUG] Tried {mid_dpi} dpi => {size_kb:.1f} KB")
+
+        if 750 <= size_kb < 800:
+            print(f"[DEBUG] Found acceptable size {size_kb:.1f} KB at {mid_dpi} dpi")
+            acceptable_dpi = mid_dpi
+            break
+        elif size_kb >= 800:
+            # reduce dpi
+            upper_dpi = mid_dpi - 1
+        else:
+            # size < 750
+            acceptable_dpi = mid_dpi  # might still be best so far
+            lower_dpi = mid_dpi + 1
+
+    # Clean up temporary file
+    if os.path.exists(temp_path):
+        os.remove(temp_path)
+
+    return acceptable_dpi
+
+def convert_pdf_to_images(
+    pdf_path: str,
+    output_dir: str,
+    target_dpi: int = 300,
+    rectangles: Optional[List[Tuple[int, int, int, int]]] = None
+) -> List[str]:
+    """
+    Convert each page of a PDF to a full-page image at 'target_dpi'.
+    
+    If 'rectangles' are specified, each rectangle is given in 300-dpi coordinates.
+    For maximum cropping quality:
+      1) We first create a 300-dpi full-page image as before.
+      2) We convert the rectangle coordinates to percentages relative to
+         this 300-dpi image's width/height.
+      3) We then re-render that same PDF page at high resolution (capped at 2400 dpi)
+         and crop at those same percentages to achieve maximum detail.
+      4) We save each cropped image at the same high dpi (up to 2400).
+      5) Finally, we assemble all cropped images into 'recrop.pdf'.
+
+    Args:
+        pdf_path: Path to the PDF file
+        output_dir: Directory to store the generated images
+        target_dpi: The DPI for the main page images, defaults to 300
+        rectangles: Optional list of (left, top, right, bottom) tuples in 300-dpi coordinates
+    
+    Returns:
+        List[str]: Paths to all generated images (full-page + cropped)
+    """
+
+    # Extract the base name of the PDF file
+    pdf_base_name = os.path.splitext(os.path.basename(pdf_path))[0]  # e.g., "example"
+
+    os.makedirs(output_dir, exist_ok=True)
+    images = []         # paths to all generated images
+    cropped_images = [] # paths to only the cropped images
+
+    # We'll treat rectangle coords as 300-dpi-based. If user has rectangles,
+    # we do a second pass at up to 2400 dpi for maximum detail.
+    # e.g. if the user asked for target_dpi=600, we can still go up to 2400 for cropping.
+    # If user asked for target_dpi=1200, we keep 1200 for the full page,
+    # but for cropping we do min(2400, 1200) -> 1200. 
+    # Or if user asked for 72 (very low), we still do 2400 for the cropping.
+    hi_dpi = max(target_dpi, 300)  # at least 300
+    if rectangles:
+        hi_dpi = min(1200, max(300, target_dpi * 10))
+        # ^ For demonstration, we pick 'target_dpi * 10' just as an example factor.
+        #   Or simply: hi_dpi = 2400  # always, if rectangles exist
+
+    with pymupdf.open(pdf_path) as pdf:
+        for page_num, page in enumerate(pdf, start=1):
+            # ======================
+            # 1) Render at target_dpi for the full-page image
+            # ======================
+            zoom_300 = target_dpi / 72.0
+            mat_300 = fitz.Matrix(zoom_300, zoom_300)
+            pix_300 = page.get_pixmap(matrix=mat_300, alpha=False)
+            img_300 = Image.frombytes("RGB", (pix_300.width, pix_300.height), pix_300.samples)
+
+            # Save the main full-page image
+            img_path = os.path.join(output_dir, f"page_{page_num}.png")
+
+            # If rectangles are provided, skip the regular page save
+            if not rectangles:            
+                # ======================
+                # Use the new helper to find acceptable dpi
+                # ======================
+                chosen_dpi = find_acceptable_dpi(page, img_path, target_dpi, "PNG")
+                zoom_chosen = chosen_dpi / 72.0
+                mat_chosen = fitz.Matrix(zoom_chosen, zoom_chosen)
+                pix_chosen = page.get_pixmap(matrix=mat_chosen, alpha=False)
+                img_chosen = Image.frombytes("RGB", (pix_chosen.width, pix_chosen.height), pix_chosen.samples)
+                img_chosen.save(img_path, format="PNG", dpi=(chosen_dpi, chosen_dpi))
+                print(f"Saved page {page_num} at final {chosen_dpi} dpi: {img_path}")
+                images.append(img_path)
+
+            # If no rectangles, skip cropping
+            if not rectangles:
+                continue
+
+            # ======================
+            # 2) Convert each rect to fractional coords
+            #    relative to 300-dpi image dimension
+            # ======================
+            width_300, height_300 = img_300.size
+            fractional_rects = []
+            for (left_300, top_300, right_300, bottom_300) in rectangles:
+                frac_left   = left_300 / width_300
+                frac_top    = top_300 / height_300
+                frac_right  = right_300 / width_300
+                frac_bottom = bottom_300 / height_300
+
+                # clamp fractions in [0.0, 1.0] just to be safe
+                frac_left   = max(0.0, min(frac_left, 1.0))
+                frac_top    = max(0.0, min(frac_top, 1.0))
+                frac_right  = max(0.0, min(frac_right, 1.0))
+                frac_bottom = max(0.0, min(frac_bottom, 1.0))
+
+                fractional_rects.append((frac_left, frac_top, frac_right, frac_bottom))
+
+            # ======================
+            # 3) Render at hi_dpi for maximum quality
+            # ======================
+            zoom_hi = hi_dpi / 72.0
+            mat_hi = fitz.Matrix(zoom_hi, zoom_hi)
+            pix_hi = page.get_pixmap(matrix=mat_hi, alpha=False)
+            img_hi = Image.frombytes("RGB", (pix_hi.width, pix_hi.height), pix_hi.samples)
+
+            # ======================
+            # 4) Crop each fractional rect from the hi-res image
+            #    and save at hi_dpi
+            # ======================
+            hi_w, hi_h = img_hi.size
+
+            for i, (fl, ft, fr, fb) in enumerate(fractional_rects, start=1):
+                # scale fractional coords to hi-res pixel coords
+                left_px   = int(round(fl * hi_w))
+                top_px    = int(round(ft * hi_h))
+                right_px  = int(round(fr * hi_w))
+                bottom_px = int(round(fb * hi_h))
+
+                cropped = img_hi.crop((left_px, top_px, right_px, bottom_px))
+                cropped_path = os.path.join(output_dir, f"page_{page_num}_crop_{i}.jpg")
+                
+                # Save with hi_dpi
+                cropped.save(cropped_path, format="JPEG", quality=100, dpi=(hi_dpi, hi_dpi))
+                print(f"  Cropped rectangle {i} saved at {hi_dpi} dpi: {cropped_path}")
+
+                images.append(cropped_path)
+                cropped_images.append(cropped_path)
+
+    # ======================
+    # 5) Create "recrop.pdf" if we have any cropped images
+    # ======================
+    if cropped_images:
+        create_recrop_pdf(cropped_images, output_dir, pdf_base_name)
+        print(f"Created {pdf_base_name}_recrop.pdf from all cropped images.\n")
+
+    return images
+
+
+def create_recrop_pdf(
+    cropped_paths: List[str],
+    output_dir: str,
+    pdf_base_name: str
+) -> None:
+    """
+    Create '{pdf_base_name}_recrop.pdf' from the given list of cropped image paths,
+    placing each on a separate A4 page. Automatically choose landscape
+    if the image is wider than tall, else portrait.
+
+    Args:
+        cropped_paths: List of paths to cropped image files
+        output_dir: Directory to save the recrop PDF
+        pdf_base_name: Base name for the output PDF file
+    """
+    pdf_doc = fitz.open()  # new, empty PDF
+    A4_PORTRAIT = (595, 842)   # width, height in points
+    A4_LANDSCAPE = (842, 595)  # width, height in points
+
+    for cropped_path in cropped_paths:
+        with Image.open(cropped_path) as im:
+            w, h = im.size
+            # Choose orientation
+            if w > h:
+                page = pdf_doc.new_page(width=A4_LANDSCAPE[0], height=A4_LANDSCAPE[1])
+                target_width, target_height = A4_LANDSCAPE
+            else:
+                page = pdf_doc.new_page(width=A4_PORTRAIT[0], height=A4_PORTRAIT[1])
+                target_width, target_height = A4_PORTRAIT
+
+            # Scale image so it fits within the page
+            scale = min(target_width / w, target_height / h)
+            new_w = w * scale
+            new_h = h * scale
+
+            # Center it on the page
+            x0 = (target_width - new_w) / 2
+            y0 = (target_height - new_h) / 2
+            x1 = x0 + new_w
+            y1 = y0 + new_h
+
+            # Insert the image
+            page.insert_image(fitz.Rect(x0, y0, x1, y1), filename=cropped_path)
+
+    recrop_pdf_path = os.path.join(output_dir, f"{pdf_base_name}_recrop.pdf")
+    pdf_doc.save(recrop_pdf_path)
+    pdf_doc.close()
+
+
+def parse_rectangle(rect_str: str) -> Tuple[int, int, int, int]:
+    """
+    Parse a rectangle string "left,top,right,bottom" into a tuple of ints.
+    These coords are assumed to be based on 300 dpi space.
+
+    Args:
+        rect_str: String in format "left,top,right,bottom"
+    
+    Returns:
+        Tuple[int, int, int, int]: (left, top, right, bottom) coordinates
+        
+    Raises:
+        ValueError: If string format is invalid
+    """
+    coords = rect_str.split(",")
+    if len(coords) != 4:
+        raise ValueError(
+            f"Invalid rectangle definition '{rect_str}'. "
+            "Expected format: 'left,top,right,bottom'."
+        )
+    left, top, right, bottom = map(int, coords)
+    return (left, top, right, bottom)
+
 
 if __name__ == "__main__":
-    cli_invoke()
+    """
+    Usage:
+      python pdf2pic.py [pdf_path] [output_dir]
+      python pdf2pic.py [pdf_path] [output_dir] "left,top,right,bottom" [...]
+    
+    You may specify up to four rectangles, each as a comma-separated string
+    denoting (left,top,right,bottom) in 300 dpi coordinates.
+
+    - A full-page PNG is created for each page at 'target_dpi' (default=300).
+    - If rectangles are specified, those coords are converted to percentages
+      relative to a 300-dpi render, and a second pass is made at up to 2400 dpi
+      for maximum cropping fidelity. Then a 'recrop.pdf' is created from all
+      cropped images, placing each on its own page in either portrait or
+      landscape orientation.
+    """
+    if len(sys.argv) < 3:
+        print("Usage: python pdf2pic.py [pdf_path] [output_dir] [rect1] [rect2] [rect3] [rect4]")
+        sys.exit(1)
+
+    pdf_path = sys.argv[1]
+    output_dir = sys.argv[2]
+
+    # Parse up to 4 rectangle arguments (if present)
+    rectangles = []
+    if len(sys.argv) > 3:
+        for arg in sys.argv[3:7]:  # up to 4 additional args
+            rectangles.append(parse_rectangle(arg))
+
+    convert_pdf_to_images(
+        pdf_path,
+        output_dir,
+        target_dpi=300,  # or set any default you like
+        rectangles=rectangles
+    )
+
 ----- END OF .\pdf2anki\pdf2pic.py -----
 
 
@@ -445,56 +2356,389 @@ martinkrausemedia@gmail.com
 
 Refer to the NOTICE file for dependencies and third-party libraries used.
 
-Code partially from https://pub.towardsai.net/enhance-ocr-with-llama-3-2-vision-using-ollama-0b15c7b8905c
+Code partially from:
+  https://pub.towardsai.net/enhance-ocr-with-llama-3-2-vision-using-ollama-0b15c7b8905c
 """
 
-from .core import cli_invoke
-
-from PIL import Image
+import os
+import re
+import requests
+import json
+import traceback
 import base64
 import io
-import ollama
+import shutil
+from datetime import datetime
+from PIL import Image
+from dotenv import load_dotenv
+import asyncio
+from typing import List, Tuple, Optional
 
-def _image_to_base64(image_path):
-    # Open the image file
+# Load environment variables (e.g., OPENROUTER_API_KEY) from .env if present
+load_dotenv()
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+
+# --------------------------------------------------------------------
+# Default log basename patterns and extension (unique filenames will be created)
+DEFAULT_OCR_LOG_BASENAME = "ocr"
+DEFAULT_JUDGE_LOG_BASENAME = "decisionmaking"
+LOG_EXTENSION = ".log"
+# --------------------------------------------------------------------
+
+
+def extract_page_number(filename: str) -> int:
+    """
+    Helper function to extract a page index from a filename
+    with pattern 'page_<NUM>'. If not found, returns +inf for sorting.
+    """
+    match = re.search(r'page_(\d+)', filename)
+    return int(match.group(1)) if match else float('inf')
+
+
+def _image_to_base64(image_path: str) -> str:
+    """
+    Converts an image to a base64-encoded string for inclusion in OpenRouter calls.
+    """
     with Image.open(image_path) as img:
-        # Create a BytesIO object to hold the image data
         buffered = io.BytesIO()
-        # Save the image to the BytesIO object in a specific format (e.g., JPEG)
         img.save(buffered, format="PNG")
-        # Get the byte data from the BytesIO object
         img_bytes = buffered.getvalue()
-        # Encode the byte data to base64
-        img_base64 = base64.b64encode(img_bytes).decode('utf-8')
-        return img_base64
+    return base64.b64encode(img_bytes).decode("utf-8")
 
-def convert(image_path='image.png'):
-    # Example usage
-    #image_path = 'image.png'  # Replace with your image path
-    base64_image = _image_to_base64(image_path)
 
-    # Use Ollama to clean and structure the OCR output
-    response = ollama.chat(
-        model="x/llama3.2-vision:latest",
-        messages=[{
-        "role": "user",
-        "content": "The image is a slide from a presentation. Output should be in this format - <Textual content>: <Text>,<Visual content>: <Visual description>. Do not output anything else",
-        "images": [base64_image]
-        }],
-    )
-    # Extract cleaned text
-    cleaned_text = response['message']['content'].strip()
-    print(cleaned_text)
+def _post_ocr_request(model_name: str, base64_image: str, ocr_log_file: str) -> str:
+    """
+    Posts an OCR request to the OpenRouter API using the specified model_name.
+    Returns the text output if successful, or raises an exception on errors.
+    Logs details in the provided ocr_log_file.
+    """
+    start_time = datetime.now()
+    request_payload = {
+        "model": model_name,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        "**Critical Task:** Perform a complete and lossless textual reconstruction of the "
+                        "provided image. You are acting as a perfect digital transcriber with visual "
+                        "understanding capabilities.  **Input:** A single image.  **Mandatory Output "
+                        "Requirements:**  1.  **Text Transcription (Verbatim & Formatted):**     * "
+                        "Extract **every single character** of text exactly as it appears. Do not "
+                        "summarize or paraphrase.     *   Replicate formatting using Markdown: "
+                        "`**Bold**`, `*Italic*`, `- Unordered List`, `1. Ordered List`, ` ``` Code Block "
+                        "``` `, standard Markdown tables.     *   Represent mathematical content "
+                        "accurately: Use `<math>LaTeX expression</math>` for inline math and `<math "
+                        "display=\"block\">LaTeX expression</math>` for display/block equations. Ensure "
+                        "LaTeX is KaTeX compatible.     *   Preserve meaningful line breaks and paragraph "
+                        "structures.  2.  **Visual Element Identification & Detailed Description:**     * "
+                        "Identify **all** non-text elements: photographs, illustrations, charts (bar, "
+                        "line, pie, etc.), diagrams (flowcharts, schematics, etc.), icons, logos, and "
+                        "significant layout features (columns, borders, headers, footers if visually "
+                        "distinct from main text).     *   For each visual element, provide a **detailed "
+                        "textual description** embedded at the precise location it appears relative to "
+                        "the text. Use the format `[Visual Description: <Detailed Description Here>]`. "
+                        "*   **Description Content:**         *   **Type:** Explicitly state the type "
+                        "(e.g., \"bar chart,\" \"photograph of a cat,\" \"flowchart\").         * "
+                        "**Content:** Describe what is depicted. For data visualizations, include title, "
+                        "axis labels, data values/series/trends visible in the image. For diagrams, "
+                        "describe components, labels, and connections. For photos/illustrations, describe "
+                        "the subject, setting, and key details.         *   **Semantic Context:** Briefly "
+                        "explain the element's apparent purpose or relationship to the adjacent text "
+                        "(e.g., \"illustrating the previous paragraph's point,\" \"providing data for the "
+                        "analysis below,\" \"company logo\").  3.  **Integration:** Combine the transcribed "
+                        "text and the bracketed visual descriptions into a **single Markdown output**. "
+                        "The flow and structure should mirror the original image layout as closely as "
+                        "textually possible.  **Constraint:** Do not omit *any* text or visual element. "
+                        "Strive for absolute completeness and accuracy in both transcription and "
+                        "description. The final output must be a comprehensive textual representation "
+                        "capturing the full informational content of the image.  Use the original "
+                        "language e.g. german. Avoid unnecessary translation to english. "
+                    )
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{base64_image}"}
+                }
+            ]
+        }]
+    }
+
+    response_data = None
+    try:
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            data=json.dumps(request_payload),
+            timeout=60  # 1-minute timeout, adjustable
+        )
+        response.raise_for_status()
+        response_data = response.json()
+        cleaned_text = response_data["choices"][0]["message"]["content"].strip()
+    except Exception as exc:
+        with open(ocr_log_file, "a", encoding="utf-8") as lf:
+            lf.write(
+                f"\n[ERROR OCR CALL] {datetime.now().isoformat()}\n"
+                f"Model: {model_name}\n"
+                f"Exception: {str(exc)}\n"
+                f"Traceback:\n{traceback.format_exc()}\n"
+                f"Request (truncated): {str(request_payload)[:120]!r}\n"
+                f"Response (not truncated): {str(response_data)!r}\n"
+                "-----------------------------------------\n"
+            )
+        raise
+
+    end_time = datetime.now()
+    duration = (end_time - start_time).total_seconds()
+
+    with open(ocr_log_file, "a", encoding="utf-8") as lf:
+        lf.write(
+            f"\n[OCR CALL] {start_time.isoformat()} => {end_time.isoformat()} ({duration:.2f}s)\n"
+            f"Model: {model_name}\n"
+            f"Request: <base64 image omitted>\n"
+            f"Response (truncated): {cleaned_text[:120]!r}\n"
+            "-----------------------------------------\n"
+        )
+
     return cleaned_text
 
-if __name__ == "__main__":
-    cli_invoke()
+
+def _post_judge_request(
+    judge_model: str,
+    model_outputs: List[str],
+    image_name: str,
+    model_info: List[Tuple[str, int]],  # list of (model_name, attempt_number)
+    judge_decision_log_file: str,
+    base64_image: Optional[str] = None,
+    with_image: bool = False
+) -> str:
+    """
+    Enhanced judge request with candidate formatting.
+    Logs the judge decision in the provided judge_decision_log_file.
+    """
+    enumerations = []
+    for idx, (text_candidate, (model, repeat)) in enumerate(zip(model_outputs, model_info), 1):
+        enum = f"{idx}) [{model} : attempt {repeat}]\n"
+        enum += "+" * 5 + f"[{model} : attempt {repeat}] START" + "+" * 5 + "\n"
+        enum += text_candidate
+        enum += "\n" + "-" * 5 + f"[{model} : attempt {repeat}] END" + "-" * 5 + "\n"
+        enumerations.append(enum)
+    
+    enumerations_str = "\n\n".join(enumerations)
+
+    content_blocks = []
+    if with_image and base64_image:
+        content_blocks.append({
+            "type": "text",
+            "text": "Here is the reference image to help you judge correctness."
+        })
+        content_blocks.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{base64_image}"}
+        })
+
+    main_prompt = (
+        "Below are OCR outputs from different models or repeated attempts.\n"
+        "Each is formatted as: [MODEL-NAME : attempt NUMBER]\n"
+        "---\n\n"
+        f"{enumerations_str}\n\n"
+        "---\n"
+        "Please select the single most accurate and most complete text result.\n"
+        "Output ONLY the chosen text, without the model name or attempt number."
+    )
+    content_blocks.append({"type": "text", "text": main_prompt})
+
+    request_payload = {
+        "model": judge_model,
+        "messages": [{
+            "role": "user",
+            "content": content_blocks
+        }]
+    }
+
+    start_time = datetime.now()
+    try:
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            data=json.dumps(request_payload),
+            timeout=60
+        )
+        response.raise_for_status()
+        response_data = response.json()
+        final_text = response_data["choices"][0]["message"]["content"].strip()
+    except Exception as exc:
+        with open(judge_decision_log_file, "a", encoding="utf-8") as df:
+            df.write(
+                f"\n[Judge Decision ERROR] {datetime.now().isoformat()}\n"
+                f"Image: {image_name}\n"
+                f"Model Outputs: {model_outputs}\n"
+                f"Exception: {str(exc)}\n"
+                f"Traceback:\n{traceback.format_exc()}\n"
+                "-------------------------------------\n"
+            )
+        raise
+
+    end_time = datetime.now()
+    duration = (end_time - start_time).total_seconds()
+
+    with open(judge_decision_log_file, "a", encoding="utf-8") as df:
+        df.write(
+            f"\n[Judge Decision] {start_time.isoformat()} => {end_time.isoformat()} ({duration:.2f}s)\n"
+            f"Image: {image_name}\n"
+            "Decision Prompt:\n"
+        )
+        for block in content_blocks:
+            if block["type"] == "text":
+                df.write(f"{block['text']}\n")
+        df.write("\n" + "+" * 10 + "JUDGE PICK START" + "+" * 10 + "\n")
+        df.write(f"{final_text}\n")
+        df.write("#" * 10 + "JUDGE PICK END" + "#" * 10 + "\n")
+
+    return final_text
+
+
+def _archive_old_logs(output_file: str, log_files: List[str]) -> None:
+    """
+    Archives each log file (if it exists) by moving it into a 'log_archive'
+    folder next to the output_file. Works correctly with unique log filenames.
+    """
+    archive_folder = os.path.join(os.path.dirname(output_file), "log_archive")
+    os.makedirs(archive_folder, exist_ok=True)
+
+    for log_file in log_files:
+        if os.path.exists(log_file):
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            base = os.path.splitext(os.path.basename(log_file))[0]
+            archived_name = f"{base}_{timestamp}{LOG_EXTENSION}"
+            shutil.move(log_file, os.path.join(archive_folder, archived_name))
+
+
+def convert_images_to_text(
+    images_dir: str,
+    output_file: str,
+    model_repeats: List[Tuple[str, int]],  # list of tuples (modelName, repeatCount)
+    judge_model: Optional[str] = None,
+    judge_mode: str = "authoritative",
+    ensemble_strategy: Optional[str] = None,
+    trust_score: Optional[float] = None,
+    judge_with_image: bool = False
+) -> str:
+    """Main driver function to perform OCR on a directory of images."""
+    
+    if not model_repeats:
+        raise ValueError("No OCR model specified. Provide at least one model.")
+        
+    distinct_models = list(set(model for model, _ in model_repeats))
+    total_calls = sum(repeat_count for _, repeat_count in model_repeats)
+    
+    if len(distinct_models) > 1 and not judge_model:
+        raise ValueError(
+            "Multiple models supplied but no judge model specified.\n"
+            "Provide --judge-model or reduce to a single model."
+        )
+    if len(distinct_models) == 1 and total_calls > 1 and not judge_model:
+        raise ValueError(
+            "Single model with multiple repeats requires a judge model.\n"
+            "Please provide --judge-model to select best result from repeated calls."
+        )
+
+    # Clear the output file.
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write("")
+
+    processed_count = 0
+
+    # Determine the output directory.
+    output_dir = os.path.dirname(os.path.abspath(output_file))
+    # Get and sanitize the base name of the output file (without extension).
+    # Replace any character that is not a letter, digit, or underscore with an underscore
+    file_name = re.sub(r'\W+', '_', os.path.basename(output_file).split(".")[0])
+    # Create a unique identifier for this instance (timestamp + process ID).
+    instance_id = file_name + "_" + datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + str(os.getpid())
+    # Create unique log filenames.
+    ocr_log_file = os.path.join(output_dir, f"{DEFAULT_OCR_LOG_BASENAME}_{instance_id}{LOG_EXTENSION}")
+    judge_decision_log_file = os.path.join(output_dir, f"{DEFAULT_JUDGE_LOG_BASENAME}_{instance_id}{LOG_EXTENSION}")
+
+    # Gather and sort image files.
+    image_files = [
+        f for f in os.listdir(images_dir)
+        if f.lower().endswith((".png", ".jpg", ".jpeg"))
+    ]
+    image_files.sort(key=extract_page_number)
+
+    async def _parallel_ocr(model_repeats_list: List[Tuple[str, int]], base64_img: str) -> Tuple[List[str], List[Tuple[str, int]]]:
+        """
+        Create OCR tasks based on (model, repeat) pairs.
+        Returns results along with info on which model/attempt produced each result.
+        """
+        loop = asyncio.get_event_loop()
+        tasks = []
+        model_info = []  # To track (model_name, attempt_number)
+        for model_name, repeat_count in model_repeats_list:
+            for repeat_num in range(repeat_count):
+                tasks.append(
+                    loop.run_in_executor(None, _post_ocr_request, model_name, base64_img, ocr_log_file)
+                )
+                model_info.append((model_name, repeat_num + 1))
+        results = await asyncio.gather(*tasks)
+        return results, model_info
+
+    for image_name in image_files:
+        image_path = os.path.join(images_dir, image_name)
+        final_text = ""
+        base64_image = None
+
+        try:
+            base64_image = _image_to_base64(image_path)
+            all_candidates, candidate_info = asyncio.run(_parallel_ocr(model_repeats, base64_image))
+
+            if len(distinct_models) == 1 and total_calls == 1:
+                final_text = all_candidates[0] if all_candidates else ""
+            else:
+                final_text = _post_judge_request(
+                    judge_model=judge_model,
+                    model_outputs=all_candidates,
+                    model_info=candidate_info,
+                    image_name=image_name,
+                    judge_decision_log_file=judge_decision_log_file,
+                    base64_image=base64_image if judge_with_image else None,
+                    with_image=judge_with_image
+                )
+
+            with open(output_file, "a", encoding="utf-8") as f:
+                if processed_count > 0:
+                    f.write("\n\n")
+                f.write(f"Image: {image_name}\n{final_text}")
+
+            processed_count += 1
+            print(f"Processed and saved {image_name}.")
+
+        except Exception as e:
+            print(f"Error processing {image_name}: {str(e)}")
+            with open(output_file, "a", encoding="utf-8") as f:
+                if processed_count > 0:
+                    f.write("\n\n")
+                f.write(f"Error processing {image_name}: {str(e)}\n{traceback.format_exc()}")
+            continue
+
+    _archive_old_logs(output_file, [ocr_log_file, judge_decision_log_file])
+    print(f"OCR results saved to {output_file}. Processed {processed_count} images.")
+    return output_file
+
 ----- END OF .\pdf2anki\pic2text.py -----
 
 
 ----- START OF .\pdf2anki\text2anki.py -----
 """
-This software is licensed under the terms specified in LICENSE,
+This software is licensed under the terms specified in LICENSE.txt,
 authored by Martin Krause.
 
 Usage is limited to:
@@ -505,13 +2749,215 @@ Usage is limited to:
 For commercial usage, including server deployments, please contact:
 martinkrausemedia@gmail.com
 
-Refer to the NOTICE file for dependencies and third-party libraries used.
+Refer to the NOTICE.txt file for dependencies and third-party libraries used.
 """
 
-from .core import cli_invoke
+import os
+import sys
+import json
+import requests
+import traceback
+import shutil
+from datetime import datetime
+import genanki
+import argparse
+from dotenv import load_dotenv
+import re
 
-if __name__ == "__main__":
-    cli_invoke()
+# Load environment variables (e.g., OPENROUTER_API_KEY) from .env if present
+load_dotenv()
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+
+# --- Helpers for unique log filenames and sanitization ---
+LOG_EXTENSION = ".log"
+DEFAULT_ANKI_LOG_BASENAME = "anki_generation"
+
+def sanitize_filename(filename: str) -> str:
+    """
+    Replace any character that is not alphanumeric or underscore with an underscore.
+    """
+    return re.sub(r'\W+', '_', filename)
+
+def get_unique_log_file(output_file: str, base: str = DEFAULT_ANKI_LOG_BASENAME) -> str:
+    """
+    Create a unique log filename based on the output file's basename,
+    the current timestamp, and the process ID.
+    """
+    output_dir = os.path.dirname(os.path.abspath(output_file))
+    file_name = sanitize_filename(os.path.basename(output_file).split(".")[0])
+    instance_id = file_name + "_" + datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + str(os.getpid())
+    return os.path.join(output_dir, f"{base}_{instance_id}{LOG_EXTENSION}")
+
+# --- End helper section ---
+
+def _post_openrouter_for_anki(model_name: str, text_content: str, anki_log_file: str) -> str:
+    """
+    Posts a request to OpenRouter to generate context-aware Anki card templates.
+    Expected response is a JSON string representing a list of cards (each a dict with 'front' and 'back' keys).
+
+    This function logs request and response details to the provided log file.
+    After retrieving the response, it cleans the text by:
+      - Removing any text before the first "{" and after the last "}".
+      - Wrapping the result in [ ... ] if it does not already begin with a square bracket.
+    """
+    start_time = datetime.now()
+    
+    # Prepare the prompt in two content blocks.
+    request_payload = {
+        "model": model_name,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        "You are an expert education content generator. Analyze the following text and generate a list of Anki cards "
+                        "that best help a learner understand the content. Depending on the context, produce cards that either explain key concepts, "
+                        "give step-by-step guidance for algorithms, provide mathematical formulas with explanations. "
+                        "Be sure to include cover information. "
+                        "If you have the choice between more detailed card or multiple cards, prefer the one overview card and multiple detailed cards. "
+                        "Rather make too many cards than too few. "
+                        "Use the original language e.g. german. Avoid unnecessary translation to english. Always keep technical terms in their provided language. "
+                        "Output the result as a JSON list, e.g.: "
+                        '[{"front": "Card front text", "back": "Card back text"}, ...]. '
+                        "Do not include any additional commentary."
+                    )
+                },
+                {
+                    "type": "text",
+                    "text": f"Content:\n{text_content}"
+                }
+            ]
+        }]
+    }
+    
+    try:
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            data=json.dumps(request_payload),
+            timeout=60  # 1-minute timeout, adjustable as needed
+        )
+        response.raise_for_status()
+        response_data = response.json()
+        result_text = response_data["choices"][0]["message"]["content"].strip()
+        
+        # Remove any extraneous text before the first "{" and after the last "}"
+        first_brace = result_text.find("{")
+        last_brace = result_text.rfind("}")
+        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+            result_text = result_text[first_brace:last_brace+1]
+        
+        # If the result does not start with '[' then assume it's a list of JSON objects separated by commas.
+        # Wrap the result in square brackets so that json.loads() succeeds.
+        if not result_text.startswith('['):
+            result_text = "[" + result_text + "]"
+        
+    except Exception as exc:
+        with open(anki_log_file, "a", encoding="utf-8") as lf:
+            lf.write(
+                f"\n[ERROR ANKI GENERATION] {datetime.now().isoformat()}\n"
+                f"Model: {model_name}\n"
+                f"Exception: {str(exc)}\n"
+                f"Traceback:\n{traceback.format_exc()}\n"
+                "-----------------------------------------\n"
+            )
+        raise
+
+    end_time = datetime.now()
+    duration = (end_time - start_time).total_seconds()
+    
+    with open(anki_log_file, "a", encoding="utf-8") as lf:
+        lf.write(
+            f"\n[ANKI GENERATION] {start_time.isoformat()} => {end_time.isoformat()} ({duration:.2f}s)\n"
+            f"Model: {model_name}\n"
+            f"Request: (prompt omitted for brevity)\n"
+            f"Response (not truncated): {result_text}\n"
+            "-----------------------------------------\n"
+        )
+    
+    return result_text
+
+
+def _archive_old_logs(output_file: str, log_files: list) -> None:
+    """
+    Archive old log files into a 'log_archive' folder next to the output file.
+    Works correctly with unique log filenames.
+    """
+    archive_folder = os.path.join(os.path.dirname(os.path.abspath(output_file)), "log_archive")
+    os.makedirs(archive_folder, exist_ok=True)
+    for log_file in log_files:
+        if os.path.exists(log_file):
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            base = os.path.splitext(os.path.basename(log_file))[0]
+            archived_name = f"{base}_{timestamp}{LOG_EXTENSION}"
+            shutil.move(log_file, os.path.join(archive_folder, archived_name))
+
+
+def convert_text_to_anki(text_file: str, anki_file: str, model: str) -> None:
+    """
+    Convert an input text file to a set of context-aware Anki cards using OpenRouter.
+    The `model` parameter specifies which OpenRouter model to use.
+    """
+    if not model:
+        print("No OpenRouter model specified. Exiting.")
+        return
+    
+    with open(text_file, 'r', encoding='utf-8') as f:
+        text = f.read()
+    
+    # Create a unique log file for this instance.
+    anki_log_file = get_unique_log_file(anki_file)
+    
+    try:
+        # Call OpenRouter to generate card templates.
+        response_cards = _post_openrouter_for_anki(model, text, anki_log_file)
+        # Expecting a JSON list of cards.
+        cards = json.loads(response_cards)
+        # Save pre-Anki card data as human-readable JSON next to the .apkg file.
+        json_output_file = os.path.splitext(anki_file)[0] + ".json"
+        with open(json_output_file, 'w', encoding="utf-8") as jf:
+            json.dump(cards, jf, indent=2, ensure_ascii=False)
+        print(f"Saved raw card data to {json_output_file}")
+
+    except Exception as e:
+        print("Error generating cards:", e)
+        cards = []
+    
+    if not cards:
+        print("No cards generated. Exiting.")
+        return
+
+    # Get the base file name without the extension.
+    anki_file_name = os.path.splitext(os.path.basename(anki_file))[0]
+
+    # Create an Anki deck (deck_id can be customized or randomized).
+    deck = genanki.Deck(
+        deck_id=1234567890,
+        name=anki_file_name
+    )
+
+    for card in cards:
+        try:
+            note = genanki.Note(
+                model=genanki.BASIC_MODEL,
+                fields=[card['front'], card['back']]
+            )
+            deck.add_note(note)
+        except Exception as e:
+            print("Error creating note for card:", card, e)
+    
+    genanki.Package(deck).write_to_file(anki_file)
+    print(f"Saved Anki deck to {anki_file}")
+
+    # Archive the unique log file.
+    _archive_old_logs(anki_file, [anki_log_file])
+
+
+
 ----- END OF .\pdf2anki\text2anki.py -----
 
 
@@ -538,5 +2984,28 @@ __all__ = [
 
 
 ----- END OF .\pdf2anki\__init__.py -----
+
+
+----- START OF .\pdf2anki\__main__.py -----
+"""
+This software is licensed under the terms specified in LICENSE,
+authored by Martin Krause.
+
+Usage is limited to:
+- Students enrolled at accredited institutions
+- Individuals with an annual income below 15,000€
+- Personal desktop PC automation tasks
+
+For commercial usage, including server deployments, please contact:
+martinkrausemedia@gmail.com
+
+Refer to the NOTICE file for dependencies and third-party libraries used.
+"""
+
+from .core import cli_invoke
+
+if __name__ == "__main__":
+    cli_invoke()
+----- END OF .\pdf2anki\__main__.py -----
 
 
