@@ -13,14 +13,15 @@
   Refer to the `NOTICE.txt` file for details on dependencies and third-party libraries.
 
 - **CLI Overview**  
-  The script is invoked through a single binary/entry-point (e.g., `python -m pdf2anki` or however you’ve packaged it), followed by a **command**. Each command has its own set of parameters and optional flags. 
+  The script is invoked through a single binary/entry-point (e.g., `pdf2anki`), followed by a **command**. Each command has its own set of parameters and optional flags. A global `-v` or `--verbose` flag can be added before the command to enable detailed debug logging.
 
   The main commands are:
-  1. **pdf2pic** – Convert a PDF to individual images.
-  2. **pic2text** – Perform OCR (text extraction) from a set of images.
-  3. **pdf2text** – Single-step pipeline to go from PDF directly to text.
-  4. **text2anki** – Convert a text file into an Anki deck/package.
-  5. **process** – Full pipeline: PDF → images → text → Anki deck, in one go.
+  1. **`pdf2pic`** – Convert a PDF to individual images.
+  2. **`pic2text`** – Perform OCR (text extraction) from a set of images.
+  3. **`pdf2text`** – Single-step pipeline from PDF directly to text, with inferred output paths.
+  4. **`text2anki`** – Convert a text file into an Anki deck/package.
+  5. **`process`** – Full pipeline: PDF → images → text → Anki deck, in one go.
+  6. **`config`** – View or set configuration options like default models and presets.
 
 **Installation / Invocation**  
 
@@ -90,13 +91,9 @@ In this mode:
 
 You might call this script like:
 ```bash
-python -m pdf2anki COMMAND [OPTIONS...]
+pdf2anki [-v] COMMAND [OPTIONS...]
 ```
-or if installed as an executable:
-```bash
-pdf2anki COMMAND [OPTIONS...]
-```
-In the examples below, we will assume `python -m pdf2anki` is your entry-point.
+In the examples below, we will assume `pdf2anki` is your entry-point.
 
 ---
 
@@ -122,20 +119,106 @@ There are two primary ways to make this key available to the script:
     *   Example (Linux/macOS):
         ```bash
         export OPENROUTER_API_KEY=YOUR_ACTUAL_API_KEY_HERE
-        python -m pdf2anki ...
+        pdf2anki ...
         ```
     *   Example (Windows Command Prompt):
         ```cmd
         set OPENROUTER_API_KEY=YOUR_ACTUAL_API_KEY_HERE
-        python -m pdf2anki ...
+        pdf2anki ...
         ```
     *   Example (Windows PowerShell):
         ```powershell
         $env:OPENROUTER_API_KEY="YOUR_ACTUAL_API_KEY_HERE"
-        python -m pdf2anki ...
+        pdf2anki ...
         ```
 
 Using the `.env` file is generally more convenient for repeated use during development.
+
+---
+
+## Configuration (`config` command)
+
+The `pdf2anki config` command allows you to manage persistent settings stored in `~/.pdf2anki/config.json`. This is useful for setting default models or defining presets for OCR options.
+
+### `config view`
+
+Displays the current configuration.
+
+```bash
+pdf2anki config view
+```
+If the configuration is empty, it will report that. Otherwise, it prints the JSON content.
+
+### `config set`
+
+Sets configuration values. There are three main keys you can manage:
+
+1.  **`default_model`**: The default OCR model used by `pic2text`, `pdf2text`, and `process` if `--model` is not specified.
+2.  **`default_anki_model`**: The default model used by `text2anki` and `process` for generating Anki cards if the `anki_model` argument is not provided.
+3.  **`defaults`**: A preset object containing OCR settings (`model`, `repeat`, `judge_model`, `judge_mode`, `judge_with_image`) that can be activated using the `-d` flag in `pdf2text` and `process`.
+
+**Usage:**
+
+*   **Set default models:**
+    ```bash
+    pdf2anki config set default_model <model_name>
+    pdf2anki config set default_anki_model <model_name>
+    ```
+*   **Set individual preset defaults (for the `-d` flag):**
+    ```bash
+    pdf2anki config set defaults <setting_name> <value>
+    ```
+    Where `<setting_name>` is one of `model`, `repeat`, `judge_model`, `judge_mode`, `judge_with_image`.
+*   **Set all preset defaults using JSON (Advanced - Careful with shell quoting!):**
+    ```bash
+    pdf2anki config set defaults '<json_object_string>'
+    ```
+
+**Examples:**
+
+1.  **Set the default OCR model:**
+    ```bash
+    pdf2anki config set default_model google/gemini-flash-1.5
+    ```
+2.  **Set the default Anki generation model:**
+    ```bash
+    pdf2anki config set default_anki_model google/gemini-flash-1.5
+    ```
+3.  **Set up the preset defaults for the `-d` flag individually:**
+    ```powershell
+    # Set the model(s) for the preset
+    pdf2anki config set defaults model google/gemini-2.0-flash-001
+    # Set the repeat count(s) for the preset model(s)
+    pdf2anki config set defaults repeat 2
+    # Set the judge model for the preset
+    pdf2anki config set defaults judge_model google/gemini-2.0-flash-001
+    # Set the judge mode for the preset
+    pdf2anki config set defaults judge_mode authoritative
+    # Enable judge_with_image for the preset
+    pdf2anki config set defaults judge_with_image true
+    ```
+4.  **View the configuration after setting defaults:**
+    ```bash
+    pdf2anki config view
+    ```
+    *(This might show something like):*
+    ```json
+    {
+      "default_model": "google/gemini-flash-1.5",
+      "default_anki_model": "google/gemini-flash-1.5",
+      "defaults": {
+        "model": [
+          "google/gemini-2.0-flash-001"
+        ],
+        "repeat": [
+          2
+        ],
+        "judge_model": "google/gemini-2.0-flash-001",
+        "judge_mode": "authoritative",
+        "judge_with_image": true
+      }
+    }
+    ```
 
 ---
 
@@ -152,7 +235,7 @@ Converts all pages of a PDF into separate image files. By default, it saves each
 
 **Usage**  
 ```bash
-python -m pdf2anki pdf2pic PDF_PATH OUTPUT_DIR [RECTANGLE1 RECTANGLE2 ...]
+pdf2anki pdf2pic PDF_PATH OUTPUT_DIR [RECTANGLE1 RECTANGLE2 ...]
 ```
 
 ### Examples
@@ -160,19 +243,19 @@ python -m pdf2anki pdf2pic PDF_PATH OUTPUT_DIR [RECTANGLE1 RECTANGLE2 ...]
 1. **Minimal usage (no cropping)**
 
    ```bash
-   python -m pdf2anki pdf2pic mydocument.pdf output_images
+   pdf2anki pdf2pic mydocument.pdf output_images
    ```
    - Converts each page of `mydocument.pdf` into `output_images/page-1.png`, `output_images/page-2.png`, etc.
 
 2. **Single rectangle**  
    ```bash
-   python -m pdf2anki pdf2pic mydocument.pdf output_images 100,150,500,600
+   pdf2anki pdf2pic mydocument.pdf output_images 100,150,500,600
    ```
    - Converts each page into a cropped version from `(left=100, top=150)` to `(right=500, bottom=600)`.
 
 3. **Multiple rectangles**  
    ```bash
-   python -m pdf2anki pdf2pic mydocument.pdf output_images 50,100,300,400 320,100,600,400
+   pdf2anki pdf2pic mydocument.pdf output_images 50,100,300,400 320,100,600,400
    ```
    - For each PDF page, produces **two** cropped images:
      1. Cropped to `left=50, top=100, right=300, bottom=400`
@@ -194,7 +277,7 @@ Performs OCR on a directory of images, generating extracted text. The text can b
 
 | Parameter            | Description                                                                                                                                           |
 |----------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `--model MODEL`      | Name of an OCR model to use. Can be used **multiple times** to specify multiple models. If omitted, a default model might be assumed (depends on your code).  |
+| `--model MODEL`      | Name of an OCR model. Can be used multiple times. **If omitted, uses `default_model` from config.** If no default is set, prompts user or errors out. |
 | `--repeat N`         | Number of times to call each model per image (defaults to 1). If you provide multiple `--model` entries and multiple `--repeat` entries, each repeats entry corresponds to its respective model. **Requires `--judge-model` if any N > 1.** |
 | `--judge-model JM`   | If you have **multiple** OCR models or use `--repeat > 1`, you **must** specify a judge model to pick the best text. E.g., `--judge-model big-ocr-13b`. |
 | `--judge-mode MODE`  | Judge strategy. Currently only `"authoritative"` is implemented. If set, the judge simply picks the best result (the logic is inside your code).                                           |
@@ -204,38 +287,44 @@ Performs OCR on a directory of images, generating extracted text. The text can b
 
 **Usage**  
 ```bash
-python -m pdf2anki pic2text IMAGES_DIR OUTPUT_FILE [--model MODEL...] [--repeat N...] 
+pdf2anki pic2text IMAGES_DIR OUTPUT_FILE [--model MODEL...] [--repeat N...] 
       [--judge-model JM] [--judge-mode authoritative]
       [--ensemble-strategy STR] [--trust-score VAL] [--judge-with-image]
 ```
 
 ### Examples
 
-1. **Single model, minimal usage**  
+1. **Minimal usage (using default OCR model from config)**  
    ```bash
-   python -m pdf2anki pic2text scanned_pages output.txt
+   # Assumes 'default_model' is set via 'pdf2anki config set default_model ...'
+   pdf2anki pic2text scanned_pages output.txt
    ```
-   - OCR is done on images in `scanned_pages/` with a default or built-in model, saves text to `output.txt`. (Assumes default model doesn't require a judge).
+   - OCR is done using the configured `default_model`. Saves text to `output.txt`.
 
-2. **Single model, repeated calls (Requires Judge)**  
+2. **Specify model explicitly (overrides default)**
    ```bash
-   python -m pdf2anki pic2text scanned_pages output.txt --model google/gemini-2.0-flash-001 --repeat 3 --judge-model some-judge-model
+   pdf2anki pic2text scanned_pages output.txt --model google/gemini-pro
    ```
-   - For each image, runs `google/gemini-2.0-flash-001` OCR **3 times**.  
-   - **Requires** `--judge-model` (here `some-judge-model`) to be specified to select the best result from the 3 attempts.
 
-3. **Multiple models (Requires Judge)**  
+3. **Single model, repeated calls (Requires Judge)**  
    ```bash
-   python -m pdf2anki pic2text scanned_pages output.txt \
+   pdf2anki pic2text scanned_pages output.txt --model google/gemini-flash-1.5 --repeat 3 --judge-model google/gemini-pro
+   ```
+   - Runs `google/gemini-flash-1.5` OCR 3 times per image.
+   - Requires `--judge-model` (`google/gemini-pro`) to select the best result.
+
+4. **Multiple models (Requires Judge)**  
+   ```bash
+   pdf2anki pic2text scanned_pages output.txt \
        --model google/gemini-2.0-flash-001 --model openai/gpt-4.1 \
        --judge-model some-judge-model
    ```
    - For each image, runs `google/gemini-2.0-flash-001` once and `openai/gpt-4.1` once.  
    - **Requires** `--judge-model` to select the best result between the two models.
 
-4. **Multiple models, repeated calls, with judge**  
+5. **Multiple models, repeated calls, with judge**  
    ```bash
-   python -m pdf2anki pic2text scanned_pages output.txt \
+   pdf2anki pic2text scanned_pages output.txt \
        --model google/gemini-2.0-flash-001 --model openai/gpt-4.1 \
        --repeat 2 --repeat 1 \
        --judge-model big-ocr-13b --judge-mode authoritative
@@ -246,9 +335,9 @@ python -m pdf2anki pic2text IMAGES_DIR OUTPUT_FILE [--model MODEL...] [--repeat 
    - Then uses **`big-ocr-13b`** in “authoritative” mode to pick the best result per image.  
    - The final best text for each image is written to `output.txt`.
 
-5. **Multiple models, judge with images**  
+6. **Multiple models, judge with images**  
    ```bash
-   python -m pdf2anki pic2text scanned_pages output.txt \
+   pdf2anki pic2text scanned_pages output.txt \
        --model modelA --model modelB \
        --judge-model big-ocr-13b \
        --judge-with-image
@@ -264,69 +353,79 @@ Runs a **two-step** pipeline in a single command:
 1. Converts a PDF to images (`pdf2pic`).
 2. Performs OCR on those images (`pic2text`).
    
-Saves the final extracted text to a single file. This is handy if you only need text output (not an Anki deck).
+Saves the final extracted text to a single file. This is handy if you only need text output (not an Anki deck). **Output paths can be inferred if omitted.**
 
 **Positional Arguments**  
 1. `pdf_path` – Path to the PDF file.  
-2. `images_dir` – Directory to store generated images (intermediate).  
-3. `rectangles` – Crop rectangles (zero or more), same syntax as in `pdf2pic`. Must appear *before* `output_file`.
-4. `output_file` – Path to save the final text after OCR.
+2. `output_dir` – **(Optional)** Directory for intermediate images. Defaults to `./pdf2pic/<pdf_name>/`.
+3. `rectangles` – **(Optional)** Crop rectangles (`left,top,right,bottom`). Must appear *before* `output_file` if both are specified.
+4. `output_file` – **(Optional)** Path to save the final text. Defaults to `./<pdf_name>.txt`.
 
 **Optional Arguments**  
-Identical to the optional arguments for `pic2text`:
 
-- `--model MODEL` (repeats allowed)  
-- `--repeat N` (repeats allowed, requires `--judge-model` if any N > 1)
-- `--judge-model JM` (required if multiple models or repeats > 1)
-- `--judge-mode MODE`  
-- `--ensemble-strategy STR`  
-- `--trust-score VAL`  
-- `--judge-with-image`
+| Parameter            | Description                                                                                                                                           |
+|----------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `-d`, `--default`    | **Use preset defaults.** If set, applies OCR settings (`model`, `repeat`, `judge_model`, etc.) from the `defaults` section of the config. Exits if no defaults are configured. |
+| `--model MODEL`      | Name of an OCR model. Can be used multiple times. **If omitted (and `-d` not used), uses `default_model` from config.** Overrides `-d` settings if specified. |
+| `--repeat N`         | Number of times to call each model per image (defaults to 1). If you provide multiple `--model` entries and multiple `--repeat` entries, each repeats entry corresponds to its respective model. **Requires `--judge-model` if any N > 1.** |
+| `--judge-model JM`   | If you have **multiple** OCR models or use `--repeat > 1`, you **must** specify a judge model to pick the best text. E.g., `--judge-model big-ocr-13b`. |
+| `--judge-mode MODE`  | Judge strategy. Currently only `"authoritative"` is implemented. If set, the judge simply picks the best result (the logic is inside your code).                                           |
+| `--ensemble-strategy STR` | **(Placeholder)** e.g., `majority-vote`, `similarity-merge`. Not active in the code yet, so setting it won't do anything.                                                              |
+| `--trust-score VAL`  | **(Placeholder)** float representing model weighting factor in an ensemble or judge scenario. Not active in the code yet.                                                                  |
+| `--judge-with-image` | Boolean flag; if set, the judge model also sees the base64-encoded image when deciding among multiple OCR outputs.                                                                          |
 
 **Usage**  
 ```bash
-python -m pdf2anki pdf2text PDF_PATH IMAGES_DIR [RECTANGLE1 RECTANGLE2 ...] OUTPUT_FILE
-      [--model MODEL...]
-      [--repeat N...]
-      [--judge-model JM]
-      [--judge-mode authoritative]
-      [--ensemble-strategy STR]
-      [--trust-score VAL]
-      [--judge-with-image]
+# With explicit paths
+pdf2anki pdf2text PDF_PATH IMAGES_DIR [RECTANGLES...] OUTPUT_FILE [OPTIONS...]
+
+# With inferred paths
+pdf2anki pdf2text PDF_PATH [RECTANGLES...] [OPTIONS...]
 ```
   
-Note the argument order: `pdf2text <pdf_path> <images_dir> [rectangles...] <output_file> [options...]`
+Note the argument order: `pdf2text <pdf_path> [output_dir] [rectangles...] [output_file] [options...]`
 
 ### Examples
 
-1. **Minimal usage, no cropping**  
+1. **Minimal usage (inferred paths, default OCR model)**  
    ```bash
-   python -m pdf2anki pdf2text notes.pdf temp_images output.txt
+   # Assumes 'default_model' is configured
+   pdf2anki pdf2text notes.pdf
    ```
-   - Step 1: `notes.pdf` → multiple pages in `temp_images/`.  
-   - Step 2: OCR results → `output.txt`. (Assumes default model/settings don't require a judge).
+   - Step 1: `notes.pdf` → images in `./pdf2pic/notes/`.
+   - Step 2: OCR using `default_model` → text saved to `./notes.txt`.
 
-2. **With cropping**  
+2. **Minimal usage with preset defaults (`-d` flag)**
    ```bash
-   python -m pdf2anki pdf2text notes.pdf temp_images 50,100,300,400 320,100,600,400 output.txt
+   # Assumes 'defaults' are configured via 'pdf2anki config set defaults ...'
+   pdf2anki pdf2text notes.pdf -d
    ```
-   - Two cropped areas per PDF page → stored in `temp_images/`.  
-   - Then OCR → final text in `output.txt`. (Assumes default model/settings don't require a judge).
+   - Step 1: `notes.pdf` → images in `./pdf2pic/notes/`.
+   - Step 2: OCR using settings from config `defaults` → text saved to `./notes.txt`.
 
-3. **Advanced: multiple OCR models, repeated calls, judge**  
+3. **Specify output paths, override default model**
    ```bash
-   python -m pdf2anki pdf2text notes.pdf temp_images 100,150,500,600 output.txt \
-       --model google/gemini-2.0-flash-001 --model openai/gpt-4.1 \
-       --repeat 2 --repeat 2 \
-       --judge-model big-ocr-13b \
-       --judge-with-image
+   pdf2anki pdf2text notes.pdf custom_images/ final_text.txt --model google/gemini-pro
    ```
-   - Crops each PDF page according to `(100,150,500,600)`.
-   - For each cropped image:
-     - `google/gemini-2.0-flash-001` is called 2 times
-     - `openai/gpt-4.1` is called 2 times
-     - The judge model `big-ocr-13b` sees the base64-encoded image to pick the best result.
-   - Final text is in `output.txt`.
+   - Step 1: `notes.pdf` → images in `custom_images/`.
+   - Step 2: OCR using `google/gemini-pro` → text saved to `final_text.txt`.
+
+4. **Inferred paths with cropping and preset defaults**
+   ```bash
+   pdf2anki pdf2text notes.pdf 50,100,300,400 -d
+   ```
+   - Step 1: Crops `notes.pdf` → images in `./pdf2pic/notes/`.
+   - Step 2: OCR using config `defaults` → text saved to `./notes.txt`.
+
+5. **Explicit paths, multiple models (overrides defaults and `-d`)**
+   ```bash
+   pdf2anki pdf2text notes.pdf temp_images output.txt \
+       --model google/gemini-flash-1.5 --model openai/gpt-4.1 \
+       --repeat 2 --repeat 1 \
+       --judge-model google/gemini-pro
+   ```
+   - Step 1: `notes.pdf` → images in `temp_images/`.
+   - Step 2: Runs specified models/repeats, judged by `google/gemini-pro` → text saved to `output.txt`.
 
 ---
 
@@ -338,26 +437,27 @@ Takes a text file (already extracted by any means) and converts it into an Anki-
 **Positional Arguments**  
 1. `text_file` – Path to the text file with the content for the cards.  
 2. `anki_file` – Path to the final Anki deck output.
+3. `anki_model` – **(Optional)** Name of the OpenRouter model for generating cards. **If omitted, uses `default_anki_model` from config.** Raises error if omitted and no default is set.
 
 **Usage**  
 ```bash
-python -m pdf2anki text2anki TEXT_FILE ANKI_FILE
+pdf2anki text2anki TEXT_FILE ANKI_FILE [ANKI_MODEL]
 ```
 
 ### Examples
 
-1. **Minimal**  
+1. **Minimal (using default Anki model)**  
    ```bash
-   python -m pdf2anki text2anki reading.txt flashcards.apkg
+   # Assumes 'default_anki_model' is configured
+   pdf2anki text2anki reading.txt flashcards.apkg
    ```
-   - Converts `reading.txt` into an Anki package `flashcards.apkg`.
+   - Converts `reading.txt` into `flashcards.apkg` using the configured `default_anki_model`.
 
-2. **After manual editing**  
-   If you manually cleaned up the text from OCR, you might do:
+2. **Specify Anki model explicitly**
    ```bash
-   python -m pdf2anki text2anki cleaned_text.txt my_deck.apkg
+   pdf2anki text2anki cleaned_text.txt my_deck.apkg google/gemini-pro
    ```
-   - Results in `my_deck.apkg`.
+   - Converts `cleaned_text.txt` into `my_deck.apkg` using `google/gemini-pro`.
 
 ---
 
@@ -376,28 +476,24 @@ This means you get an Anki deck from the PDF in one go, without manually calling
 1. `pdf_path` – Path to the PDF file.  
 2. `output_dir` – Directory to store any intermediate images.  
 3. `anki_file` – Path to the final Anki deck file.
+4. `anki_model` – **(Optional)** Name of the OpenRouter model for generating cards. **If omitted, uses `default_anki_model` from config.** Raises error if omitted and no default is set.
 
 **Optional OCR-Related Arguments**  
-All the same options as `pic2text`:
 
-- `--model MODEL` (multiple allowed)  
-- `--repeat N` (multiple allowed, requires `--judge-model` if any N > 1)
-- `--judge-model JM` (required if multiple models or repeats > 1)
-- `--judge-mode MODE` (default `authoritative`)  
-- `--ensemble-strategy STR` (placeholder)  
-- `--trust-score VAL` (placeholder)  
-- `--judge-with-image`  
+| Parameter            | Description                                                                                                                                           |
+|----------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `-d`, `--default`    | **Use preset OCR defaults.** If set, applies OCR settings (`model`, `repeat`, `judge_model`, etc.) from the `defaults` section of the config for the text extraction step. Warns if no defaults are configured but continues. |
+| `--model MODEL`      | Name of an OCR model. Can be used multiple times. **If omitted (and `-d` not used), uses `default_model` from config.** Overrides `-d` settings if specified. |
+| `--repeat N`         | Number of times to call each model per image (defaults to 1). If you provide multiple `--model` entries and multiple `--repeat` entries, each repeats entry corresponds to its respective model. **Requires `--judge-model` if any N > 1.** |
+| `--judge-model JM`   | If you have **multiple** OCR models or use `--repeat > 1`, you **must** specify a judge model to pick the best text. E.g., `--judge-model big-ocr-13b`. |
+| `--judge-mode MODE`  | Judge strategy. Currently only `"authoritative"` is implemented. If set, the judge simply picks the best result (the logic is inside your code).                                           |
+| `--ensemble-strategy STR` | **(Placeholder)** e.g., `majority-vote`, `similarity-merge`. Not active in the code yet, so setting it won't do anything.                                                              |
+| `--trust-score VAL`  | **(Placeholder)** float representing model weighting factor in an ensemble or judge scenario. Not active in the code yet.                                                                  |
+| `--judge-with-image` | Boolean flag; if set, the judge model also sees the base64-encoded image when deciding among multiple OCR outputs.                                                                          |
 
 **Usage**  
 ```bash
-python -m pdf2anki process PDF_PATH OUTPUT_DIR ANKI_FILE
-      [--model MODEL...]
-      [--repeat N...]
-      [--judge-model JM]
-      [--judge-mode authoritative]
-      [--ensemble-strategy STR]
-      [--trust-score VAL]
-      [--judge-with-image]
+pdf2anki process PDF_PATH OUTPUT_DIR ANKI_FILE [ANKI_MODEL] [OCR_OPTIONS...]
 ```
 
 **Important Note on Cropping**  
@@ -405,31 +501,40 @@ The `process` command **does not** explicitly accept rectangles. If you need cro
 
 ### Examples
 
-1. **Minimal usage**  
+1. **Minimal usage (using default OCR and Anki models)**  
    ```bash
-   python -m pdf2anki process book.pdf images book.apkg
+   # Assumes 'default_model' and 'default_anki_model' are configured
+   pdf2anki process book.pdf images book.apkg
    ```
-   - Step 1: `book.pdf` → images in `images/`.  
-   - Step 2: OCR all images → some internal text file (using default model/settings).
-   - Step 3: Creates `book.apkg` from that text.
+   - Step 1: `book.pdf` → images in `images/`.
+   - Step 2: OCR using `default_model`.
+   - Step 3: Creates `book.apkg` using `default_anki_model`.
 
-2. **Multiple models, judge**  
+2. **Using preset OCR defaults (`-d`) and default Anki model**
    ```bash
-   python -m pdf2anki process slides.pdf slides_images slides.apkg \
-       --model google/gemini-2.0-flash-001 --model openai/gpt-4.1 \
-       --judge-model big-ocr-13b \
+   # Assumes 'defaults' (for OCR) and 'default_anki_model' are configured
+   pdf2anki process book.pdf images book.apkg -d
+   ```
+   - Step 1: `book.pdf` → images in `images/`.
+   - Step 2: OCR using settings from config `defaults`.
+   - Step 3: Creates `book.apkg` using `default_anki_model`.
+
+3. **Specify Anki model, use default OCR model**
+   ```bash
+   # Assumes 'default_model' is configured
+   pdf2anki process slides.pdf slides_images slides.apkg google/gemini-pro
+   ```
+   - Uses `default_model` for OCR, but `google/gemini-pro` for Anki card generation.
+
+4. **Specify OCR models (overrides defaults), specify Anki model**
+   ```bash
+   pdf2anki process slides.pdf slides_images slides.apkg google/gemini-pro \
+       --model google/gemini-flash-1.5 --model openai/gpt-4.1 \
+       --judge-model google/gemini-pro \
        --judge-with-image
    ```
-   - Generates final Anki deck `slides.apkg`, with improved OCR results selected by the judge.
-
-3. **Model repeats**  
-   ```bash
-   python -m pdf2anki process slides.pdf slides_images slides.apkg \
-       --model google/gemini-2.0-flash-001 --model openai/gpt-4.1 \
-       --repeat 2 --repeat 1 \
-       --judge-model big-ocr-13b
-   ```
-   - Calls `google/gemini-2.0-flash-001` 2 times, `openai/gpt-4.1` 1 time per image, judge picks best.
+   - Uses specified OCR models/judge for text extraction.
+   - Uses `google/gemini-pro` (the positional argument) for Anki card generation.
 
 ---
 
@@ -443,18 +548,18 @@ You want to crop the PDF in multiple areas and run advanced OCR:
 
 1. **Step 1**: PDF → images with multiple crop zones
    ```bash
-   python -m pdf2anki pdf2pic mynotes.pdf temp_images 50,100,300,400 400,100,600,300
+   pdf2anki pdf2pic mynotes.pdf temp_images 50,100,300,400 400,100,600,300
    ```
 2. **Step 2**: OCR from images to text, with repeated calls and judge
    ```bash
-   python -m pdf2anki pic2text temp_images text_output.txt \
+   pdf2anki pic2text temp_images text_output.txt \
        --model google/gemini-2.0-flash-001 --model openai/gpt-4.1 \
        --repeat 3 --repeat 1 \
        --judge-model big-ocr-13b
    ```
 3. **Step 3**: Convert text to Anki
    ```bash
-   python -m pdf2anki text2anki text_output.txt final_flashcards.apkg
+   pdf2anki text2anki text_output.txt final_flashcards.apkg
    ```
 
 ### B. Single-Step to Text (no deck)
@@ -462,8 +567,11 @@ You want to crop the PDF in multiple areas and run advanced OCR:
 If all you need is text (and optionally some rectangles for cropping):
 
 ```bash
-python -m pdf2anki pdf2text mynotes.pdf images_dir 100,150,400,500 output.txt \
-    --model openai/gpt-4.1 --judge-model some-judge-model
+# Using inferred paths and preset defaults
+pdf2anki pdf2text mynotes.pdf 100,150,400,500 -d
+
+# Or specifying model explicitly (overrides defaults)
+pdf2anki pdf2text mynotes.pdf images_dir 100,150,400,500 output.txt --model openai/gpt-4.1
 ```
 *(Note: Added `--judge-model` as it might be required depending on the `openai/gpt-4.1` implementation or if multiple models were used)*
 
@@ -472,9 +580,12 @@ python -m pdf2anki pdf2text mynotes.pdf images_dir 100,150,400,500 output.txt \
 If you just want the simplest route from PDF to a deck:
 
 ```bash
-python -m pdf2anki process mynotes.pdf images_dir mydeck.apkg
+# Simplest case using all configured defaults
+pdf2anki process mynotes.pdf images_dir mydeck.apkg
+
+# Using preset OCR defaults (-d) and specifying Anki model
+pdf2anki process mynotes.pdf images_dir mydeck.apkg google/gemini-pro -d
 ```
-*(Assumes default settings don't require a judge)*
 
 ---
 
@@ -485,7 +596,12 @@ python -m pdf2anki process mynotes.pdf images_dir mydeck.apkg
   2. **`pic2text`** – Run OCR on a directory of images, optionally with multiple models and a judge.  
   3. **`pdf2text`** – Combine steps 1 and 2 into a single command, outputting text.  
   4. **`text2anki`** – Convert text into an Anki deck.  
-  5. **`process`** – Automate the entire pipeline (PDF → images → text → Anki).
+  5. **`process`** – Automate the entire pipeline (PDF → images → text → Anki).  
+  6. **`config`** – Manage default models and presets.
+
+- **Defaults & Presets**:
+  - Configure `default_model`, `default_anki_model`, and `defaults` (for OCR presets) using `pdf2anki config set`.
+  - Use the `-d` flag with `pdf2text` or `process` to activate the `defaults` preset for OCR. Explicit OCR options override `-d`.
 
 - **Cropping**:  
   Only possible through `pdf2pic` or `pdf2text`. The `process` command does not accept cropping arguments.
