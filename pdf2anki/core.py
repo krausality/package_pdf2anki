@@ -16,7 +16,8 @@ Refer to the NOTICE.txt file for dependencies and third-party libraries used.
 import argparse
 import os
 import json
-import sys # Import sys for sys.exit
+import sys
+import traceback
 from typing import List, Tuple, Optional, Dict, Any
 from pathlib import Path
 from . import pdf2pic
@@ -34,7 +35,7 @@ def load_config() -> Dict[str, Any]:
     if CONFIG_FILE.exists():
         try:
             with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                return json.load(f) # FIX: Was missing json.load(f)
         except (json.JSONDecodeError, IOError):
             print(f"[WARN] Could not read config file at {CONFIG_FILE}. Using empty config.")
             return {}
@@ -178,7 +179,7 @@ def images_to_text(args: argparse.Namespace) -> None:
     pic2text.convert_images_to_text(
         images_dir=args.images_dir,
         output_file=args.output_file,
-        model_repeats=remaining,        # pass list of (model, repeat)
+        model_repeats=remaining,       # pass list of (model, repeat)
         judge_model=args.judge_model,
         judge_mode=args.judge_mode,
         ensemble_strategy=args.ensemble_strategy, # Ignored internally
@@ -188,86 +189,114 @@ def images_to_text(args: argparse.Namespace) -> None:
 
 def pdf_to_text(args: argparse.Namespace) -> None:
     """
-    Full pipeline: Convert a PDF to images, then extract text.
-    Handles default output_dir and output_file, default model, and -d flag.
-    
-    Args:
-        args: Namespace containing combination of all arguments from:
-            - pdf_to_images()
-            - images_to_text() 
+    Converts a single PDF file or all PDF files in a directory to text.
+    The function handles path inference for both single file and batch processing.
     """
-    pdf_path = Path(args.pdf_path)
-    if not pdf_path.is_file():
-        raise FileNotFoundError(f"PDF file not found: {args.pdf_path}")
+    input_path = Path(args.pdf_path)
+    pdf_files: List[Path] = []
+    is_batch_mode = False
 
-    # --- Determine output_dir ---
-    output_dir_path: Path
-    if args.output_dir:
-        output_dir_path = Path(args.output_dir)
+    # 1. Collect PDF files to process
+    if input_path.is_dir():
+        is_batch_mode = True
+        pdf_files = sorted(list(input_path.glob("*.pdf")))
+        if not pdf_files:
+            print(f"[INFO] No PDF files found in directory: {args.pdf_path}")
+            return
+        print(f"[INFO] Batch mode activated. Found {len(pdf_files)} PDF(s) in '{args.pdf_path}'.")
+    elif input_path.is_file():
+        if input_path.suffix.lower() != '.pdf':
+            raise ValueError(f"Input file is not a PDF: {args.pdf_path}")
+        pdf_files.append(input_path)
     else:
-        # Default: ./pdf2pic/<pdf_name_without_ext>/
-        pdf_name_stem = pdf_path.stem
-        output_dir_path = Path.cwd() / "pdf2pic" / pdf_name_stem
-        print(f"[INFO] Defaulting output_dir to: {output_dir_path}")
-    output_dir_path.mkdir(parents=True, exist_ok=True)
-    args.output_dir = str(output_dir_path) # Update args for pdf_to_images
+        raise FileNotFoundError(f"Input path is not a valid file or directory: {args.pdf_path}")
 
-    # --- Determine output_file ---
-    output_file_path: Path
-    if args.output_file:
-        output_file_path = Path(args.output_file)
-    else:
-        # Default: ./<pdf_name_without_ext>.txt
-        pdf_name_stem = pdf_path.stem
-        output_file_path = Path.cwd() / f"{pdf_name_stem}.txt"
-        print(f"[INFO] Defaulting output_file to: {output_file_path}")
-    args.output_file = str(output_file_path) # Update args for images_to_text
-
-    # --- Handle -d/--default flag ---
+    # 2. Handle -d/--default flag (apply settings to args *before* the loop)
     config = load_config()
     if args.use_defaults:
         preset_defaults = get_preset_defaults(config)
         if preset_defaults:
             print("[INFO] Applying preset default settings (-d flag used).")
-            # Override args with defaults ONLY if they weren't explicitly set via CLI
-            # We check if the value in args is the default value set by argparse
-            # Note: This requires knowing argparse's defaults. Adjust if needed.
-            parser_defaults = { # Defaults defined in the parser setup below
+            # These are the default values defined in the parser for OCR flags
+            parser_defaults = {
                 'model': [], 'repeat': [], 'judge_model': None,
                 'judge_mode': 'authoritative', 'judge_with_image': False
             }
             for key, default_val in parser_defaults.items():
+                # Apply preset default only if the arg was not explicitly set by the user
                 if getattr(args, key) == default_val and key in preset_defaults:
                     setattr(args, key, preset_defaults[key])
                     print(f"[INFO] Using default for --{key.replace('_', '-')}: {preset_defaults[key]}")
         else:
             print("[WARN] -d flag used, but no defaults found in config. Use 'pdf2anki config set defaults ...' to define them.")
-            sys.exit(1) # Exit if -d used and no defaults are set
+            sys.exit(1)
 
-    # --- Call pdf_to_images ---
-    # Create a temporary namespace for pdf_to_images if needed, passing verbose
-    pdf_args = argparse.Namespace(
-        pdf_path=args.pdf_path,
-        output_dir=args.output_dir,
-        rectangles=args.rectangles,
-        verbose=getattr(args, 'verbose', False) # Pass verbose flag
-    )
-    pdf_to_images(pdf_args)
+    # 3. Loop through each PDF and process it
+    for pdf_path in pdf_files:
+        print(f"\n--- Processing: {pdf_path.name} ---")
 
-    # --- Call images_to_text ---
-    # Create proper namespace for images_to_text
-    images_args = argparse.Namespace(
-        images_dir=args.output_dir, # Use the determined/created output_dir
-        output_file=args.output_file, # Use the determined output_file
-        model=args.model,
-        repeat=args.repeat,
-        judge_model=args.judge_model,
-        judge_mode=args.judge_mode,
-        ensemble_strategy=args.ensemble_strategy, # Ignored internally
-        trust_score=args.trust_score,             # Ignored internally
-        judge_with_image=args.judge_with_image
-    )
-    images_to_text(images_args)
+        pdf_name_stem = pdf_path.stem
+
+        # A. Determine the output directory for intermediate images
+        if is_batch_mode:
+            # In batch mode, `args.output_dir` (if provided) is a base path. Each PDF gets a subfolder.
+            base_image_dir = Path(args.output_dir) if args.output_dir else Path.cwd() / "pdf2pic"
+            image_output_dir = base_image_dir / pdf_name_stem
+        else:  # Single file mode
+            # If `args.output_dir` is provided, use it directly. Otherwise, infer it.
+            image_output_dir = Path(args.output_dir) if args.output_dir else Path.cwd() / "pdf2pic" / pdf_name_stem
+        
+        image_output_dir.mkdir(parents=True, exist_ok=True)
+        print(f"[INFO] Images will be saved to: {image_output_dir}")
+
+        # B. Determine the output file path for the extracted text
+        if is_batch_mode:
+            # In batch mode, `args.output_file` (if provided) is an output directory for text files.
+            base_text_dir = Path(args.output_file) if args.output_file else Path.cwd()
+            # If the provided path looks like a file, use its parent directory instead.
+            if base_text_dir.suffix and base_text_dir.parent != '.':
+                base_text_dir = base_text_dir.parent
+            text_output_file = base_text_dir / f"{pdf_name_stem}.txt"
+        else:  # Single file mode
+            # If `args.output_file` is provided, use it directly. Otherwise, infer it.
+            text_output_file = Path(args.output_file) if args.output_file else Path.cwd() / f"{pdf_name_stem}.txt"
+
+        text_output_file.parent.mkdir(parents=True, exist_ok=True)
+        print(f"[INFO] Text will be saved to: {text_output_file}")
+        
+        # C. Prepare arguments for the sub-function calls
+        pdf_to_images_args = argparse.Namespace(
+            pdf_path=str(pdf_path),
+            output_dir=str(image_output_dir),
+            rectangles=args.rectangles,
+            verbose=getattr(args, 'verbose', False)
+        )
+        
+        # All OCR-related arguments are passed down from the main `args` object
+        images_to_text_args = argparse.Namespace(
+            images_dir=str(image_output_dir),
+            output_file=str(text_output_file),
+            model=args.model,
+            repeat=args.repeat,
+            judge_model=args.judge_model,
+            judge_mode=args.judge_mode,
+            ensemble_strategy=args.ensemble_strategy,
+            trust_score=args.trust_score,
+            judge_with_image=args.judge_with_image
+        )
+        
+        # D. Execute the processing steps for the current PDF
+        try:
+            pdf_to_images(pdf_to_images_args)
+            images_to_text(images_to_text_args)
+            print(f"--- Finished processing: {pdf_path.name} ---")
+        except Exception as e:
+            print(f"[ERROR] Failed to process {pdf_path.name}: {e}\n"
+                  f"Skipping to the next file.")
+            traceback.print_exc()
+            continue
+
+    print("\nProcessing complete.")
 
 
 def text_to_anki(args: argparse.Namespace) -> None:
@@ -358,7 +387,17 @@ def process_pdf_to_anki(args: argparse.Namespace) -> None:
         trust_score=args.trust_score,
         judge_with_image=args.judge_with_image
     )
-    images_to_text(images_args) # Call the function directly
+    pic2text.convert_images_to_text(
+        images_dir=images_args.images_dir,
+        output_file=images_args.output_file,
+        model_repeats=images_args.model_repeats,
+        judge_model=images_args.judge_model,
+        judge_mode=images_args.judge_mode,
+        ensemble_strategy=images_args.ensemble_strategy,
+        trust_score=images_args.trust_score,
+        judge_with_image=images_args.judge_with_image
+    )
+
 
     # --- Call text_to_anki ---
     # Load config to potentially get default anki model if needed
@@ -443,7 +482,7 @@ def set_config_value(args: argparse.Namespace) -> None:
                     print(f"Set 'defaults' using JSON object:")
                     print(json.dumps(defaults_obj, indent=2))
                 else:
-                     print("[ERROR] Invalid structure in provided JSON for 'defaults'. Not saved.")
+                    print("[ERROR] Invalid structure in provided JSON for 'defaults'. Not saved.")
                 return # Processed JSON attempt
 
             except json.JSONDecodeError:
@@ -455,12 +494,13 @@ def set_config_value(args: argparse.Namespace) -> None:
                 print("  Example Bash/Zsh (usually single quotes work): '{\\\"model\\\": [\\\"m1\\\"], ...}'")
                 return
             except ValueError as e:
-                 print(f"[ERROR] {e}")
-                 return
+                print(f"[ERROR] {e}")
+                return
 
         # Option 2: Set individual default setting
-        elif len(values) == 2:
-            subkey, value_str = values
+        elif len(values) >= 2: # Changed to >= 2 to handle spaces in model names
+            subkey = values[0]
+            value_str = " ".join(values[1:])
             defaults = config.get("defaults", {}) # Get existing or empty dict
 
             # Process value based on subkey
@@ -503,7 +543,6 @@ def set_config_value(args: argparse.Namespace) -> None:
              return
 
     elif key in ["default_model", "default_anki_model"]:
-        # ... (existing code for default_model/default_anki_model) ...
         if len(values) != 1:
             print(f"[ERROR] Usage: pdf2anki config set {key} <model_name>")
             return
@@ -545,7 +584,6 @@ def cli_invoke() -> None:
         help="Convert PDF pages into individual images.",
         description="This command converts each page of a PDF into a separate PNG image."
     )
-    # ... arguments for pdf2pic ...
     parser_pdf2pic.add_argument("pdf_path", type=str, help="Path to the PDF file.")
     parser_pdf2pic.add_argument("output_dir", type=str, help="Directory to save the output images.")
     parser_pdf2pic.add_argument(
@@ -563,7 +601,6 @@ def cli_invoke() -> None:
         help="Extract text from images using OCR.",
         description="This command performs OCR on images in a directory and saves the extracted text to a file."
     )
-    # ... arguments for pic2text ...
     parser_pic2text.add_argument("images_dir", type=str, help="Directory containing images to be processed.")
     parser_pic2text.add_argument("output_file", type=str, help="File path to save extracted text.")
     parser_pic2text.add_argument(
@@ -613,24 +650,22 @@ def cli_invoke() -> None:
     parser_pic2text.set_defaults(func=images_to_text)
 
 
-    # --- PDF to Text Command ---
+    # --- PDF to Text Command (Updated) ---
     parser_pdf2text = subparsers.add_parser(
         "pdf2text",
-        help="Convert a PDF directly to text (PDF -> Images -> Text). Infers output paths if omitted.",
-        description="Converts PDF to images (stored in output_dir) and then extracts text to output_file. Output paths can be inferred."
+        help="Convert a PDF or a directory of PDFs to text.",
+        description="Converts one or more PDFs to images, then extracts text. Output paths can be inferred."
     )
-    # Arguments for pdf2text - output_dir and output_file are now optional
-    parser_pdf2text.add_argument("pdf_path", type=str, help="Path to the PDF file.")
-    parser_pdf2text.add_argument("output_dir", type=str, nargs='?', default=None, help="Directory to store intermediate images (default: ./pdf2pic/<pdf_name>/).")
-    # Rectangles must come *before* the optional output_file
+    parser_pdf2text.add_argument("pdf_path", type=str, help="Path to the PDF file or a directory of PDF files.")
+    parser_pdf2text.add_argument("output_dir", type=str, nargs='?', default=None, help="Optional: Directory for images. In batch mode, this is a base directory.")
     parser_pdf2text.add_argument(
         "rectangles",
         type=str,
         nargs="*",
         default=[],
-        help="Zero or more rectangles to crop, each in 'left,top,right,bottom' format."
+        help="Zero or more rectangles to crop, applied to all PDFs. Format: 'left,top,right,bottom'."
     )
-    parser_pdf2text.add_argument("output_file", type=str, nargs='?', default=None, help="File path to save extracted text (default: ./<pdf_name>.txt).")
+    parser_pdf2text.add_argument("output_file", type=str, nargs='?', default=None, help="Optional: Output for text. In batch mode, this is a directory.")
 
     # Optional OCR flags (same as pic2text) + default flag
     parser_pdf2text.add_argument(
@@ -687,7 +722,6 @@ def cli_invoke() -> None:
         help="Run the entire pipeline: PDF -> Images -> Text -> Anki.",
         description="Automates the full process of converting a PDF to Anki flashcards."
     )
-    # ... arguments for process ...
     parser_process.add_argument("pdf_path", type=str, help="Path to the PDF file.")
     parser_process.add_argument("output_dir", type=str, help="Directory to save intermediate images.")
     parser_process.add_argument("anki_file", type=str, help="Output path for the final Anki package file.")
@@ -700,7 +734,6 @@ def cli_invoke() -> None:
         action="store_true",
         help="Use preset default OCR settings (model, repeat, judge) from config."
     )
-    # ... add other OCR flags (--model, --repeat, etc.) identical to pdf2text ...
     parser_process.add_argument(
         "--model", action="append", default=[],
         help="Name of an OCR model. Can be specified multiple times. Overrides default if set."
@@ -738,7 +771,7 @@ def cli_invoke() -> None:
         description="Manage configuration like default models and preset defaults."
     )
     config_subparsers = parser_config.add_subparsers(title="Config Actions", dest="config_action", required=True,
-                                                   help='Configuration actions')
+                                                    help='Configuration actions')
 
     # Config View
     parser_config_view = config_subparsers.add_parser("view", help="Show current configuration.")
@@ -759,32 +792,39 @@ def cli_invoke() -> None:
             "  pdf2anki config set defaults '{\\\"model\\\": [\\\"google/gemini-pro\\\"], \\\"repeat\\\": [1]}' (Bash/Zsh example)"
         ),
         formatter_class=argparse.RawTextHelpFormatter # Allow newlines in description
-        )
+    )
     parser_config_set.add_argument(
         "key",
         type=str,
         help="Config key ('default_model', 'default_anki_model', 'defaults')."
-        )
+    )
     parser_config_set.add_argument(
         "values",
         nargs='*', # 0 or more values after the key
         help=(
             "Value(s) to set. See description for examples."
-            )
         )
+    )
     parser_config_set.set_defaults(func=set_config_value)
 
 
     # --- Parse Arguments and Execute ---
-    args = parser.parse_args()
-
-    # Execute the function associated with the chosen command/subcommand
-    # Check if a function was set (it should be if a command was provided)
-    if hasattr(args, 'func'):
-        args.func(args)
-    else:
-        # If no command was given (and argparse didn't exit), print help.
-        parser.print_help()
+    try:
+        args = parser.parse_args()
+        if hasattr(args, 'func'):
+            args.func(args)
+        else:
+            parser.print_help()
+    except FileNotFoundError as e:
+        print(f"[ERROR] {e}", file=sys.stderr)
+        sys.exit(1)
+    except ValueError as e:
+        print(f"[ERROR] {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"[UNEXPECTED ERROR] An unexpected error occurred: {e}", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)
 
 
 if __name__ == "__main__":

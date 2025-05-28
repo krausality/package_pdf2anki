@@ -1,5 +1,6 @@
 File Structure:
 .
+├── .env
 ├── .gitignore
 ├── BUILD.md
 ├── CROPPING.md
@@ -802,6 +803,8 @@ python -m pdf2anki pdf2text "C:\Users\Maddin\Meine Ablage\Uni\MCI\Mensch Compute
 
 
 python -m pdf2anki pdf2text "C:\Users\Maddin\Meine Ablage\Uni\Proseminar_Comp_NeuSc\The Formation of Longterm memory through synaptic consollidation.pdf" "C:\Users\Maddin\Meine Ablage\Uni\Proseminar_Comp_NeuSc\pics_TFoLmtsc" "C:\Users\Maddin\Meine Ablage\Uni\Proseminar_Comp_NeuSc\The Formation of Longterm memory through synaptic consollidation.txt" --model google/gemini-flash-1.5 --repeat 2 --judge-model google/gemini-flash-1.5 --judge-mode authoritative --judge-with-image
+
+pdf2anki pdf2text ".\slides_linuxlab-1.pdf" ".\ocr_pics" ".\slides_linuxlab-1.txt" --model google/gemini-2.0-flash-001 --repeat 2 --judge-model google/gemini-2.0-flash-001 --judge-mode authoritative --judge-with-image
 ----- END OF .\JUDGE.md -----
 
 
@@ -989,14 +992,15 @@ if __name__ == "__main__":
   Refer to the `NOTICE.txt` file for details on dependencies and third-party libraries.
 
 - **CLI Overview**  
-  The script is invoked through a single binary/entry-point (e.g., `python -m pdf2anki` or however you’ve packaged it), followed by a **command**. Each command has its own set of parameters and optional flags. 
+  The script is invoked through a single binary/entry-point (e.g., `pdf2anki`), followed by a **command**. Each command has its own set of parameters and optional flags. A global `-v` or `--verbose` flag can be added before the command to enable detailed debug logging.
 
   The main commands are:
-  1. **pdf2pic** – Convert a PDF to individual images.
-  2. **pic2text** – Perform OCR (text extraction) from a set of images.
-  3. **pdf2text** – Single-step pipeline to go from PDF directly to text.
-  4. **text2anki** – Convert a text file into an Anki deck/package.
-  5. **process** – Full pipeline: PDF → images → text → Anki deck, in one go.
+  1. **`pdf2pic`** – Convert a PDF to individual images.
+  2. **`pic2text`** – Perform OCR (text extraction) from a set of images.
+  3. **`pdf2text`** – Single-step pipeline from PDF directly to text, with inferred output paths.
+  4. **`text2anki`** – Convert a text file into an Anki deck/package.
+  5. **`process`** – Full pipeline: PDF → images → text → Anki deck, in one go.
+  6. **`config`** – View or set configuration options like default models and presets.
 
 **Installation / Invocation**  
 
@@ -1066,13 +1070,134 @@ In this mode:
 
 You might call this script like:
 ```bash
-python -m pdf2anki COMMAND [OPTIONS...]
+pdf2anki [-v] COMMAND [OPTIONS...]
 ```
-or if installed as an executable:
+In the examples below, we will assume `pdf2anki` is your entry-point.
+
+---
+
+## API Key Configuration
+
+To utilize features that interact with external language models (like the OCR capabilities in `pic2text` and `pdf2text`, or card generation in `text2anki`), you need to provide an API key. The project is configured to work with models available via **OpenRouter.ai**.
+
+The required API key is expected to be set as an environment variable named `OPENROUTER_API_KEY`.
+
+There are two primary ways to make this key available to the script:
+
+1.  **Using a `.env` file (Recommended):**
+    *   Create a file named `.env` in the root directory of the project (where `README.md` is).
+    *   Add your API key to this file in the format:
+        ```dotenv
+        OPENROUTER_API_KEY=YOUR_ACTUAL_API_KEY_HERE
+        ```
+    *   Replace `YOUR_ACTUAL_API_KEY_HERE` with the key you obtained from OpenRouter.ai.
+    *   Ensure `.env` is listed in your `.gitignore` file (it should be by default) to prevent accidentally committing your key.
+
+2.  **Setting the Environment Variable directly:**
+    *   Set the `OPENROUTER_API_KEY` environment variable in your terminal session *before* running the `pdf2anki` command.
+    *   Example (Linux/macOS):
+        ```bash
+        export OPENROUTER_API_KEY=YOUR_ACTUAL_API_KEY_HERE
+        pdf2anki ...
+        ```
+    *   Example (Windows Command Prompt):
+        ```cmd
+        set OPENROUTER_API_KEY=YOUR_ACTUAL_API_KEY_HERE
+        pdf2anki ...
+        ```
+    *   Example (Windows PowerShell):
+        ```powershell
+        $env:OPENROUTER_API_KEY="YOUR_ACTUAL_API_KEY_HERE"
+        pdf2anki ...
+        ```
+
+Using the `.env` file is generally more convenient for repeated use during development.
+
+---
+
+## Configuration (`config` command)
+
+The `pdf2anki config` command allows you to manage persistent settings stored in `~/.pdf2anki/config.json`. This is useful for setting default models or defining presets for OCR options.
+
+### `config view`
+
+Displays the current configuration.
+
 ```bash
-pdf2anki COMMAND [OPTIONS...]
+pdf2anki config view
 ```
-In the examples below, we will assume `python -m pdf2anki` is your entry-point.
+If the configuration is empty, it will report that. Otherwise, it prints the JSON content.
+
+### `config set`
+
+Sets configuration values. There are three main keys you can manage:
+
+1.  **`default_model`**: The default OCR model used by `pic2text`, `pdf2text`, and `process` if `--model` is not specified.
+2.  **`default_anki_model`**: The default model used by `text2anki` and `process` for generating Anki cards if the `anki_model` argument is not provided.
+3.  **`defaults`**: A preset object containing OCR settings (`model`, `repeat`, `judge_model`, `judge_mode`, `judge_with_image`) that can be activated using the `-d` flag in `pdf2text` and `process`.
+
+**Usage:**
+
+*   **Set default models:**
+    ```bash
+    pdf2anki config set default_model <model_name>
+    pdf2anki config set default_anki_model <model_name>
+    ```
+*   **Set individual preset defaults (for the `-d` flag):**
+    ```bash
+    pdf2anki config set defaults <setting_name> <value>
+    ```
+    Where `<setting_name>` is one of `model`, `repeat`, `judge_model`, `judge_mode`, `judge_with_image`.
+*   **Set all preset defaults using JSON (Advanced - Careful with shell quoting!):**
+    ```bash
+    pdf2anki config set defaults '<json_object_string>'
+    ```
+
+**Examples:**
+
+1.  **Set the default OCR model:**
+    ```bash
+    pdf2anki config set default_model google/gemini-flash-1.5
+    ```
+2.  **Set the default Anki generation model:**
+    ```bash
+    pdf2anki config set default_anki_model google/gemini-flash-1.5
+    ```
+3.  **Set up the preset defaults for the `-d` flag individually:**
+    ```powershell
+    # Set the model(s) for the preset
+    pdf2anki config set defaults model google/gemini-2.0-flash-001
+    # Set the repeat count(s) for the preset model(s)
+    pdf2anki config set defaults repeat 2
+    # Set the judge model for the preset
+    pdf2anki config set defaults judge_model google/gemini-2.0-flash-001
+    # Set the judge mode for the preset
+    pdf2anki config set defaults judge_mode authoritative
+    # Enable judge_with_image for the preset
+    pdf2anki config set defaults judge_with_image true
+    ```
+4.  **View the configuration after setting defaults:**
+    ```bash
+    pdf2anki config view
+    ```
+    *(This might show something like):*
+    ```json
+    {
+      "default_model": "google/gemini-flash-1.5",
+      "default_anki_model": "google/gemini-flash-1.5",
+      "defaults": {
+        "model": [
+          "google/gemini-2.0-flash-001"
+        ],
+        "repeat": [
+          2
+        ],
+        "judge_model": "google/gemini-2.0-flash-001",
+        "judge_mode": "authoritative",
+        "judge_with_image": true
+      }
+    }
+    ```
 
 ---
 
@@ -1089,7 +1214,7 @@ Converts all pages of a PDF into separate image files. By default, it saves each
 
 **Usage**  
 ```bash
-python -m pdf2anki pdf2pic PDF_PATH OUTPUT_DIR [RECTANGLE1 RECTANGLE2 ...]
+pdf2anki pdf2pic PDF_PATH OUTPUT_DIR [RECTANGLE1 RECTANGLE2 ...]
 ```
 
 ### Examples
@@ -1097,19 +1222,19 @@ python -m pdf2anki pdf2pic PDF_PATH OUTPUT_DIR [RECTANGLE1 RECTANGLE2 ...]
 1. **Minimal usage (no cropping)**
 
    ```bash
-   python -m pdf2anki pdf2pic mydocument.pdf output_images
+   pdf2anki pdf2pic mydocument.pdf output_images
    ```
    - Converts each page of `mydocument.pdf` into `output_images/page-1.png`, `output_images/page-2.png`, etc.
 
 2. **Single rectangle**  
    ```bash
-   python -m pdf2anki pdf2pic mydocument.pdf output_images 100,150,500,600
+   pdf2anki pdf2pic mydocument.pdf output_images 100,150,500,600
    ```
    - Converts each page into a cropped version from `(left=100, top=150)` to `(right=500, bottom=600)`.
 
 3. **Multiple rectangles**  
    ```bash
-   python -m pdf2anki pdf2pic mydocument.pdf output_images 50,100,300,400 320,100,600,400
+   pdf2anki pdf2pic mydocument.pdf output_images 50,100,300,400 320,100,600,400
    ```
    - For each PDF page, produces **two** cropped images:
      1. Cropped to `left=50, top=100, right=300, bottom=400`
@@ -1131,7 +1256,7 @@ Performs OCR on a directory of images, generating extracted text. The text can b
 
 | Parameter            | Description                                                                                                                                           |
 |----------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `--model MODEL`      | Name of an OCR model to use. Can be used **multiple times** to specify multiple models. If omitted, a default model might be assumed (depends on your code).  |
+| `--model MODEL`      | Name of an OCR model. Can be used multiple times. **If omitted, uses `default_model` from config.** If no default is set, prompts user or errors out. |
 | `--repeat N`         | Number of times to call each model per image (defaults to 1). If you provide multiple `--model` entries and multiple `--repeat` entries, each repeats entry corresponds to its respective model. **Requires `--judge-model` if any N > 1.** |
 | `--judge-model JM`   | If you have **multiple** OCR models or use `--repeat > 1`, you **must** specify a judge model to pick the best text. E.g., `--judge-model big-ocr-13b`. |
 | `--judge-mode MODE`  | Judge strategy. Currently only `"authoritative"` is implemented. If set, the judge simply picks the best result (the logic is inside your code).                                           |
@@ -1141,38 +1266,44 @@ Performs OCR on a directory of images, generating extracted text. The text can b
 
 **Usage**  
 ```bash
-python -m pdf2anki pic2text IMAGES_DIR OUTPUT_FILE [--model MODEL...] [--repeat N...] 
+pdf2anki pic2text IMAGES_DIR OUTPUT_FILE [--model MODEL...] [--repeat N...] 
       [--judge-model JM] [--judge-mode authoritative]
       [--ensemble-strategy STR] [--trust-score VAL] [--judge-with-image]
 ```
 
 ### Examples
 
-1. **Single model, minimal usage**  
+1. **Minimal usage (using default OCR model from config)**  
    ```bash
-   python -m pdf2anki pic2text scanned_pages output.txt
+   # Assumes 'default_model' is set via 'pdf2anki config set default_model ...'
+   pdf2anki pic2text scanned_pages output.txt
    ```
-   - OCR is done on images in `scanned_pages/` with a default or built-in model, saves text to `output.txt`. (Assumes default model doesn't require a judge).
+   - OCR is done using the configured `default_model`. Saves text to `output.txt`.
 
-2. **Single model, repeated calls (Requires Judge)**  
+2. **Specify model explicitly (overrides default)**
    ```bash
-   python -m pdf2anki pic2text scanned_pages output.txt --model google/gemini-2.0-flash-001 --repeat 3 --judge-model some-judge-model
+   pdf2anki pic2text scanned_pages output.txt --model google/gemini-pro
    ```
-   - For each image, runs `google/gemini-2.0-flash-001` OCR **3 times**.  
-   - **Requires** `--judge-model` (here `some-judge-model`) to be specified to select the best result from the 3 attempts.
 
-3. **Multiple models (Requires Judge)**  
+3. **Single model, repeated calls (Requires Judge)**  
    ```bash
-   python -m pdf2anki pic2text scanned_pages output.txt \
+   pdf2anki pic2text scanned_pages output.txt --model google/gemini-flash-1.5 --repeat 3 --judge-model google/gemini-pro
+   ```
+   - Runs `google/gemini-flash-1.5` OCR 3 times per image.
+   - Requires `--judge-model` (`google/gemini-pro`) to select the best result.
+
+4. **Multiple models (Requires Judge)**  
+   ```bash
+   pdf2anki pic2text scanned_pages output.txt \
        --model google/gemini-2.0-flash-001 --model openai/gpt-4.1 \
        --judge-model some-judge-model
    ```
    - For each image, runs `google/gemini-2.0-flash-001` once and `openai/gpt-4.1` once.  
    - **Requires** `--judge-model` to select the best result between the two models.
 
-4. **Multiple models, repeated calls, with judge**  
+5. **Multiple models, repeated calls, with judge**  
    ```bash
-   python -m pdf2anki pic2text scanned_pages output.txt \
+   pdf2anki pic2text scanned_pages output.txt \
        --model google/gemini-2.0-flash-001 --model openai/gpt-4.1 \
        --repeat 2 --repeat 1 \
        --judge-model big-ocr-13b --judge-mode authoritative
@@ -1183,9 +1314,9 @@ python -m pdf2anki pic2text IMAGES_DIR OUTPUT_FILE [--model MODEL...] [--repeat 
    - Then uses **`big-ocr-13b`** in “authoritative� mode to pick the best result per image.  
    - The final best text for each image is written to `output.txt`.
 
-5. **Multiple models, judge with images**  
+6. **Multiple models, judge with images**  
    ```bash
-   python -m pdf2anki pic2text scanned_pages output.txt \
+   pdf2anki pic2text scanned_pages output.txt \
        --model modelA --model modelB \
        --judge-model big-ocr-13b \
        --judge-with-image
@@ -1201,69 +1332,79 @@ Runs a **two-step** pipeline in a single command:
 1. Converts a PDF to images (`pdf2pic`).
 2. Performs OCR on those images (`pic2text`).
    
-Saves the final extracted text to a single file. This is handy if you only need text output (not an Anki deck).
+Saves the final extracted text to a single file. This is handy if you only need text output (not an Anki deck). **Output paths can be inferred if omitted.**
 
 **Positional Arguments**  
 1. `pdf_path` – Path to the PDF file.  
-2. `images_dir` – Directory to store generated images (intermediate).  
-3. `rectangles` – Crop rectangles (zero or more), same syntax as in `pdf2pic`. Must appear *before* `output_file`.
-4. `output_file` – Path to save the final text after OCR.
+2. `output_dir` – **(Optional)** Directory for intermediate images. Defaults to `./pdf2pic/<pdf_name>/`.
+3. `rectangles` – **(Optional)** Crop rectangles (`left,top,right,bottom`). Must appear *before* `output_file` if both are specified.
+4. `output_file` – **(Optional)** Path to save the final text. Defaults to `./<pdf_name>.txt`.
 
 **Optional Arguments**  
-Identical to the optional arguments for `pic2text`:
 
-- `--model MODEL` (repeats allowed)  
-- `--repeat N` (repeats allowed, requires `--judge-model` if any N > 1)
-- `--judge-model JM` (required if multiple models or repeats > 1)
-- `--judge-mode MODE`  
-- `--ensemble-strategy STR`  
-- `--trust-score VAL`  
-- `--judge-with-image`
+| Parameter            | Description                                                                                                                                           |
+|----------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `-d`, `--default`    | **Use preset defaults.** If set, applies OCR settings (`model`, `repeat`, `judge_model`, etc.) from the `defaults` section of the config. Exits if no defaults are configured. |
+| `--model MODEL`      | Name of an OCR model. Can be used multiple times. **If omitted (and `-d` not used), uses `default_model` from config.** Overrides `-d` settings if specified. |
+| `--repeat N`         | Number of times to call each model per image (defaults to 1). If you provide multiple `--model` entries and multiple `--repeat` entries, each repeats entry corresponds to its respective model. **Requires `--judge-model` if any N > 1.** |
+| `--judge-model JM`   | If you have **multiple** OCR models or use `--repeat > 1`, you **must** specify a judge model to pick the best text. E.g., `--judge-model big-ocr-13b`. |
+| `--judge-mode MODE`  | Judge strategy. Currently only `"authoritative"` is implemented. If set, the judge simply picks the best result (the logic is inside your code).                                           |
+| `--ensemble-strategy STR` | **(Placeholder)** e.g., `majority-vote`, `similarity-merge`. Not active in the code yet, so setting it won't do anything.                                                              |
+| `--trust-score VAL`  | **(Placeholder)** float representing model weighting factor in an ensemble or judge scenario. Not active in the code yet.                                                                  |
+| `--judge-with-image` | Boolean flag; if set, the judge model also sees the base64-encoded image when deciding among multiple OCR outputs.                                                                          |
 
 **Usage**  
 ```bash
-python -m pdf2anki pdf2text PDF_PATH IMAGES_DIR [RECTANGLE1 RECTANGLE2 ...] OUTPUT_FILE
-      [--model MODEL...]
-      [--repeat N...]
-      [--judge-model JM]
-      [--judge-mode authoritative]
-      [--ensemble-strategy STR]
-      [--trust-score VAL]
-      [--judge-with-image]
+# With explicit paths
+pdf2anki pdf2text PDF_PATH IMAGES_DIR [RECTANGLES...] OUTPUT_FILE [OPTIONS...]
+
+# With inferred paths
+pdf2anki pdf2text PDF_PATH [RECTANGLES...] [OPTIONS...]
 ```
   
-Note the argument order: `pdf2text <pdf_path> <images_dir> [rectangles...] <output_file> [options...]`
+Note the argument order: `pdf2text <pdf_path> [output_dir] [rectangles...] [output_file] [options...]`
 
 ### Examples
 
-1. **Minimal usage, no cropping**  
+1. **Minimal usage (inferred paths, default OCR model)**  
    ```bash
-   python -m pdf2anki pdf2text notes.pdf temp_images output.txt
+   # Assumes 'default_model' is configured
+   pdf2anki pdf2text notes.pdf
    ```
-   - Step 1: `notes.pdf` → multiple pages in `temp_images/`.  
-   - Step 2: OCR results → `output.txt`. (Assumes default model/settings don't require a judge).
+   - Step 1: `notes.pdf` → images in `./pdf2pic/notes/`.
+   - Step 2: OCR using `default_model` → text saved to `./notes.txt`.
 
-2. **With cropping**  
+2. **Minimal usage with preset defaults (`-d` flag)**
    ```bash
-   python -m pdf2anki pdf2text notes.pdf temp_images 50,100,300,400 320,100,600,400 output.txt
+   # Assumes 'defaults' are configured via 'pdf2anki config set defaults ...'
+   pdf2anki pdf2text notes.pdf -d
    ```
-   - Two cropped areas per PDF page → stored in `temp_images/`.  
-   - Then OCR → final text in `output.txt`. (Assumes default model/settings don't require a judge).
+   - Step 1: `notes.pdf` → images in `./pdf2pic/notes/`.
+   - Step 2: OCR using settings from config `defaults` → text saved to `./notes.txt`.
 
-3. **Advanced: multiple OCR models, repeated calls, judge**  
+3. **Specify output paths, override default model**
    ```bash
-   python -m pdf2anki pdf2text notes.pdf temp_images 100,150,500,600 output.txt \
-       --model google/gemini-2.0-flash-001 --model openai/gpt-4.1 \
-       --repeat 2 --repeat 2 \
-       --judge-model big-ocr-13b \
-       --judge-with-image
+   pdf2anki pdf2text notes.pdf custom_images/ final_text.txt --model google/gemini-pro
    ```
-   - Crops each PDF page according to `(100,150,500,600)`.
-   - For each cropped image:
-     - `google/gemini-2.0-flash-001` is called 2 times
-     - `openai/gpt-4.1` is called 2 times
-     - The judge model `big-ocr-13b` sees the base64-encoded image to pick the best result.
-   - Final text is in `output.txt`.
+   - Step 1: `notes.pdf` → images in `custom_images/`.
+   - Step 2: OCR using `google/gemini-pro` → text saved to `final_text.txt`.
+
+4. **Inferred paths with cropping and preset defaults**
+   ```bash
+   pdf2anki pdf2text notes.pdf 50,100,300,400 -d
+   ```
+   - Step 1: Crops `notes.pdf` → images in `./pdf2pic/notes/`.
+   - Step 2: OCR using config `defaults` → text saved to `./notes.txt`.
+
+5. **Explicit paths, multiple models (overrides defaults and `-d`)**
+   ```bash
+   pdf2anki pdf2text notes.pdf temp_images output.txt \
+       --model google/gemini-flash-1.5 --model openai/gpt-4.1 \
+       --repeat 2 --repeat 1 \
+       --judge-model google/gemini-pro
+   ```
+   - Step 1: `notes.pdf` → images in `temp_images/`.
+   - Step 2: Runs specified models/repeats, judged by `google/gemini-pro` → text saved to `output.txt`.
 
 ---
 
@@ -1275,26 +1416,27 @@ Takes a text file (already extracted by any means) and converts it into an Anki-
 **Positional Arguments**  
 1. `text_file` – Path to the text file with the content for the cards.  
 2. `anki_file` – Path to the final Anki deck output.
+3. `anki_model` – **(Optional)** Name of the OpenRouter model for generating cards. **If omitted, uses `default_anki_model` from config.** Raises error if omitted and no default is set.
 
 **Usage**  
 ```bash
-python -m pdf2anki text2anki TEXT_FILE ANKI_FILE
+pdf2anki text2anki TEXT_FILE ANKI_FILE [ANKI_MODEL]
 ```
 
 ### Examples
 
-1. **Minimal**  
+1. **Minimal (using default Anki model)**  
    ```bash
-   python -m pdf2anki text2anki reading.txt flashcards.apkg
+   # Assumes 'default_anki_model' is configured
+   pdf2anki text2anki reading.txt flashcards.apkg
    ```
-   - Converts `reading.txt` into an Anki package `flashcards.apkg`.
+   - Converts `reading.txt` into `flashcards.apkg` using the configured `default_anki_model`.
 
-2. **After manual editing**  
-   If you manually cleaned up the text from OCR, you might do:
+2. **Specify Anki model explicitly**
    ```bash
-   python -m pdf2anki text2anki cleaned_text.txt my_deck.apkg
+   pdf2anki text2anki cleaned_text.txt my_deck.apkg google/gemini-pro
    ```
-   - Results in `my_deck.apkg`.
+   - Converts `cleaned_text.txt` into `my_deck.apkg` using `google/gemini-pro`.
 
 ---
 
@@ -1313,28 +1455,24 @@ This means you get an Anki deck from the PDF in one go, without manually calling
 1. `pdf_path` – Path to the PDF file.  
 2. `output_dir` – Directory to store any intermediate images.  
 3. `anki_file` – Path to the final Anki deck file.
+4. `anki_model` – **(Optional)** Name of the OpenRouter model for generating cards. **If omitted, uses `default_anki_model` from config.** Raises error if omitted and no default is set.
 
 **Optional OCR-Related Arguments**  
-All the same options as `pic2text`:
 
-- `--model MODEL` (multiple allowed)  
-- `--repeat N` (multiple allowed, requires `--judge-model` if any N > 1)
-- `--judge-model JM` (required if multiple models or repeats > 1)
-- `--judge-mode MODE` (default `authoritative`)  
-- `--ensemble-strategy STR` (placeholder)  
-- `--trust-score VAL` (placeholder)  
-- `--judge-with-image`  
+| Parameter            | Description                                                                                                                                           |
+|----------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `-d`, `--default`    | **Use preset OCR defaults.** If set, applies OCR settings (`model`, `repeat`, `judge_model`, etc.) from the `defaults` section of the config for the text extraction step. Warns if no defaults are configured but continues. |
+| `--model MODEL`      | Name of an OCR model. Can be used multiple times. **If omitted (and `-d` not used), uses `default_model` from config.** Overrides `-d` settings if specified. |
+| `--repeat N`         | Number of times to call each model per image (defaults to 1). If you provide multiple `--model` entries and multiple `--repeat` entries, each repeats entry corresponds to its respective model. **Requires `--judge-model` if any N > 1.** |
+| `--judge-model JM`   | If you have **multiple** OCR models or use `--repeat > 1`, you **must** specify a judge model to pick the best text. E.g., `--judge-model big-ocr-13b`. |
+| `--judge-mode MODE`  | Judge strategy. Currently only `"authoritative"` is implemented. If set, the judge simply picks the best result (the logic is inside your code).                                           |
+| `--ensemble-strategy STR` | **(Placeholder)** e.g., `majority-vote`, `similarity-merge`. Not active in the code yet, so setting it won't do anything.                                                              |
+| `--trust-score VAL`  | **(Placeholder)** float representing model weighting factor in an ensemble or judge scenario. Not active in the code yet.                                                                  |
+| `--judge-with-image` | Boolean flag; if set, the judge model also sees the base64-encoded image when deciding among multiple OCR outputs.                                                                          |
 
 **Usage**  
 ```bash
-python -m pdf2anki process PDF_PATH OUTPUT_DIR ANKI_FILE
-      [--model MODEL...]
-      [--repeat N...]
-      [--judge-model JM]
-      [--judge-mode authoritative]
-      [--ensemble-strategy STR]
-      [--trust-score VAL]
-      [--judge-with-image]
+pdf2anki process PDF_PATH OUTPUT_DIR ANKI_FILE [ANKI_MODEL] [OCR_OPTIONS...]
 ```
 
 **Important Note on Cropping**  
@@ -1342,31 +1480,40 @@ The `process` command **does not** explicitly accept rectangles. If you need cro
 
 ### Examples
 
-1. **Minimal usage**  
+1. **Minimal usage (using default OCR and Anki models)**  
    ```bash
-   python -m pdf2anki process book.pdf images book.apkg
+   # Assumes 'default_model' and 'default_anki_model' are configured
+   pdf2anki process book.pdf images book.apkg
    ```
-   - Step 1: `book.pdf` → images in `images/`.  
-   - Step 2: OCR all images → some internal text file (using default model/settings).
-   - Step 3: Creates `book.apkg` from that text.
+   - Step 1: `book.pdf` → images in `images/`.
+   - Step 2: OCR using `default_model`.
+   - Step 3: Creates `book.apkg` using `default_anki_model`.
 
-2. **Multiple models, judge**  
+2. **Using preset OCR defaults (`-d`) and default Anki model**
    ```bash
-   python -m pdf2anki process slides.pdf slides_images slides.apkg \
-       --model google/gemini-2.0-flash-001 --model openai/gpt-4.1 \
-       --judge-model big-ocr-13b \
+   # Assumes 'defaults' (for OCR) and 'default_anki_model' are configured
+   pdf2anki process book.pdf images book.apkg -d
+   ```
+   - Step 1: `book.pdf` → images in `images/`.
+   - Step 2: OCR using settings from config `defaults`.
+   - Step 3: Creates `book.apkg` using `default_anki_model`.
+
+3. **Specify Anki model, use default OCR model**
+   ```bash
+   # Assumes 'default_model' is configured
+   pdf2anki process slides.pdf slides_images slides.apkg google/gemini-pro
+   ```
+   - Uses `default_model` for OCR, but `google/gemini-pro` for Anki card generation.
+
+4. **Specify OCR models (overrides defaults), specify Anki model**
+   ```bash
+   pdf2anki process slides.pdf slides_images slides.apkg google/gemini-pro \
+       --model google/gemini-flash-1.5 --model openai/gpt-4.1 \
+       --judge-model google/gemini-pro \
        --judge-with-image
    ```
-   - Generates final Anki deck `slides.apkg`, with improved OCR results selected by the judge.
-
-3. **Model repeats**  
-   ```bash
-   python -m pdf2anki process slides.pdf slides_images slides.apkg \
-       --model google/gemini-2.0-flash-001 --model openai/gpt-4.1 \
-       --repeat 2 --repeat 1 \
-       --judge-model big-ocr-13b
-   ```
-   - Calls `google/gemini-2.0-flash-001` 2 times, `openai/gpt-4.1` 1 time per image, judge picks best.
+   - Uses specified OCR models/judge for text extraction.
+   - Uses `google/gemini-pro` (the positional argument) for Anki card generation.
 
 ---
 
@@ -1380,18 +1527,18 @@ You want to crop the PDF in multiple areas and run advanced OCR:
 
 1. **Step 1**: PDF → images with multiple crop zones
    ```bash
-   python -m pdf2anki pdf2pic mynotes.pdf temp_images 50,100,300,400 400,100,600,300
+   pdf2anki pdf2pic mynotes.pdf temp_images 50,100,300,400 400,100,600,300
    ```
 2. **Step 2**: OCR from images to text, with repeated calls and judge
    ```bash
-   python -m pdf2anki pic2text temp_images text_output.txt \
+   pdf2anki pic2text temp_images text_output.txt \
        --model google/gemini-2.0-flash-001 --model openai/gpt-4.1 \
        --repeat 3 --repeat 1 \
        --judge-model big-ocr-13b
    ```
 3. **Step 3**: Convert text to Anki
    ```bash
-   python -m pdf2anki text2anki text_output.txt final_flashcards.apkg
+   pdf2anki text2anki text_output.txt final_flashcards.apkg
    ```
 
 ### B. Single-Step to Text (no deck)
@@ -1399,8 +1546,11 @@ You want to crop the PDF in multiple areas and run advanced OCR:
 If all you need is text (and optionally some rectangles for cropping):
 
 ```bash
-python -m pdf2anki pdf2text mynotes.pdf images_dir 100,150,400,500 output.txt \
-    --model openai/gpt-4.1 --judge-model some-judge-model
+# Using inferred paths and preset defaults
+pdf2anki pdf2text mynotes.pdf 100,150,400,500 -d
+
+# Or specifying model explicitly (overrides defaults)
+pdf2anki pdf2text mynotes.pdf images_dir 100,150,400,500 output.txt --model openai/gpt-4.1
 ```
 *(Note: Added `--judge-model` as it might be required depending on the `openai/gpt-4.1` implementation or if multiple models were used)*
 
@@ -1409,9 +1559,12 @@ python -m pdf2anki pdf2text mynotes.pdf images_dir 100,150,400,500 output.txt \
 If you just want the simplest route from PDF to a deck:
 
 ```bash
-python -m pdf2anki process mynotes.pdf images_dir mydeck.apkg
+# Simplest case using all configured defaults
+pdf2anki process mynotes.pdf images_dir mydeck.apkg
+
+# Using preset OCR defaults (-d) and specifying Anki model
+pdf2anki process mynotes.pdf images_dir mydeck.apkg google/gemini-pro -d
 ```
-*(Assumes default settings don't require a judge)*
 
 ---
 
@@ -1422,7 +1575,12 @@ python -m pdf2anki process mynotes.pdf images_dir mydeck.apkg
   2. **`pic2text`** – Run OCR on a directory of images, optionally with multiple models and a judge.  
   3. **`pdf2text`** – Combine steps 1 and 2 into a single command, outputting text.  
   4. **`text2anki`** – Convert text into an Anki deck.  
-  5. **`process`** – Automate the entire pipeline (PDF → images → text → Anki).
+  5. **`process`** – Automate the entire pipeline (PDF → images → text → Anki).  
+  6. **`config`** – Manage default models and presets.
+
+- **Defaults & Presets**:
+  - Configure `default_model`, `default_anki_model`, and `defaults` (for OCR presets) using `pdf2anki config set`.
+  - Use the `-d` flag with `pdf2text` or `process` to activate the `defaults` preset for OCR. Explicit OCR options override `-d`.
 
 - **Cropping**:  
   Only possible through `pdf2pic` or `pdf2text`. The `process` command does not accept cropping arguments.
@@ -1567,15 +1725,72 @@ Refer to the NOTICE.txt file for dependencies and third-party libraries used.
 """
 
 import argparse
-from typing import List
+import os
+import json
+import sys # Import sys for sys.exit
+from typing import List, Tuple, Optional, Dict, Any
+from pathlib import Path
 from . import pdf2pic
 from . import pic2text
 from . import text2anki
+
+# --- Configuration Management ---
+
+CONFIG_DIR = Path.home() / ".pdf2anki"
+CONFIG_FILE = CONFIG_DIR / "config.json"
+
+def load_config() -> Dict[str, Any]:
+    """Loads configuration from the JSON file."""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    if CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            print(f"[WARN] Could not read config file at {CONFIG_FILE}. Using empty config.")
+            return {}
+    return {}
+
+def save_config(config: Dict[str, Any]) -> None:
+    """Saves configuration to the JSON file."""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2)
+    except IOError:
+        print(f"[ERROR] Could not write config file to {CONFIG_FILE}.")
+
+def get_default_model(config: Dict[str, Any]) -> Optional[str]:
+    """Gets the default model from config, prompting if necessary."""
+    if "default_model" in config and config["default_model"]:
+        return config["default_model"]
+    else:
+        print("No default OCR model set.")
+        model_name = input("Please enter the name of the default model to use (e.g., google/gemini-flash-1.5): ").strip()
+        if model_name:
+            config["default_model"] = model_name
+            save_config(config)
+            print(f"Default model set to: {model_name}")
+            return model_name
+        else:
+            print("No model name entered. Cannot proceed without a model.")
+            return None
+
+def get_default_anki_model(config: Dict[str, Any]) -> Optional[str]:
+    """Gets the default anki model from config."""
+    return config.get("default_anki_model")
+
+def get_preset_defaults(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Gets the preset default settings from config."""
+    return config.get("defaults", {})
+
+# --- End Configuration Management ---
 
 
 def pdf_to_images(args: argparse.Namespace) -> None:
     """
     Convert a PDF file into a sequence of images, optionally cropping.
+    Passes verbose flag down.
     
     Args:
         args: Namespace containing:
@@ -1595,11 +1810,12 @@ def pdf_to_images(args: argparse.Namespace) -> None:
     for rect_str in args.rectangles:
         parsed_rectangles.append(pdf2pic.parse_rectangle(rect_str))
 
-    # 2. Pass them along to the function
+    # 2. Pass them along to the function, including verbose flag
     pdf2pic.convert_pdf_to_images(
         pdf_path=args.pdf_path,
         output_dir=args.output_dir,
-        rectangles=parsed_rectangles
+        rectangles=parsed_rectangles,
+        verbose=getattr(args, 'verbose', False) # Pass verbose flag
     )
 
 
@@ -1639,12 +1855,36 @@ def images_to_text(args: argparse.Namespace) -> None:
     """
     # Temporarily collect all remaining args
     remaining = []
-    if args.model:
+    config = load_config() # Load config for potential default model
+
+    # --- Model Handling ---
+    models_to_use = args.model
+    if not models_to_use:
+        # If no model specified via CLI, try getting default from config
+        default_model = get_default_model(config)
+        if default_model:
+            models_to_use = [default_model]
+            print(f"[INFO] Using default model: {default_model}")
+        else:
+            # If still no model (user didn't provide one when prompted), raise error
+            raise ValueError("No OCR model specified or configured. Use --model or set a default via 'pdf2anki config set default_model <name>'.")
+
+    if args.model: # Use models from args if provided
         for idx, model_name in enumerate(args.model):
             rp = 1
             if args.repeat and idx < len(args.repeat):
                 rp = args.repeat[idx]
             remaining.append((model_name, rp))
+    elif models_to_use: # Use default model if args.model was empty but we got a default
+         for idx, model_name in enumerate(models_to_use):
+            rp = 1
+            # Apply repeats if they were somehow passed even without explicit --model
+            if args.repeat and idx < len(args.repeat):
+                rp = args.repeat[idx]
+            remaining.append((model_name, rp))
+
+    # --- End Model Handling ---
+
 
     pic2text.convert_images_to_text(
         images_dir=args.images_dir,
@@ -1652,63 +1892,93 @@ def images_to_text(args: argparse.Namespace) -> None:
         model_repeats=remaining,        # pass list of (model, repeat)
         judge_model=args.judge_model,
         judge_mode=args.judge_mode,
-        ensemble_strategy=args.ensemble_strategy,
-        trust_score=args.trust_score,
+        ensemble_strategy=args.ensemble_strategy, # Ignored internally
+        trust_score=args.trust_score,             # Ignored internally
         judge_with_image=args.judge_with_image
     )
 
 def pdf_to_text(args: argparse.Namespace) -> None:
     """
-    Full pipeline: Convert a PDF to images, then extract text, and finally create an Anki deck.
+    Full pipeline: Convert a PDF to images, then extract text.
+    Handles default output_dir and output_file, default model, and -d flag.
     
     Args:
         args: Namespace containing combination of all arguments from:
             - pdf_to_images()
             - images_to_text() 
-            - text_to_anki()
     """
+    pdf_path = Path(args.pdf_path)
+    if not pdf_path.is_file():
+        raise FileNotFoundError(f"PDF file not found: {args.pdf_path}")
 
+    # --- Determine output_dir ---
+    output_dir_path: Path
+    if args.output_dir:
+        output_dir_path = Path(args.output_dir)
+    else:
+        # Default: ./pdf2pic/<pdf_name_without_ext>/
+        pdf_name_stem = pdf_path.stem
+        output_dir_path = Path.cwd() / "pdf2pic" / pdf_name_stem
+        print(f"[INFO] Defaulting output_dir to: {output_dir_path}")
+    output_dir_path.mkdir(parents=True, exist_ok=True)
+    args.output_dir = str(output_dir_path) # Update args for pdf_to_images
 
-    pdf_to_images(args)
+    # --- Determine output_file ---
+    output_file_path: Path
+    if args.output_file:
+        output_file_path = Path(args.output_file)
+    else:
+        # Default: ./<pdf_name_without_ext>.txt
+        pdf_name_stem = pdf_path.stem
+        output_file_path = Path.cwd() / f"{pdf_name_stem}.txt"
+        print(f"[INFO] Defaulting output_file to: {output_file_path}")
+    args.output_file = str(output_file_path) # Update args for images_to_text
 
-    """
-        Calls:
-        pic2text.convert_images_to_text(
-            images_dir: str,
-            output_file: str,
-            model_repeats: List[Tuple[str, int]], !!!!!!!!!
-            judge_model: Optional[str],
-            judge_mode: str,
-            ensemble_strategy: Optional[str],
-            trust_score: Optional[float],
-            judge_with_image: bool
-        ) -> str
-    """
+    # --- Handle -d/--default flag ---
+    config = load_config()
+    if args.use_defaults:
+        preset_defaults = get_preset_defaults(config)
+        if preset_defaults:
+            print("[INFO] Applying preset default settings (-d flag used).")
+            # Override args with defaults ONLY if they weren't explicitly set via CLI
+            # We check if the value in args is the default value set by argparse
+            # Note: This requires knowing argparse's defaults. Adjust if needed.
+            parser_defaults = { # Defaults defined in the parser setup below
+                'model': [], 'repeat': [], 'judge_model': None,
+                'judge_mode': 'authoritative', 'judge_with_image': False
+            }
+            for key, default_val in parser_defaults.items():
+                if getattr(args, key) == default_val and key in preset_defaults:
+                    setattr(args, key, preset_defaults[key])
+                    print(f"[INFO] Using default for --{key.replace('_', '-')}: {preset_defaults[key]}")
+        else:
+            print("[WARN] -d flag used, but no defaults found in config. Use 'pdf2anki config set defaults ...' to define them.")
+            sys.exit(1) # Exit if -d used and no defaults are set
 
-    # Temporarily collect all remaining args
-    remaining = []
-    if args.model:
-        for idx, model_name in enumerate(args.model):
-            rp = 1
-            if args.repeat and idx < len(args.repeat):
-                rp = args.repeat[idx]
-            remaining.append((model_name, rp))
+    # --- Call pdf_to_images ---
+    # Create a temporary namespace for pdf_to_images if needed, passing verbose
+    pdf_args = argparse.Namespace(
+        pdf_path=args.pdf_path,
+        output_dir=args.output_dir,
+        rectangles=args.rectangles,
+        verbose=getattr(args, 'verbose', False) # Pass verbose flag
+    )
+    pdf_to_images(pdf_args)
 
+    # --- Call images_to_text ---
     # Create proper namespace for images_to_text
     images_args = argparse.Namespace(
-        images_dir=args.output_dir,
-        output_file=args.output_file,
-        model=args.model,  # Pass the original model list
-        repeat=args.repeat,  # Pass the original repeat list
+        images_dir=args.output_dir, # Use the determined/created output_dir
+        output_file=args.output_file, # Use the determined output_file
+        model=args.model,
+        repeat=args.repeat,
         judge_model=args.judge_model,
         judge_mode=args.judge_mode,
-        ensemble_strategy=args.ensemble_strategy,
-        trust_score=args.trust_score,
+        ensemble_strategy=args.ensemble_strategy, # Ignored internally
+        trust_score=args.trust_score,             # Ignored internally
         judge_with_image=args.judge_with_image
     )
-    
     images_to_text(images_args)
-
 
 
 def text_to_anki(args: argparse.Namespace) -> None:
@@ -1721,12 +1991,26 @@ def text_to_anki(args: argparse.Namespace) -> None:
             - anki_file (str): Path to save Anki deck
             - model (str): Name of the OpenRouter model to use
     """
-    text2anki.convert_text_to_anki(args.text_file, args.anki_file, args.anki_model)
+    # Load config to potentially get default anki model if needed
+    config = load_config()
+    anki_model_to_use = args.anki_model
+    if not anki_model_to_use:
+        # If no model specified via CLI, try getting default from config
+        default_anki_model = get_default_anki_model(config)
+        if default_anki_model:
+            anki_model_to_use = default_anki_model
+            print(f"[INFO] Using default Anki model: {default_anki_model}")
+        else:
+            # If still no model, raise error (as anki_model is required)
+            raise ValueError("No Anki model specified and no default configured. Use the anki_model argument or set a default via 'pdf2anki config set default_anki_model <name>'.")
+
+    text2anki.convert_text_to_anki(args.text_file, args.anki_file, anki_model_to_use)
 
 
 def process_pdf_to_anki(args: argparse.Namespace) -> None:
     """
     Full pipeline: Convert a PDF to images, then extract text, and finally create an Anki deck.
+    Passes verbose flag down.
     
     Args:
         args: Namespace containing combination of all arguments from:
@@ -1734,67 +2018,245 @@ def process_pdf_to_anki(args: argparse.Namespace) -> None:
             - images_to_text() 
             - text_to_anki()
     """
+    # Intermediate file paths - use a more robust temp file handling if needed
+    # For simplicity, let's derive temp text file name from anki file name
+    anki_path = Path(args.anki_file)
+    output_text_file = anki_path.with_name(f"{anki_path.stem}_temp_ocr.txt")
 
-    
-    # Intermediate file paths
-    output_text_file = 'temp_text.txt'
-    pdf_to_images(args)
+    # --- Call pdf_to_images ---
+    pdf_args = argparse.Namespace(
+        pdf_path=args.pdf_path,
+        output_dir=args.output_dir,
+        rectangles=[], # process command doesn't take rectangles
+        verbose=getattr(args, 'verbose', False) # Pass verbose flag
+    )
+    pdf_to_images(pdf_args)
 
-    """
-        Calls:
-        pic2text.convert_images_to_text(
-            images_dir: str,
-            output_file: str,
-            model_repeats: List[Tuple[str, int]], !!!!!!!!!
-            judge_model: Optional[str],
-            judge_mode: str,
-            ensemble_strategy: Optional[str],
-            trust_score: Optional[float],
-            judge_with_image: bool
-        ) -> str
-    """
-
-    # Temporarily collect all remaining args
+    # --- Call images_to_text ---
+    # Temporarily collect model/repeat args
     remaining = []
-    if args.model:
+    config = load_config() # Load config for potential default model
+    models_to_use = args.model
+    if not models_to_use:
+        default_model = get_default_model(config)
+        if default_model:
+            models_to_use = [default_model]
+            print(f"[INFO] Using default model: {default_model}")
+        else:
+            raise ValueError("No OCR model specified or configured for 'process' command.")
+
+    if args.model: # Use models from args if provided
         for idx, model_name in enumerate(args.model):
             rp = 1
             if args.repeat and idx < len(args.repeat):
                 rp = args.repeat[idx]
             remaining.append((model_name, rp))
+    elif models_to_use: # Use default model
+         for idx, model_name in enumerate(models_to_use):
+            rp = 1
+            if args.repeat and idx < len(args.repeat):
+                rp = args.repeat[idx]
+            remaining.append((model_name, rp))
 
-    images_to_text(
-            argparse.Namespace(
-            images_dir=args.images_dir,
-            output_file=args.output_file,
-            model_repeats=remaining,  # pass list of (model, repeat), [(m,r),...]
-            judge_model=args.judge_model,
-            judge_mode=args.judge_mode,
-            ensemble_strategy=args.ensemble_strategy,
-            trust_score=args.trust_score,
-            judge_with_image=args.judge_with_image
-        )
+
+    images_args = argparse.Namespace(
+        images_dir=args.output_dir,
+        output_file=str(output_text_file), # Use temp text file
+        model_repeats=remaining,
+        judge_model=args.judge_model,
+        judge_mode=args.judge_mode,
+        ensemble_strategy=args.ensemble_strategy,
+        trust_score=args.trust_score,
+        judge_with_image=args.judge_with_image
     )
-    text_to_anki(argparse.Namespace(text_file=output_text_file, anki_file=args.anki_file))
+    images_to_text(images_args) # Call the function directly
+
+    # --- Call text_to_anki ---
+    # Load config to potentially get default anki model if needed
+    anki_model_to_use = args.anki_model # Get from process args
+    if not anki_model_to_use:
+        default_anki_model = get_default_anki_model(config)
+        if default_anki_model:
+            anki_model_to_use = default_anki_model
+            print(f"[INFO] Using default Anki model: {default_anki_model}")
+        else:
+            raise ValueError("No Anki model specified for 'process' command and no default configured.")
+
+    text_args = argparse.Namespace(
+        text_file=str(output_text_file),
+        anki_file=args.anki_file,
+        anki_model=anki_model_to_use # Pass the required anki model
+    )
+    text_to_anki(text_args)
+
+    # --- Cleanup ---
+    try:
+        # Optionally remove the temporary text file
+        # output_text_file.unlink()
+        # print(f"[INFO] Removed temporary text file: {output_text_file}")
+        pass # Keep temp file for now for debugging
+    except OSError as e:
+        print(f"[WARN] Could not remove temporary text file {output_text_file}: {e}")
+
+
+# --- Config Command Functions ---
+
+def view_config(args: argparse.Namespace) -> None:
+    """Displays the current configuration."""
+    config = load_config()
+    if config:
+        print(json.dumps(config, indent=2))
+    else:
+        print("Configuration is empty.")
+
+def set_config_value(args: argparse.Namespace) -> None:
+    """Sets a configuration value based on key and subsequent values."""
+    config = load_config()
+    key = args.key
+    values = args.values
+
+    if not values:
+        print(f"[ERROR] No value provided for key '{key}'.")
+        # Print specific usage based on key
+        if key == "defaults":
+             print(f"  Usage 1: pdf2anki config set defaults <setting_name> <value>")
+             print(f"  Usage 2: pdf2anki config set defaults '<json_object>' (ensure shell quoting!)")
+        elif key in ["default_model", "default_anki_model"]:
+             print(f"  Usage: pdf2anki config set {key} <model_name>")
+        else:
+             print(f"  Usage: pdf2anki config set <key> <value>")
+        return
+
+    if key == "defaults":
+        # Option 1: Set entire defaults object via JSON string
+        if len(values) == 1:
+            json_str = values[0]
+            try:
+                defaults_obj = json.loads(json_str)
+                if not isinstance(defaults_obj, dict):
+                    raise ValueError("Provided JSON is not an object (dictionary).")
+
+                # Optional: Validate keys/types within the loaded object
+                expected_defaults = {
+                    "model": list, "repeat": list, "judge_model": (str, type(None)),
+                    "judge_mode": str, "judge_with_image": bool
+                }
+                valid = True
+                for k, expected_type in expected_defaults.items():
+                    if k in defaults_obj and not isinstance(defaults_obj[k], expected_type):
+                        print(f"[WARN] Type mismatch for '{k}' in defaults. Expected {expected_type}, got {type(defaults_obj[k])}.")
+                        # Consider making this an error by setting valid = False
+                # Add more validation as needed
+
+                if valid:
+                    config["defaults"] = defaults_obj
+                    save_config(config)
+                    print(f"Set 'defaults' using JSON object:")
+                    print(json.dumps(defaults_obj, indent=2))
+                else:
+                     print("[ERROR] Invalid structure in provided JSON for 'defaults'. Not saved.")
+                return # Processed JSON attempt
+
+            except json.JSONDecodeError:
+                # Add debug print to see what string was actually received
+                print(f"[DEBUG] Received string for JSON parsing: '{json_str}'")
+                print(f"[ERROR] Invalid JSON provided for 'defaults' value.")
+                print("  Ensure the string is valid JSON and properly quoted/escaped for your shell.")
+                print("  Example PowerShell (escape internal quotes): \"{\\\"\"model\\\"\": [\\\"\"m1\\\"\"], ...}\"")
+                print("  Example Bash/Zsh (usually single quotes work): '{\\\"model\\\": [\\\"m1\\\"], ...}'")
+                return
+            except ValueError as e:
+                 print(f"[ERROR] {e}")
+                 return
+
+        # Option 2: Set individual default setting
+        elif len(values) == 2:
+            subkey, value_str = values
+            defaults = config.get("defaults", {}) # Get existing or empty dict
+
+            # Process value based on subkey
+            try:
+                if subkey == "model":
+                    defaults[subkey] = [m.strip() for m in value_str.split(',') if m.strip()]
+                elif subkey == "repeat":
+                    defaults[subkey] = [int(r.strip()) for r in value_str.split(',') if r.strip()]
+                elif subkey == "judge_model":
+                    defaults[subkey] = value_str if value_str.strip() else None
+                elif subkey == "judge_mode":
+                    defaults[subkey] = value_str
+                elif subkey == "judge_with_image":
+                    lower_val = value_str.lower()
+                    if lower_val in ["true", "1", "yes", "on"]:
+                        defaults[subkey] = True
+                    elif lower_val in ["false", "0", "no", "off"]:
+                        defaults[subkey] = False
+                    else:
+                        raise ValueError(f"Invalid boolean value: '{value_str}'. Use true/false.")
+                else:
+                    print(f"[ERROR] Unknown setting name for defaults: '{subkey}'")
+                    print(f"  Valid setting names: model, repeat, judge_model, judge_mode, judge_with_image")
+                    return
+
+                config["defaults"] = defaults # Put updated dict back
+                save_config(config)
+                print(f"Set 'defaults.{subkey}' to: {defaults[subkey]}")
+
+            except ValueError as e:
+                print(f"[ERROR] Invalid value format for '{subkey}': {e}")
+            except Exception as e:
+                print(f"[ERROR] Failed to set 'defaults.{subkey}': {e}")
+
+        # Invalid number of arguments for 'defaults'
+        else:
+             print(f"[ERROR] Invalid arguments for 'defaults'.")
+             print(f"  Usage 1: pdf2anki config set defaults <setting_name> <value>")
+             print(f"  Usage 2: pdf2anki config set defaults '<json_object>' (ensure shell quoting!)")
+             return
+
+    elif key in ["default_model", "default_anki_model"]:
+        # ... (existing code for default_model/default_anki_model) ...
+        if len(values) != 1:
+            print(f"[ERROR] Usage: pdf2anki config set {key} <model_name>")
+            return
+        value_str = values[0]
+        if isinstance(value_str, str) and value_str.strip():
+            config[key] = value_str.strip()
+            save_config(config)
+            print(f"Set configuration key '{key}' to '{config[key]}'.")
+        else:
+            print(f"[ERROR] Invalid value for '{key}'. Must be a non-empty string.")
+
+    else:
+        print(f"[ERROR] Unknown configuration key: '{key}'. Valid keys: default_model, default_anki_model, defaults.")
+
+
+# --- End Config Command Functions ---
 
 
 def cli_invoke() -> None:
     """
     Command-line interface entry point. Sets up argument parsing and executes
-    the appropriate function based on command.
+    the appropriate function based on command. Includes global verbose flag and config command.
     """
     parser = argparse.ArgumentParser(
         description="Convert PDFs to Anki flashcards through a multi-step pipeline involving image extraction, OCR, and Anki formatting."
     )
+    # Add global verbose flag
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Enable verbose output (e.g., debug logging)."
+    )
 
-    subparsers = parser.add_subparsers(title="Commands", dest="command")
+    subparsers = parser.add_subparsers(title="Commands", dest="command", required=True)
 
-    # PDF to Images Command
+    # --- PDF to Images Command ---
     parser_pdf2pic = subparsers.add_parser(
         "pdf2pic",
         help="Convert PDF pages into individual images.",
         description="This command converts each page of a PDF into a separate PNG image."
     )
+    # ... arguments for pdf2pic ...
     parser_pdf2pic.add_argument("pdf_path", type=str, help="Path to the PDF file.")
     parser_pdf2pic.add_argument("output_dir", type=str, help="Directory to save the output images.")
     parser_pdf2pic.add_argument(
@@ -1806,75 +2268,72 @@ def cli_invoke() -> None:
     )
     parser_pdf2pic.set_defaults(func=pdf_to_images)
 
-    # Images to Text Command
+    # --- Images to Text Command ---
     parser_pic2text = subparsers.add_parser(
         "pic2text",
         help="Extract text from images using OCR.",
         description="This command performs OCR on images in a directory and saves the extracted text to a file."
     )
+    # ... arguments for pic2text ...
     parser_pic2text.add_argument("images_dir", type=str, help="Directory containing images to be processed.")
     parser_pic2text.add_argument("output_file", type=str, help="File path to save extracted text.")
-
-    # Below: The new CLI arguments requested by the extended pic2text specification
     parser_pic2text.add_argument(
         "--model",
         action="append",
         default=[],
-        help="Name of an OCR model to use. Can be specified multiple times for multiple models."
+        help="Name of an OCR model to use. Can be specified multiple times. If omitted, uses configured default."
     )
     parser_pic2text.add_argument(
         "--repeat",
         action="append",
         type=int,
         default=[],
-        help="Number of times to call each model per image (default=1)."
+        help="Number of times to call each model per image (default=1). Corresponds to --model by index."
     )
     parser_pic2text.add_argument(
         "--judge-model",
         type=str,
         default=None,
-        help="Separate model to adjudicate multiple-model outputs. Required for multi-model usage."
+        help="Separate model to adjudicate multiple outputs. Required if using multiple models or repeat > 1."
     )
     parser_pic2text.add_argument(
         "--judge-mode",
         type=str,
         default="authoritative",
-        help="Judge mode. Currently only 'authoritative' is implemented."
+        choices=["authoritative"], # Only authoritative is implemented
+        help="Judge mode ('authoritative')."
     )
-    # Placeholders for future ensemble logic
     parser_pic2text.add_argument(
         "--ensemble-strategy",
         type=str,
         default=None,
-        help="(Placeholder) Ensemble strategy. E.g., 'majority-vote', 'similarity-merge'. Not currently active."
+        help="(Placeholder) Ensemble strategy. Not currently active."
     )
     parser_pic2text.add_argument(
         "--trust-score",
         type=float,
         default=None,
-        help="(Placeholder) Per-model weighting factor in ensemble or judge. Not currently active."
+        help="(Placeholder) Per-model weighting factor. Not currently active."
     )
-
-    # NEW argument: feed the judge the image (optional)
     parser_pic2text.add_argument(
         "--judge-with-image",
         action="store_true",
         default=False,
-        help="If set, the judge model will also receive the base64-encoded image to help pick the best text."
+        help="If set, the judge model also receives the base64-encoded image."
     )
-
     parser_pic2text.set_defaults(func=images_to_text)
 
+
+    # --- PDF to Text Command ---
     parser_pdf2text = subparsers.add_parser(
         "pdf2text",
-        help="Convert a PDF directly to text in one step (without creating an Anki deck)."
+        help="Convert a PDF directly to text (PDF -> Images -> Text). Infers output paths if omitted.",
+        description="Converts PDF to images (stored in output_dir) and then extracts text to output_file. Output paths can be inferred."
     )
-
-    # 1. Arguments for the PDF → Images step:
+    # Arguments for pdf2text - output_dir and output_file are now optional
     parser_pdf2text.add_argument("pdf_path", type=str, help="Path to the PDF file.")
-
-    parser_pdf2text.add_argument("output_dir", type=str, help="Directory  to store and read generated images.")
- 
+    parser_pdf2text.add_argument("output_dir", type=str, nargs='?', default=None, help="Directory to store intermediate images (default: ./pdf2pic/<pdf_name>/).")
+    # Rectangles must come *before* the optional output_file
     parser_pdf2text.add_argument(
         "rectangles",
         type=str,
@@ -1882,59 +2341,46 @@ def cli_invoke() -> None:
         default=[],
         help="Zero or more rectangles to crop, each in 'left,top,right,bottom' format."
     )
-     # 2. Arguments for the Images → Text step:
-    parser_pdf2text.add_argument("output_file", type=str, help="File path to save extracted text.")
+    parser_pdf2text.add_argument("output_file", type=str, nargs='?', default=None, help="File path to save extracted text (default: ./<pdf_name>.txt).")
 
-    # 3. Optional OCR flags (same as pic2text):
+    # Optional OCR flags (same as pic2text) + default flag
     parser_pdf2text.add_argument(
-        "--model",
-        action="append",
-        default=[],
-        help="Name of an OCR model to use. Can be specified multiple times."
+        "-d", "--default", dest="use_defaults",
+        action="store_true",
+        help="Use preset default OCR settings (model, repeat, judge) from config."
     )
     parser_pdf2text.add_argument(
-        "--repeat",
-        action="append",
-        type=int,
-        default=[],
-        help="Number of times to call each model per image (default=1)."
+        "--model", action="append", default=[],
+        help="Name of an OCR model. Can be specified multiple times. Overrides default if set."
     )
     parser_pdf2text.add_argument(
-        "--judge-model",
-        type=str,
-        default=None,
-        help="Separate model to adjudicate multiple outputs."
+        "--repeat", action="append", type=int, default=[],
+        help="Number of times to call each model (default=1). Corresponds to --model by index."
     )
     parser_pdf2text.add_argument(
-        "--judge-mode",
-        type=str,
-        default="authoritative",
-        help="Judge mode. Currently only 'authoritative' is implemented."
+        "--judge-model", type=str, default=None,
+        help="Separate model to adjudicate multiple outputs. Required if using multiple models or repeat > 1."
     )
     parser_pdf2text.add_argument(
-        "--ensemble-strategy",
-        type=str,
-        default=None,
-        help="(Placeholder) Ensemble strategy, e.g., 'majority-vote'. Not active yet."
+        "--judge-mode", type=str, default="authoritative", choices=["authoritative"],
+        help="Judge mode ('authoritative')."
     )
     parser_pdf2text.add_argument(
-        "--trust-score",
-        type=float,
-        default=None,
+        "--ensemble-strategy", type=str, default=None,
+        help="(Placeholder) Ensemble strategy. Not active yet."
+    )
+    parser_pdf2text.add_argument(
+        "--trust-score", type=float, default=None,
         help="(Placeholder) Per-model weighting factor. Not currently active."
     )
     parser_pdf2text.add_argument(
-        "--judge-with-image",
-        action="store_true",
-        default=False,
+        "--judge-with-image", action="store_true", default=False,
         help="If set, the judge model also receives the base64-encoded image."
     )
-
     parser_pdf2text.set_defaults(func=pdf_to_text)
 
 
-
-    # Text to Anki Command
+    # --- Text to Anki Command ---
     parser_text2anki = subparsers.add_parser(
         "text2anki",
         help="Convert extracted text into an Anki-compatible format.",
@@ -1942,76 +2388,118 @@ def cli_invoke() -> None:
     )
     parser_text2anki.add_argument("text_file", type=str, help="Path to the text file with content for Anki cards.")
     parser_text2anki.add_argument("anki_file", type=str, help="Output path for the Anki package file.")
-    parser_text2anki.add_argument("anki_model", type=str, help="OpenRouter model to use for generating Anki cards.")
+    # Make anki_model optional here, will use default if not provided
+    parser_text2anki.add_argument("anki_model", type=str, nargs='?', default=None, help="OpenRouter model for Anki cards (optional, uses default if configured).")
     parser_text2anki.set_defaults(func=text_to_anki)
 
-    # Full Pipeline Command
+    # --- Full Pipeline Command ---
     parser_process = subparsers.add_parser(
         "process",
-        help="Run the entire pipeline: PDF to Images, Images to Text, and Text to Anki.",
-        description="This command automates the full process of converting a PDF to Anki flashcards."
+        help="Run the entire pipeline: PDF -> Images -> Text -> Anki.",
+        description="Automates the full process of converting a PDF to Anki flashcards."
     )
+    # ... arguments for process ...
     parser_process.add_argument("pdf_path", type=str, help="Path to the PDF file.")
     parser_process.add_argument("output_dir", type=str, help="Directory to save intermediate images.")
     parser_process.add_argument("anki_file", type=str, help="Output path for the final Anki package file.")
-    
-    # Add OCR arguments to process command
+    # Make anki_model optional here too
+    parser_process.add_argument("anki_model", type=str, nargs='?', default=None, help="OpenRouter model for Anki cards (optional, uses default if configured).")
+
+    # Add OCR arguments + default flag to process command
     parser_process.add_argument(
-        "--model",
-        action="append",
-        default=[],
-        help="Name of an OCR model to use. Can be specified multiple times for multiple models."
-    )
-    parser_process.add_argument(
-        "--repeat",
-        action="append",
-        type=int,
-        default=[],
-        help="Number of times to call each model per image (default=1)."
-    )
-    parser_process.add_argument(
-        "--judge-model",
-        type=str,
-        default=None,
-        help="Separate model to adjudicate multiple-model outputs. Required for multi-model usage."
-    )
-    parser_process.add_argument(
-        "--judge-mode",
-        type=str,
-        default="authoritative",
-        help="Judge mode. Currently only 'authoritative' is implemented."
-    )
-    parser_process.add_argument(
-        "--ensemble-strategy",
-        type=str,
-        default=None,
-        help="(Placeholder) Ensemble strategy. E.g., 'majority-vote', 'similarity-merge'. Not currently active."
-    )
-    parser_process.add_argument(
-        "--trust-score",
-        type=float,
-        default=None,
-        help="(Placeholder) Per-model weighting factor in ensemble or judge. Not currently active."
-    )
-    parser_process.add_argument(
-        "--judge-with-image",
+        "-d", "--default", dest="use_defaults",
         action="store_true",
-        default=False,
-        help="If set, the judge model will also receive the base64-encoded image to help pick the best text."
+        help="Use preset default OCR settings (model, repeat, judge) from config."
+    )
+    # ... add other OCR flags (--model, --repeat, etc.) identical to pdf2text ...
+    parser_process.add_argument(
+        "--model", action="append", default=[],
+        help="Name of an OCR model. Can be specified multiple times. Overrides default if set."
+    )
+    parser_process.add_argument(
+        "--repeat", action="append", type=int, default=[],
+        help="Number of times to call each model (default=1). Corresponds to --model by index."
+    )
+    parser_process.add_argument(
+        "--judge-model", type=str, default=None,
+        help="Separate model to adjudicate multiple outputs. Required if using multiple models or repeat > 1."
+    )
+    parser_process.add_argument(
+        "--judge-mode", type=str, default="authoritative", choices=["authoritative"],
+        help="Judge mode ('authoritative')."
+    )
+    parser_process.add_argument(
+        "--ensemble-strategy", type=str, default=None,
+        help="(Placeholder) Ensemble strategy. Not active yet."
+    )
+    parser_process.add_argument(
+        "--trust-score", type=float, default=None,
+        help="(Placeholder) Per-model weighting factor. Not currently active."
+    )
+    parser_process.add_argument(
+        "--judge-with-image", action="store_true", default=False,
+        help="If set, the judge model also receives the base64-encoded image."
     )
     parser_process.set_defaults(func=process_pdf_to_anki)
 
+    # --- Configuration Command ---
+    parser_config = subparsers.add_parser(
+        "config",
+        help="View or modify configuration settings.",
+        description="Manage configuration like default models and preset defaults."
+    )
+    config_subparsers = parser_config.add_subparsers(title="Config Actions", dest="config_action", required=True,
+                                                   help='Configuration actions')
+
+    # Config View
+    parser_config_view = config_subparsers.add_parser("view", help="Show current configuration.")
+    parser_config_view.set_defaults(func=view_config)
+
+    # Config Set - Updated help text and description
+    parser_config_set = config_subparsers.add_parser(
+        "set",
+        help="Set config: 'set <key> <value>' or 'set defaults <setting> <value>' or 'set defaults \"<json>\"'",
+        description=(
+            "Sets a configuration value.\n"
+            "Examples:\n"
+            "  pdf2anki config set default_model google/gemini-pro\n"
+            "  pdf2anki config set defaults judge_model google/gemini-pro\n"
+            "  pdf2anki config set defaults repeat 2\n"
+            "  pdf2anki config set defaults judge_with_image true\n"
+            "  pdf2anki config set defaults \"{\\\"\"model\\\"\": [\\\"\"google/gemini-pro\\\"\"], \\\"\"repeat\\\"\": [1]}\" (PowerShell example)\n"
+            "  pdf2anki config set defaults '{\\\"model\\\": [\\\"google/gemini-pro\\\"], \\\"repeat\\\": [1]}' (Bash/Zsh example)"
+        ),
+        formatter_class=argparse.RawTextHelpFormatter # Allow newlines in description
+        )
+    parser_config_set.add_argument(
+        "key",
+        type=str,
+        help="Config key ('default_model', 'default_anki_model', 'defaults')."
+        )
+    parser_config_set.add_argument(
+        "values",
+        nargs='*', # 0 or more values after the key
+        help=(
+            "Value(s) to set. See description for examples."
+            )
+        )
+    parser_config_set.set_defaults(func=set_config_value)
+
+
+    # --- Parse Arguments and Execute ---
     args = parser.parse_args()
 
-    if args.command:
+    # Execute the function associated with the chosen command/subcommand
+    # Check if a function was set (it should be if a command was provided)
+    if hasattr(args, 'func'):
         args.func(args)
     else:
+        # If no command was given (and argparse didn't exit), print help.
         parser.print_help()
 
 
 if __name__ == "__main__":
     cli_invoke()
-
 ----- END OF .\pdf2anki\core.py -----
 
 
@@ -2042,50 +2530,58 @@ def find_acceptable_dpi(
     page,
     output_path: str,
     initial_dpi: int,
-    format_str: str = "PNG"
+    format_str: str = "PNG",
+    verbose: bool = False # Add verbose parameter
 ) -> int:
     """
     Iteratively find a DPI that results in an image size between ~750KB and 800KB,
     starting with 'initial_dpi'. Uses a divide-and-conquer approach.
     """
-    import os
-    import math
-    import fitz
-    from PIL import Image
-    
+    # No need for local imports if they are global
+
     lower_dpi = 50
     upper_dpi = initial_dpi
     acceptable_dpi = initial_dpi
 
     while lower_dpi <= upper_dpi:
         mid_dpi = (lower_dpi + upper_dpi) // 2
+        if mid_dpi <= 0: # Avoid zero or negative DPI
+             break
         zoom = mid_dpi / 72.0
         mat = fitz.Matrix(zoom, zoom)
         pix = page.get_pixmap(matrix=mat, alpha=False)
         img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
-        # Save temporarily in memory (or to a temp file) to check size
+        # Save temporarily to check size
         temp_path = output_path + ".temp"
-        img.save(temp_path, format=format_str, dpi=(mid_dpi, mid_dpi))
-        size_kb = os.path.getsize(temp_path) / 1024
+        try:
+            img.save(temp_path, format=format_str, dpi=(mid_dpi, mid_dpi))
+            size_kb = os.path.getsize(temp_path) / 1024
 
-        print(f"[DEBUG] Tried {mid_dpi} dpi => {size_kb:.1f} KB")
+            if verbose: # Check verbose flag before printing debug info
+                print(f"[DEBUG] Tried {mid_dpi} dpi => {size_kb:.1f} KB")
 
-        if 750 <= size_kb < 800:
-            print(f"[DEBUG] Found acceptable size {size_kb:.1f} KB at {mid_dpi} dpi")
-            acceptable_dpi = mid_dpi
-            break
-        elif size_kb >= 800:
-            # reduce dpi
-            upper_dpi = mid_dpi - 1
-        else:
-            # size < 750
-            acceptable_dpi = mid_dpi  # might still be best so far
-            lower_dpi = mid_dpi + 1
+            if 750 <= size_kb < 800:
+                if verbose: # Check verbose flag
+                    print(f"[DEBUG] Found acceptable size {size_kb:.1f} KB at {mid_dpi} dpi")
+                acceptable_dpi = mid_dpi
+                break
+            elif size_kb >= 800:
+                # reduce dpi
+                upper_dpi = mid_dpi - 1
+            else:
+                # size < 750
+                acceptable_dpi = mid_dpi  # might still be best so far
+                lower_dpi = mid_dpi + 1
+        finally:
+             # Clean up temporary file
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
 
-    # Clean up temporary file
-    if os.path.exists(temp_path):
-        os.remove(temp_path)
+    # Ensure acceptable_dpi is within reasonable bounds
+    acceptable_dpi = max(lower_dpi if lower_dpi > 50 else 50, acceptable_dpi)
+    acceptable_dpi = min(initial_dpi, acceptable_dpi)
+    acceptable_dpi = max(1, acceptable_dpi) # Ensure DPI is at least 1
 
     return acceptable_dpi
 
@@ -2093,7 +2589,8 @@ def convert_pdf_to_images(
     pdf_path: str,
     output_dir: str,
     target_dpi: int = 300,
-    rectangles: Optional[List[Tuple[int, int, int, int]]] = None
+    rectangles: Optional[List[Tuple[int, int, int, int]]] = None,
+    verbose: bool = False # Add verbose parameter here
 ) -> List[str]:
     """
     Convert each page of a PDF to a full-page image at 'target_dpi'.
@@ -2155,12 +2652,14 @@ def convert_pdf_to_images(
                 # ======================
                 # Use the new helper to find acceptable dpi
                 # ======================
-                chosen_dpi = find_acceptable_dpi(page, img_path, target_dpi, "PNG")
+                # Pass verbose flag to the helper function
+                chosen_dpi = find_acceptable_dpi(page, img_path, target_dpi, "PNG", verbose=verbose)
                 zoom_chosen = chosen_dpi / 72.0
                 mat_chosen = fitz.Matrix(zoom_chosen, zoom_chosen)
                 pix_chosen = page.get_pixmap(matrix=mat_chosen, alpha=False)
                 img_chosen = Image.frombytes("RGB", (pix_chosen.width, pix_chosen.height), pix_chosen.samples)
                 img_chosen.save(img_path, format="PNG", dpi=(chosen_dpi, chosen_dpi))
+                # Use standard print for final save message
                 print(f"Saved page {page_num} at final {chosen_dpi} dpi: {img_path}")
                 images.append(img_path)
 
