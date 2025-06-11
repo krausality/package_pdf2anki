@@ -167,7 +167,7 @@ def _post_ocr_request(model_name: str, base64_image: str, ocr_log_file: str, ima
         lf.write(
             f"\n[{pid_str}] [OCR CALL COMPLETED] {start_time.isoformat()} => {end_time.isoformat()} ({duration:.2f}s)\n"
             f"Image: {image_name_for_log}, Model: {model_name}, Attempt: {attempt_num_for_log}\n"
-            f"Response (truncated): {cleaned_text[:120].replace(chr(10), ' ')}\n"
+            f"Response: {cleaned_text.replace(chr(10), ' ')}\n"
             "-----------------------------------------\n"
         )
     return cleaned_text
@@ -286,8 +286,8 @@ def _post_judge_request(
         df.write("--- Valid Candidates Presented to Judge ---\n")
         for i, text_candidate in enumerate(valid_candidates_for_judge):
             m_name, att_num = valid_model_info_for_judge[i]
-            df.write(f"Candidate {i + 1} (Model: {m_name}, Attempt: {att_num}):\n{text_candidate[:200]}...\n---\n")
-        df.write(f"--- Judge Picked ---\n{final_text[:500]}...\n-------------------------------------\n")
+            df.write(f"Candidate {i + 1} (Model: {m_name}, Attempt: {att_num}):\n{text_candidate}\n---\n")
+        df.write(f"--- Judge Picked ---\n{final_text}\n-------------------------------------\n")
     return final_text
 
 def _archive_old_logs(output_file_path_str: str, log_files_to_archive: List[str]) -> None:

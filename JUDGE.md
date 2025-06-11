@@ -602,3 +602,6 @@ python -m pdf2anki pdf2text "C:\Users\Maddin\Meine Ablage\Uni\MCI\Mensch Compute
 python -m pdf2anki pdf2text "C:\Users\Maddin\Meine Ablage\Uni\Proseminar_Comp_NeuSc\The Formation of Longterm memory through synaptic consollidation.pdf" "C:\Users\Maddin\Meine Ablage\Uni\Proseminar_Comp_NeuSc\pics_TFoLmtsc" "C:\Users\Maddin\Meine Ablage\Uni\Proseminar_Comp_NeuSc\The Formation of Longterm memory through synaptic consollidation.txt" --model google/gemini-flash-1.5 --repeat 2 --judge-model google/gemini-flash-1.5 --judge-mode authoritative --judge-with-image
 
 pdf2anki pdf2text ".\slides_linuxlab-1.pdf" ".\ocr_pics" ".\slides_linuxlab-1.txt" --model google/gemini-2.0-flash-001 --repeat 2 --judge-model google/gemini-2.0-flash-001 --judge-mode authoritative --judge-with-image
+
+
+pdf2anki pdf2text document.pdf --model google/gemini-2.5-flash-preview-05-20:thinking --repeat 3 --judge-model google/gemini-2.5-flash-preview-05-20:thinking
