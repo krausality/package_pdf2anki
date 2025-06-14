@@ -37,6 +37,7 @@
         "*.txt"
     ],
     "exclude_patterns": [
+        ".env",
         "*.png",
         "*.svg",
         ".git",

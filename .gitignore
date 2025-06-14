@@ -28,3 +28,4 @@
 # Ignore everything in the .venv directory
 .venv/*
 pdf2anki/allfiles.txt
+allfiles.txt
