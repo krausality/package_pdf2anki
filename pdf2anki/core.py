@@ -400,9 +400,15 @@ def json_to_anki(args: argparse.Namespace) -> None:
         show_json_format()
         return
     
-    if not args.json_file or not args.anki_file:
-        print("Error: json_file and anki_file arguments are required when not using --show-format")
+    if not args.json_file:
+        print("Error: json_file argument is required when not using --show-format")
         sys.exit(1)
+    
+    # If no anki_file is provided, generate it from the json_file name
+    if not args.anki_file:
+        json_path = Path(args.json_file)
+        args.anki_file = str(json_path.with_suffix('.apkg'))
+        print(f"[INFO] No output file specified. Using: {args.anki_file}")
     
     text2anki.convert_json_to_anki(args.json_file, args.anki_file)
 
@@ -615,8 +621,8 @@ def cli_invoke() -> None:
         "json2anki",
         help="Convert a pre-formatted JSON flashcard file to an Anki package (offline, no LLM)."
     )
-    parser_json2anki.add_argument("json_file", type=str, nargs='?', help="Input JSON flashcards.")
-    parser_json2anki.add_argument("anki_file", type=str, nargs='?', help="Output Anki .apkg file.")
+    parser_json2anki.add_argument("json_file", type=str, help="Input JSON flashcards.")
+    parser_json2anki.add_argument("anki_file", type=str, nargs='?', help="Output Anki .apkg file (optional, defaults to same name as input with .apkg extension).")
     parser_json2anki.add_argument("--show-format", action="store_true", 
                                 help="Print example card structure and exit.")
     parser_json2anki.set_defaults(func=json_to_anki)

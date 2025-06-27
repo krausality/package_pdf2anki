@@ -26,7 +26,7 @@
   2.  **`pic2text`**: Perform OCR on images using one or more models, with an optional judge model to select the best result.
   3.  **`pdf2text`**: A comprehensive pipeline to convert a PDF (or a directory of PDFs) directly to text, utilizing `pdf2pic` and `pic2text` functionalities internally. Supports batch processing with parallel execution.
   4.  **`text2anki`**: Convert a pre-existing text file into an Anki deck.
-  5.  **`json2anki`**: Convert a JSON file containing flashcards to an Anki deck (no LLM). Includes `--show-format` to display expected JSON structure.
+  5.  **`json2anki`**: Convert a JSON file containing flashcards to an Anki deck (no LLM). The output file is optional and defaults to the same name as the input with `.apkg` extension. Includes `--show-format` to display expected JSON structure.
   6.  **`process`**: The full end-to-end pipeline: PDF → images → text → Anki deck for a single PDF.
   7.  **`config`**: View or set persistent configuration options, such as default models and OCR presets.
 
@@ -449,12 +449,12 @@ Convert a JSON file containing flashcards (each a dict with `front` and `back` k
 
 **Syntax**  
 ```bash
-pdf2anki json2anki [json_file] [anki_file] [OPTIONS...]
+pdf2anki json2anki json_file [anki_file] [OPTIONS...]
 ```
 
 **Positional Arguments**
-1.  `json_file` (Optional when using `--show-format`): Path to the input JSON file containing flashcards.
-2.  `anki_file` (Optional when using `--show-format`): Path for the output Anki package file (e.g., `my_deck.apkg`).
+1.  `json_file`: Path to the input JSON file containing flashcards.
+2.  `anki_file` (Optional): Path for the output Anki package file (e.g., `my_deck.apkg`). If not provided, the output file will be automatically generated with the same name as the input file but with a `.apkg` extension.
 
 **Optional Arguments**
 
@@ -467,6 +467,7 @@ pdf2anki json2anki [json_file] [anki_file] [OPTIONS...]
 *   Creates an Anki deck with the specified name (derived from the output filename).
 *   No LLM is invoked - this is a direct, offline conversion.
 *   With `--show-format`, displays the expected JSON structure and exits without requiring input files.
+*   If no output file is specified, automatically creates an `.apkg` file in the same directory as the input file.
 
 **Examples**  
 
@@ -484,10 +485,22 @@ pdf2anki json2anki [json_file] [anki_file] [OPTIONS...]
     ]
     ```
 
-2.  **Convert a JSON list of cards into an Anki deck:**
+2.  **Convert a JSON list of cards into an Anki deck with explicit output file:**
     ```bash
     pdf2anki json2anki cards.json my_deck.apkg
     ```
+
+3.  **Convert a JSON list of cards with automatic output file naming:**
+    ```bash
+    pdf2anki json2anki cards.json
+    ```
+    *This will automatically create `cards.apkg` in the same directory as `cards.json`.*
+
+4.  **Convert with relative path (automatic naming):**
+    ```bash
+    pdf2anki json2anki ./collection_1_Metaethik.json
+    ```
+    *This will automatically create `./collection_1_Metaethik.apkg`.*
 
 ---
 
@@ -563,7 +576,7 @@ The `process` command **does not** support explicit cropping arguments. If you n
     3.  **`pic2text`**: Images to text with multi-model/judge OCR capabilities.
     4.  **`pdf2text`**: Streamlined PDF (or directory of PDFs) to text, with full OCR options and parallel processing for directories.
     5.  **`text2anki`**: Text file to Anki deck.
-    6.  **`json2anki`**: Convert a JSON file containing flashcards to an Anki deck (no LLM). Includes `--show-format` for displaying the expected JSON format.
+    6.  **`json2anki`**: Convert a JSON file containing flashcards to an Anki deck (no LLM). Output file is optional and defaults to input filename with `.apkg` extension. Includes `--show-format` for displaying the expected JSON format.
     7.  **`process`**: Full PDF to Anki pipeline for a single PDF.
 
 -   **Configuration and Defaults**:
