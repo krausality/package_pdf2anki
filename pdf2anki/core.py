@@ -394,7 +394,7 @@ def show_json_format() -> None:
 # New: command handler for JSON→Anki mode
 def json_to_anki(args: argparse.Namespace) -> None:
     """
-    Convert a JSON file of flashcards to an Anki package (no LLM).
+    Convert a JSON file (or all JSON files in a directory) of flashcards to an Anki package (no LLM).
     """
     if getattr(args, 'show_format', False):
         show_json_format()
@@ -404,13 +404,60 @@ def json_to_anki(args: argparse.Namespace) -> None:
         print("Error: json_file argument is required when not using --show-format")
         sys.exit(1)
     
-    # If no anki_file is provided, generate it from the json_file name
-    if not args.anki_file:
-        json_path = Path(args.json_file)
-        args.anki_file = str(json_path.with_suffix('.apkg'))
-        print(f"[INFO] No output file specified. Using: {args.anki_file}")
+    input_path = Path(args.json_file)
     
-    text2anki.convert_json_to_anki(args.json_file, args.anki_file)
+    # Check if input is a directory for bulk processing
+    if input_path.is_dir():
+        json_files = sorted(list(input_path.glob("*.json")))
+        if not json_files:
+            print(f"[INFO] No JSON files found in directory: {args.json_file}")
+            return
+        
+        print(f"[INFO] Bulk processing mode activated. Found {len(json_files)} JSON file(s) in '{args.json_file}'.")
+        
+        success_count = 0
+        failure_count = 0
+        results_summary = []
+        
+        for json_file in json_files:
+            try:
+                # Generate output filename automatically
+                output_apkg = str(json_file.with_suffix('.apkg'))
+                print(f"[INFO] Processing: {json_file.name} -> {Path(output_apkg).name}")
+                
+                text2anki.convert_json_to_anki(str(json_file), output_apkg)
+                success_count += 1
+                results_summary.append(f"SUCCESS: {json_file.name} -> {Path(output_apkg).name}")
+                
+            except Exception as e:
+                failure_count += 1
+                error_msg = f"FAILURE: {json_file.name} - {e}"
+                print(f"[ERROR] {error_msg}")
+                results_summary.append(error_msg)
+        
+        print("\n--- Bulk Processing Summary ---")
+        for res_msg in results_summary:
+            print(f"  - {res_msg}")
+        print(f"Total successfully processed: {success_count}")
+        print(f"Total failed: {failure_count}")
+        print("All 'json2anki' tasks complete.")
+        
+    elif input_path.is_file():
+        # Single file processing (existing behavior)
+        if input_path.suffix.lower() != '.json':
+            print(f"[ERROR] Input file is not a JSON file: {args.json_file}")
+            sys.exit(1)
+        
+        # If no anki_file is provided, generate it from the json_file name
+        if not args.anki_file:
+            args.anki_file = str(input_path.with_suffix('.apkg'))
+            print(f"[INFO] No output file specified. Using: {args.anki_file}")
+        
+        text2anki.convert_json_to_anki(args.json_file, args.anki_file)
+        
+    else:
+        print(f"[ERROR] Input path is not a valid file or directory: {args.json_file}")
+        sys.exit(1)
 
 
 def process_pdf_to_anki(args: argparse.Namespace) -> None:
@@ -619,10 +666,10 @@ def cli_invoke() -> None:
     # New: JSON→Anki subcommand
     parser_json2anki = subparsers.add_parser(
         "json2anki",
-        help="Convert a pre-formatted JSON flashcard file to an Anki package (offline, no LLM)."
+        help="Convert a pre-formatted JSON flashcard file (or all JSON files in a directory) to an Anki package (offline, no LLM)."
     )
-    parser_json2anki.add_argument("json_file", type=str, help="Input JSON flashcards.")
-    parser_json2anki.add_argument("anki_file", type=str, nargs='?', help="Output Anki .apkg file (optional, defaults to same name as input with .apkg extension).")
+    parser_json2anki.add_argument("json_file", type=str, help="Input JSON flashcards file or directory containing JSON files.")
+    parser_json2anki.add_argument("anki_file", type=str, nargs='?', help="Output Anki .apkg file (optional, defaults to same name as input with .apkg extension). Ignored for directory input.")
     parser_json2anki.add_argument("--show-format", action="store_true", 
                                 help="Print example card structure and exit.")
     parser_json2anki.set_defaults(func=json_to_anki)
