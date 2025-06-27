@@ -1,4 +1,3 @@
-
 # pdf2anki
 
 **Convert PDFs to Anki Flashcards with Advanced OCR and Configuration**
@@ -27,8 +26,9 @@
   2.  **`pic2text`**: Perform OCR on images using one or more models, with an optional judge model to select the best result.
   3.  **`pdf2text`**: A comprehensive pipeline to convert a PDF (or a directory of PDFs) directly to text, utilizing `pdf2pic` and `pic2text` functionalities internally. Supports batch processing with parallel execution.
   4.  **`text2anki`**: Convert a pre-existing text file into an Anki deck.
-  5.  **`process`**: The full end-to-end pipeline: PDF → images → text → Anki deck for a single PDF.
-  6.  **`config`**: View or set persistent configuration options, such as default models and OCR presets.
+  5.  **`json2anki`**: Convert a JSON file containing flashcards to an Anki deck (no LLM). Includes `--show-format` to display expected JSON structure.
+  6.  **`process`**: The full end-to-end pipeline: PDF → images → text → Anki deck for a single PDF.
+  7.  **`config`**: View or set persistent configuration options, such as default models and OCR presets.
 
 ---
 
@@ -442,7 +442,56 @@ pdf2anki text2anki <text_file> <anki_file> [anki_model_name]
 
 ---
 
-## 5. `process` Command (Full Pipeline)
+## 5. `json2anki` Command
+
+**Purpose**  
+Convert a JSON file containing flashcards (each a dict with `front` and `back` keys) into an Anki package without invoking an LLM.
+
+**Syntax**  
+```bash
+pdf2anki json2anki [json_file] [anki_file] [OPTIONS...]
+```
+
+**Positional Arguments**
+1.  `json_file` (Optional when using `--show-format`): Path to the input JSON file containing flashcards.
+2.  `anki_file` (Optional when using `--show-format`): Path for the output Anki package file (e.g., `my_deck.apkg`).
+
+**Optional Arguments**
+
+| Parameter | Description |
+|-----------|-------------|
+| `--show-format` | Print the expected JSON format structure and exit. Useful for understanding the required input format. |
+
+**Behavior**
+*   Reads a JSON file containing an array of flashcard objects, each with `front` and `back` properties.
+*   Creates an Anki deck with the specified name (derived from the output filename).
+*   No LLM is invoked - this is a direct, offline conversion.
+*   With `--show-format`, displays the expected JSON structure and exits without requiring input files.
+
+**Examples**  
+
+1.  **Show the expected JSON format:**
+    ```bash
+    pdf2anki json2anki --show-format
+    ```
+    **Output:**
+    ```
+    Example input format for card-deck in JSON:
+
+    [
+      { "front": "Was ist ein Neuron?", "back": "Eine Einheit in einem neuronalen Netz." },
+      { "front": "Gradientenabstieg?", "back": "Ein Optimierungsalgorithmus." }
+    ]
+    ```
+
+2.  **Convert a JSON list of cards into an Anki deck:**
+    ```bash
+    pdf2anki json2anki cards.json my_deck.apkg
+    ```
+
+---
+
+## 6. `process` Command (Full Pipeline)
 
 **Purpose**
 Automates the entire workflow for a **single PDF**:
@@ -514,7 +563,8 @@ The `process` command **does not** support explicit cropping arguments. If you n
     3.  **`pic2text`**: Images to text with multi-model/judge OCR capabilities.
     4.  **`pdf2text`**: Streamlined PDF (or directory of PDFs) to text, with full OCR options and parallel processing for directories.
     5.  **`text2anki`**: Text file to Anki deck.
-    6.  **`process`**: Full PDF to Anki pipeline for a single PDF.
+    6.  **`json2anki`**: Convert a JSON file containing flashcards to an Anki deck (no LLM). Includes `--show-format` for displaying the expected JSON format.
+    7.  **`process`**: Full PDF to Anki pipeline for a single PDF.
 
 -   **Configuration and Defaults**:
     *   Set global defaults (`default_model`, `default_anki_model`) and OCR presets (`defaults`) via `pdf2anki config set`.

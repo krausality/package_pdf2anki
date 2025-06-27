@@ -378,6 +378,35 @@ def text_to_anki(args: argparse.Namespace) -> None:
     text2anki.convert_text_to_anki(args.text_file, args.anki_file, anki_model_to_use)
 
 
+def show_json_format() -> None:
+    """
+    Display the expected JSON format for flashcards and exit.
+    """
+    format_example = """Example input format for card-deck in JSON:
+
+[
+  { "front": "Was ist ein Neuron?", "back": "Eine Einheit in einem neuronalen Netz." },
+  { "front": "Gradientenabstieg?", "back": "Ein Optimierungsalgorithmus." }
+]"""
+    print(format_example)
+
+
+# New: command handler for JSON→Anki mode
+def json_to_anki(args: argparse.Namespace) -> None:
+    """
+    Convert a JSON file of flashcards to an Anki package (no LLM).
+    """
+    if getattr(args, 'show_format', False):
+        show_json_format()
+        return
+    
+    if not args.json_file or not args.anki_file:
+        print("Error: json_file and anki_file arguments are required when not using --show-format")
+        sys.exit(1)
+    
+    text2anki.convert_json_to_anki(args.json_file, args.anki_file)
+
+
 def process_pdf_to_anki(args: argparse.Namespace) -> None:
     """
     Full pipeline: Convert a PDF to images, then extract text, and finally create an Anki deck.
@@ -580,6 +609,17 @@ def cli_invoke() -> None:
     parser_text2anki.add_argument("anki_file", type=str, help="Output Anki .apkg file.")
     parser_text2anki.add_argument("anki_model", type=str, nargs='?', default=None, help="Model for Anki generation.")
     parser_text2anki.set_defaults(func=text_to_anki)
+
+    # New: JSON→Anki subcommand
+    parser_json2anki = subparsers.add_parser(
+        "json2anki",
+        help="Convert a pre-formatted JSON flashcard file to an Anki package (offline, no LLM)."
+    )
+    parser_json2anki.add_argument("json_file", type=str, nargs='?', help="Input JSON flashcards.")
+    parser_json2anki.add_argument("anki_file", type=str, nargs='?', help="Output Anki .apkg file.")
+    parser_json2anki.add_argument("--show-format", action="store_true", 
+                                help="Print example card structure and exit.")
+    parser_json2anki.set_defaults(func=json_to_anki)
 
     # --- Full Pipeline Command ('process') ---
     parser_process = subparsers.add_parser("process", help="Run entire pipeline sequentially for one PDF.")

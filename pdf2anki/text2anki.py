@@ -217,4 +217,37 @@ def convert_text_to_anki(text_file: str, anki_file: str, model: str) -> None:
     # Archive the unique log file.
     _archive_old_logs(anki_file, [anki_log_file])
 
+# New: JSON→Anki conversion mode (no LLM)
+def convert_json_to_anki(json_file: str, anki_file: str) -> None:
+    """
+    Convert a JSON file containing flashcards to an Anki deck.
+    Each card must be a dict with 'front' and 'back' keys.
+    """
+    try:
+        with open(json_file, 'r', encoding='utf-8') as f:
+            cards = json.load(f)
+    except Exception as e:
+        print(f"Error reading JSON file '{json_file}': {e}")
+        return
+
+    if not cards:
+        print("No cards found in JSON. Exiting.")
+        return
+
+    deck_name = os.path.splitext(os.path.basename(anki_file))[0]
+    deck = genanki.Deck(deck_id=1234567890, name=deck_name)
+
+    for card in cards:
+        try:
+            note = genanki.Note(
+                model=genanki.BASIC_MODEL,
+                fields=[card['front'], card['back']]
+            )
+            deck.add_note(note)
+        except Exception as e:
+            print("Error creating note for card:", card, e)
+
+    genanki.Package(deck).write_to_file(anki_file)
+    print(f"Saved Anki deck to {anki_file}")
+
 
