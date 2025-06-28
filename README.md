@@ -26,7 +26,7 @@
   2.  **`pic2text`**: Perform OCR on images using one or more models, with an optional judge model to select the best result.
   3.  **`pdf2text`**: A comprehensive pipeline to convert a PDF (or a directory of PDFs) directly to text, utilizing `pdf2pic` and `pic2text` functionalities internally. Supports batch processing with parallel execution.
   4.  **`text2anki`**: Convert a pre-existing text file into an Anki deck.
-  5.  **`json2anki`**: Convert a JSON file (or all JSON files in a directory) containing flashcards to an Anki deck (no LLM). The output file is optional and defaults to the same name as the input with `.apkg` extension. Supports bulk processing for directories. Includes `--show-format` to display expected JSON structure.
+  5.  **`json2anki`**: Convert a JSON file (or all JSON files in a directory) containing flashcards to an Anki deck (no LLM). Supports optional fields for advanced organization: tags, guid, sort_field, due. The output file is optional and defaults to the same name as the input with `.apkg` extension. Supports bulk processing for directories. Includes `--show-format` to display expected JSON structure with examples.
   6.  **`process`**: The full end-to-end pipeline: PDF → images → text → Anki deck for a single PDF.
   7.  **`config`**: View or set persistent configuration options, such as default models and OCR presets.
 
@@ -445,7 +445,16 @@ pdf2anki text2anki <text_file> <anki_file> [anki_model_name]
 ## 5. `json2anki` Command
 
 **Purpose**  
-Convert a JSON file containing flashcards (each a dict with `front` and `back` keys) into an Anki package without invoking an LLM. Also supports bulk processing of all JSON files in a directory.
+Convert a JSON file containing flashcards into an Anki package without invoking an LLM. Each card must have `front` and `back` keys, with optional fields for advanced organization. Also supports bulk processing of all JSON files in a directory.
+
+**Supported JSON Format**
+Each flashcard is a JSON object with the following fields:
+- **Required**: `front` (string), `back` (string)
+- **Optional**: 
+  - `tags` (array of strings): Categorization tags for the card
+  - `guid` (string): Unique identifier to prevent duplicates on reimport
+  - `sort_field` (string): Custom sort value for organizing cards in Anki browser
+  - `due` (integer): Days from today when card should first appear (default: 0)
 
 **Syntax**  
 ```bash
@@ -478,11 +487,26 @@ pdf2anki json2anki json_file_or_directory [anki_file] [OPTIONS...]
     ```
     **Output:**
     ```
-    Example input format for card-deck in JSON:
+    Example input format for flashcards in JSON:
 
     [
-      { "front": "Was ist ein Neuron?", "back": "Eine Einheit in einem neuronalen Netz." },
-      { "front": "Gradientenabstieg?", "back": "Ein Optimierungsalgorithmus." }
+      { 
+        "front": "Was ist ein Neuron?", 
+        "back": "Eine Einheit in einem neuronalen Netz.",
+        "tags": ["neuroscience", "basics"]
+      },
+      { 
+        "front": "Gradientenabstieg?", 
+        "back": "Ein Optimierungsalgorithmus.",
+        "tags": ["machine-learning", "optimization"],
+        "guid": "ml-gradient-descent-001",
+        "sort_field": "02_Advanced",
+        "due": 3
+      },
+      {
+        "front": "Simple card without optional fields",
+        "back": "All optional fields are optional - backward compatibility maintained"
+      }
     ]
     ```
 
@@ -589,7 +613,7 @@ The `process` command **does not** support explicit cropping arguments. If you n
     3.  **`pic2text`**: Images to text with multi-model/judge OCR capabilities.
     4.  **`pdf2text`**: Streamlined PDF (or directory of PDFs) to text, with full OCR options and parallel processing for directories.
     5.  **`text2anki`**: Text file to Anki deck.
-    6.  **`json2anki`**: Convert a JSON file (or all JSON files in a directory) containing flashcards to an Anki deck (no LLM). Output file is optional and defaults to input filename with `.apkg` extension. Supports bulk processing. Includes `--show-format` for displaying the expected JSON format.
+    6.  **`json2anki`**: Convert a JSON file (or all JSON files in a directory) containing flashcards to an Anki deck (no LLM). Supports optional fields: tags, guid, sort_field, due. Output file is optional and defaults to input filename with `.apkg` extension. Supports bulk processing. Includes `--show-format` for displaying the expected JSON format with examples.
     7.  **`process`**: Full PDF to Anki pipeline for a single PDF.
 
 -   **Configuration and Defaults**:

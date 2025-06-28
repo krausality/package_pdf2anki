@@ -81,6 +81,12 @@ def _post_openrouter_for_anki(model_name: str, text_content: str, anki_log_file:
                         "Use the original language e.g. german. Avoid unnecessary translation to english. Always keep technical terms in their provided language. "
                         "Output the result as a JSON list, e.g.: "
                         '[{"front": "Card front text", "back": "Card back text"}, ...]. '
+                        "Optionally, you can add the following fields: "
+                        "- 'tags': List of categorization tags (e.g., ['category1', 'advanced']) "
+                        "- 'guid': Unique identifier for the card (e.g., 'topic-concept-001') "
+                        "- 'sort_field': Sort value for organization (e.g., '01_Basics') "
+                        "- 'due': Days from today when card should first appear (default: 0) "
+                        "All optional fields should be used to enhance organization and learning efficiency. "
                         "Do not include any additional commentary."
                     )
                 },
@@ -162,6 +168,9 @@ def convert_text_to_anki(text_file: str, anki_file: str, model: str) -> None:
     """
     Convert an input text file to a set of context-aware Anki cards using OpenRouter.
     The `model` parameter specifies which OpenRouter model to use.
+    
+    The generated cards can optionally include tags for categorization.
+    The LLM will automatically determine appropriate tags based on the content.
     """
     if not model:
         print("No OpenRouter model specified. Exiting.")
@@ -203,9 +212,19 @@ def convert_text_to_anki(text_file: str, anki_file: str, model: str) -> None:
 
     for card in cards:
         try:
+            # Extract optional fields
+            card_tags = card.get('tags', [])
+            card_guid = card.get('guid')
+            card_sort_field = card.get('sort_field')
+            card_due = card.get('due', 0)
+            
             note = genanki.Note(
                 model=genanki.BASIC_MODEL,
-                fields=[card['front'], card['back']]
+                fields=[card['front'], card['back']],
+                tags=card_tags,
+                guid=card_guid,
+                sort_field=card_sort_field,
+                due=card_due
             )
             deck.add_note(note)
         except Exception as e:
@@ -222,6 +241,28 @@ def convert_json_to_anki(json_file: str, anki_file: str) -> None:
     """
     Convert a JSON file containing flashcards to an Anki deck.
     Each card must be a dict with 'front' and 'back' keys.
+    
+    Optional fields supported:
+    - 'tags': List of tag strings for categorization
+    - 'guid': Unique identifier for the note (prevents duplicates on reimport)
+    - 'sort_field': Custom sort value for organizing cards in Anki browser
+    - 'due': Days from today when card should first appear (default: 0)
+    
+    Example JSON format:
+    [
+        {
+            "front": "Question", 
+            "back": "Answer"
+        },
+        {
+            "front": "Advanced Question",
+            "back": "Complex Answer", 
+            "tags": ["category1", "advanced"],
+            "guid": "unique-id-001",
+            "sort_field": "01_Priority",
+            "due": 7
+        }
+    ]
     """
     try:
         with open(json_file, 'r', encoding='utf-8') as f:
@@ -239,9 +280,19 @@ def convert_json_to_anki(json_file: str, anki_file: str) -> None:
 
     for card in cards:
         try:
+            # Extract optional fields
+            card_tags = card.get('tags', [])
+            card_guid = card.get('guid')
+            card_sort_field = card.get('sort_field')
+            card_due = card.get('due', 0)
+            
             note = genanki.Note(
                 model=genanki.BASIC_MODEL,
-                fields=[card['front'], card['back']]
+                fields=[card['front'], card['back']],
+                tags=card_tags,
+                guid=card_guid,
+                sort_field=card_sort_field,
+                due=card_due
             )
             deck.add_note(note)
         except Exception as e:

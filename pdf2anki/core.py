@@ -382,12 +382,34 @@ def show_json_format() -> None:
     """
     Display the expected JSON format for flashcards and exit.
     """
-    format_example = """Example input format for card-deck in JSON:
+    format_example = """Example input format for flashcards in JSON:
 
 [
-  { "front": "Was ist ein Neuron?", "back": "Eine Einheit in einem neuronalen Netz." },
-  { "front": "Gradientenabstieg?", "back": "Ein Optimierungsalgorithmus." }
-]"""
+  { 
+    "front": "Was ist ein Neuron?", 
+    "back": "Eine Einheit in einem neuronalen Netz.",
+    "tags": ["neuroscience", "basics"]
+  },
+  { 
+    "front": "Gradientenabstieg?", 
+    "back": "Ein Optimierungsalgorithmus.",
+    "tags": ["machine-learning", "optimization"],
+    "guid": "ml-gradient-descent-001",
+    "sort_field": "02_Advanced",
+    "due": 3
+  },
+  {
+    "front": "Simple card without optional fields",
+    "back": "All optional fields are optional - backward compatibility maintained"
+  }
+]
+
+Supported fields:
+- front, back (required): Card question and answer
+- tags (optional): Array of categorization tags
+- guid (optional): Unique identifier to prevent duplicates
+- sort_field (optional): Custom sort value for card organization  
+- due (optional): Days from today when card should first appear (default: 0)"""
     print(format_example)
 
 
@@ -668,7 +690,7 @@ def cli_invoke() -> None:
         "json2anki",
         help="Convert a pre-formatted JSON flashcard file (or all JSON files in a directory) to an Anki package (offline, no LLM)."
     )
-    parser_json2anki.add_argument("json_file", type=str, help="Input JSON flashcards file or directory containing JSON files.")
+    parser_json2anki.add_argument("json_file", type=str, nargs='?', help="Input JSON flashcards file or directory containing JSON files.")
     parser_json2anki.add_argument("anki_file", type=str, nargs='?', help="Output Anki .apkg file (optional, defaults to same name as input with .apkg extension). Ignored for directory input.")
     parser_json2anki.add_argument("--show-format", action="store_true", 
                                 help="Print example card structure and exit.")
