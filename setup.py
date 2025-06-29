@@ -24,9 +24,8 @@ setup(
     url="https://your-repo-url/pdf2anki",
     python_requires=">=3.11, <3.14",
     install_requires=[
-        "ollama>=0.3.3",
-        "pdf2image>=1.16.3",
-        "Pillow>=9.1.0",
+        "pdf2image~=1.16.3",
+        "Pillow~=9.1.0",
         "genanki~=0.13.1",
         "PyMuPDF~=1.24.13",
         "requests~=2.32.0",
