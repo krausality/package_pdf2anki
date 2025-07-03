@@ -137,7 +137,7 @@ Sets configuration values. There are three main top-level keys you can manage:
 
 1.  **`default_model`**: The default OCR model used by `pic2text`, `pdf2text`, and `process` if no `--model` is specified for the OCR step and the `-d` (default preset) flag is not used or doesn't specify a model.
 2.  **`default_anki_model`**: The default model used by `text2anki` and `process` for generating Anki cards if the `anki_model` argument is not provided.
-3.  **`defaults`**: A preset object containing OCR settings (`model`, `repeat`, `judge_model`, `judge_mode`, `judge_with_image`) that can be activated using the `-d` or `--default` flag in the `pdf2text` and `process` commands.
+3.  **`defaults`**: A preset object containing OCR settings (`model`, `repeat`, `judge_model`, `judge_mode`, `judge_with_image`) that are **applied automatically** to the `pdf2text`, `pic2text`, and `process` commands. Any settings provided directly on the command line will override these presets.
 
 **Usage:**
 
@@ -146,12 +146,13 @@ Sets configuration values. There are three main top-level keys you can manage:
     pdf2anki config set default_model <model_name>
     pdf2anki config set default_anki_model <model_name>
     ```
-*   **Set individual preset defaults (for the `-d` flag):**
+*   **Set up the preset defaults individually:**
     ```bash
-    pdf2anki config set defaults <setting_name> <value_or_comma_separated_values>
+    # These settings will be used by default for `pdf2text`, `pic2text`, and `process`
+    pdf2anki config set defaults model "google/gemini-2.0-flash-001"
+    pdf2anki config set defaults repeat 2
+    pdf2anki config set defaults judge_model "openai/chatgpt-4o-latest"
     ```
-    Where `<setting_name>` is one of `model`, `repeat`, `judge_model`, `judge_mode`, `judge_with_image`.
-    For `model` and `repeat` when multiple values are needed (for multiple models in a preset), provide them as a comma-separated string (e.g., `modelA,modelB` or `2,1`).
 *   **Set all preset defaults using a single JSON string (Advanced - careful with shell quoting!):**
     ```bash
     pdf2anki config set defaults '<json_object_string>'
@@ -168,18 +169,12 @@ Sets configuration values. There are three main top-level keys you can manage:
     ```bash
     pdf2anki config set default_anki_model openai/chatgpt-4o-latest
     ```
-3.  **Set up the preset defaults for the `-d` flag individually:**
+3.  **Set up the preset defaults individually:**
     ```bash
-    # Set the model(s) for the preset (comma-separated for multiple)
-    pdf2anki config set defaults model google/gemini-2.0-flash-001,openai/chatgpt-4o-latest
-    # Set the repeat count(s) for the preset model(s) (comma-separated, matches models)
-    pdf2anki config set defaults repeat 2,1
-    # Set the judge model for the preset
-    pdf2anki config set defaults judge_model google/gemini-2.0-flash-001
-    # Set the judge mode for the preset
-    pdf2anki config set defaults judge_mode authoritative
-    # Enable judge_with_image for the preset
-    pdf2anki config set defaults judge_with_image true
+    # These settings will now be the default for OCR tasks
+    pdf2anki config set defaults model "google/gemini-2.0-flash-001"
+    pdf2anki config set defaults repeat 2
+    pdf2anki config set defaults judge_model "openai/chatgpt-4o-latest"
     ```
 4.  **View the configuration after setting defaults:**
     ```bash
@@ -263,12 +258,12 @@ Performs Optical Character Recognition (OCR) on a directory of images. Supports 
 
 **Syntax**
 ```bash
-pdf2anki pic2text <images_dir> <output_file> [OPTIONS...]
+pdf2anki pic2text <images_dir> [output_file] [OPTIONS...]
 ```
 
 **Positional Arguments**
 1.  `images_dir`: Directory containing image files (e.g., PNG, JPG) to process.
-2.  `output_file`: Path to the text file where final OCR results will be written.
+2.  `output_file` (Optional): Path to the text file where final OCR results will be written. If omitted, it defaults to a `.txt` file with the same name as the `images_dir` in the current working directory (e.g., `my_images` -> `my_images.txt`).
 
 **Optional Arguments**
 
@@ -294,15 +289,15 @@ pdf2anki pic2text <images_dir> <output_file> [OPTIONS...]
 
 **Examples**
 
-1.  **Minimal usage (using default OCR model from config)**
+1.  **Minimal usage (using preset/default OCR model and inferred output path)**
     ```bash
-    # Assumes 'default_model' is set via 'pdf2anki config set default_model google/gemini-2.0-flash-001'
-    pdf2anki pic2text scanned_pages/ ocr_output.txt
+    # Processes images in `my_images/`, saves to `./my_images.txt`
+    pdf2anki pic2text my_images/
     ```
 
-2.  **Specify a single OCR model explicitly**
+2.  **Specify a single OCR model explicitly and define output**
     ```bash
-    pdf2anki pic2text chapter1_images/ chapter1.txt --model google/gemini-2.0-flash-001
+    pdf2anki pic2text my_images/ ocr_results.txt --model "google/gemini-2.0-flash-001"
     ```
 
 3.  **Single model, repeated calls (requires a judge)**
@@ -357,8 +352,7 @@ pdf2anki pdf2text <pdf_path_or_dir> [images_output_dir] [rectangle1 ...] [text_o
         Default: Current working directory.
 
 **Optional OCR Arguments (Options)**
-*   `-d`, `--default`: Flag. If set, uses preset OCR settings defined under the `defaults` key in `~/.pdf2anki/config.json`. OCR settings specified directly on the command line will override these presets.
-*   `--model <MODEL_NAME>`, `--repeat <N>`, `--judge-model <MODEL_NAME>`, `--judge-mode <MODE>`, `--judge-with-image`, `--ensemble-strategy <S>`, `--trust-score <W>`: Same as for the `pic2text` command. If no model is specified via these options or via `-d`, the `default_model` from config is used.
+*   `--model <MODEL_NAME>`, `--repeat <N>`, `--judge-model <MODEL_NAME>`, `--judge-mode <MODE>`, `--judge-with-image`, `--ensemble-strategy <S>`, `--trust-score <W>`: Same as for the `pic2text` command. These settings will override any presets in `config.json`. If no model is specified via these options or in presets, the `default_model` from config is used.
 
 **Behavior**
 *   **Single PDF:** Converts to images (with cropping if `rectangles` provided), then performs OCR on these images.
@@ -370,20 +364,16 @@ pdf2anki pdf2text <pdf_path_or_dir> [images_output_dir] [rectangle1 ...] [text_o
 
 1.  **Process a directory of PDFs using preset defaults and inferred output paths**
     ```bash
-    # Assumes 'defaults' (e.g., model: google/gemini-2.0-flash-001) is configured appropriately
-    pdf2anki pdf2text ./lecture_slides/ -d
+    # OCR uses settings from `config.json` `defaults`.
+    # If no presets are configured, it will use the global `default_model`.
+    pdf2anki pdf2text "path/to/my/pdfs/"
     ```
-    - Images: `./pdf2pic/lecture_slides/<pdf_name>/` for each PDF.
-    - Text: `./<pdf_name>.txt` for each PDF.
-    - OCR uses settings from `config.json` `defaults`.
 
-2.  **Process a single PDF with specified output paths and OCR models**
+2.  **Process a single PDF with specified output paths and OCR models (overriding presets)**
     ```bash
-    pdf2anki pdf2text document.pdf temp_images/ doc_text.txt \
-        --model google/gemini-2.0-flash-001 --repeat 2 \
-        --judge-model openai/chatgpt-4o-latest
+    pdf2anki pdf2text "mydoc.pdf" "images_out/" "doc_text.txt" --model "google/gemini-2.0-flash-001"
     ```
-    - Images: `temp_images/`
+    - Images: `images_out/`
     - Text: `doc_text.txt`
 
 3.  **Process a directory, specify output base directories, and crop**

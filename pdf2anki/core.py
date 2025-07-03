@@ -152,17 +152,55 @@ def images_to_text(args: argparse.Namespace) -> None:
     """
     Perform OCR on a directory of images, extracting text and saving it to a file.
     This is a wrapper for pic2text.convert_images_to_text.
-    It expects args.model to be already populated by the caller.
+    It resolves the model to use and the output file if not explicitly provided.
     """
     pid_str = f"[{os.getpid() if hasattr(os, 'getpid') else 'main'}]"
     if getattr(args, 'verbose', False):
         print(f"{pid_str} images_to_text (core wrapper) called for dir: {args.images_dir}")
 
-    if not args.model: # args.model should be resolved by the caller (e.g., pdf_to_text or _process_pdf_worker)
-        raise ValueError(f"{pid_str} images_to_text (core wrapper): No OCR model specified in args.model. This should be resolved by the calling function.")
+    # --- Output File Resolution ---
+    if not args.output_file:
+        input_path = Path(args.images_dir)
+        if input_path.is_dir():
+            args.output_file = str(Path.cwd() / f"{input_path.name}.txt")
+        else: # Should be a directory, but as a fallback
+            args.output_file = str(Path.cwd() / f"{input_path.stem}.txt")
+        print(f"[INFO] No output file specified. Defaulting to: {args.output_file}")
+
+    config = load_config()
+    # --- Model Resolution ---
+    # Priority: 1. CLI args -> 2. Preset defaults -> 3. Global default_model -> 4. Prompt
+    preset_defaults = get_preset_defaults(config)
+    parser_ocr_defaults = {
+        'model': [], 'repeat': [], 'judge_model': None,
+        'judge_mode': 'authoritative', 'judge_with_image': False
+    }
+
+    # Apply presets first
+    for key, default_val in preset_defaults.items():
+        if key in parser_ocr_defaults:
+            setattr(args, key, default_val)
+            if getattr(args, 'verbose', False): print(f"[INFO] Applying preset for --{key.replace('_', '-')}: {default_val}")
+
+    # Then, check if CLI args were provided to override presets.
+    # This requires checking against the parser's default values.
+    # We assume if the value is not the parser's default, it was user-provided.
+    # (This part is implicitly handled by argparse populating the namespace)
+
+    # Finally, if no model is set by CLI or presets, use global default or prompt.
+    if not args.model:
+        default_model_from_config = get_default_model(config, interactive=True)
+        if default_model_from_config:
+            args.model = [default_model_from_config]
+            print(f"[INFO] Using 'default_model' from config (or user prompt): {args.model}")
+        else:
+            print("[ERROR] No OCR model specified or configured. Required for 'pic2text'.")
+            print("  Use --model <model_name>, set a 'defaults.model' preset, or set a 'default_model'.")
+            sys.exit(1)
+    # --- End Model Resolution ---
 
     remaining_model_repeats = []
-    for idx, model_name in enumerate(args.model): # Use the already resolved args.model
+    for idx, model_name in enumerate(args.model): # Use the now-resolved args.model
         rp = 1
         if args.repeat and idx < len(args.repeat):
             rp = args.repeat[idx]
@@ -282,27 +320,33 @@ def pdf_to_text(args: argparse.Namespace) -> None:
 
     config = load_config()
     # --- Model Resolution (Main Thread Only) ---
-    if args.use_defaults:
-        preset_defaults = get_preset_defaults(config)
-        if preset_defaults:
-            print("[INFO] Applying preset default OCR settings (-d flag used).")
-            parser_ocr_defaults = {
-                'model': [], 'repeat': [], 'judge_model': None,
-                'judge_mode': 'authoritative', 'judge_with_image': False
-            }
-            for key, default_val_in_parser in parser_ocr_defaults.items():
-                # Apply preset default only if the arg was not explicitly set by the user via CLI for this command
-                if getattr(args, key) == default_val_in_parser and key in preset_defaults:
-                    setattr(args, key, preset_defaults[key])
-                    print(f"[INFO] Using preset for --{key.replace('_', '-')}: {preset_defaults[key]}")
-        else: # -d used, but no 'defaults' in config
-            print("[ERROR] -d flag used, but no 'defaults' found in config. Use 'pdf2anki config set defaults ...' to define them.")
-            sys.exit(1)
+    # Priority: 1. CLI args -> 2. Preset defaults -> 3. Global default_model -> 4. Prompt
+    preset_defaults = get_preset_defaults(config)
+    parser_ocr_defaults = {
+        'model': [], 'repeat': [], 'judge_model': None,
+        'judge_mode': 'authoritative', 'judge_with_image': False
+    }
 
-    # If models are still not set (neither by CLI's --model nor by -d presets), try global default_model
+    # Create a temporary namespace with parser defaults to check against
+    temp_parser = argparse.ArgumentParser()
+    for key, val in parser_ocr_defaults.items():
+        temp_parser.add_argument(f"--{key.replace('_', '-')}", default=val, action='append' if isinstance(val, list) else 'store')
+    parser_defaults_ns = temp_parser.parse_args([])
+
+    # Apply presets only if the arg was not explicitly set by the user via CLI
+    print("[INFO] Applying settings. Priority: CLI > Presets > Global Default > Prompt.")
+    for key, preset_val in preset_defaults.items():
+        if key in parser_ocr_defaults:
+            # Check if the user provided a value on the CLI
+            cli_value = getattr(args, key)
+            parser_default_value = getattr(parser_defaults_ns, key)
+            if cli_value == parser_default_value:
+                setattr(args, key, preset_val)
+                if getattr(args, 'verbose', False): print(f"[INFO] Using preset for --{key.replace('_', '-')}: {preset_val}")
+
+    # If models are still not set (neither by CLI's --model nor by presets), try global default_model
     if not args.model:
         # Pass interactive=True because this is the main thread.
-        # get_default_model will check sys.stdin.isatty() internally if it needs to prompt.
         default_model_from_config = get_default_model(config, interactive=True)
         if default_model_from_config:
             args.model = [default_model_from_config] # Set it for the args Namespace
@@ -310,8 +354,7 @@ def pdf_to_text(args: argparse.Namespace) -> None:
         else:
             # If still no model (no config, and user provided no input when prompted or non-interactive)
             print("[ERROR] No OCR model specified or configured. Required for 'pdf2text'.")
-            print("  Use --model <model_name>, or use -d with configured 'defaults',")
-            print("  or configure 'default_model' via 'pdf2anki config set default_model <name>'.")
+            print("  Use --model <model_name>, set a 'defaults.model' preset, or set a 'default_model'.")
             sys.exit(1)
     # --- End Model Resolution ---
 
@@ -493,23 +536,32 @@ def process_pdf_to_anki(args: argparse.Namespace) -> None:
     config = load_config() # Load config once
 
     # --- Resolve OCR Model for Step 2 ---
-    ocr_models_for_step2 = list(args.model) # Start with CLI args for OCR for this command
-    if args.use_defaults and not ocr_models_for_step2: # if -d is used and no --model for this 'process' call
-        preset_defaults = get_preset_defaults(config)
-        if preset_defaults:
-            print("[INFO] Applying preset OCR settings for 'process' from -d flag.")
-            if 'model' in preset_defaults: ocr_models_for_step2 = preset_defaults['model']
-            # Apply other relevant preset OCR flags if not overridden by specific 'process' flags
-            if not args.repeat and 'repeat' in preset_defaults: args.repeat = preset_defaults['repeat']
-            if not args.judge_model and 'judge_model' in preset_defaults: args.judge_model = preset_defaults['judge_model']
-            if not args.judge_mode and 'judge_mode' in preset_defaults: args.judge_mode = preset_defaults['judge_mode']
-            if not args.judge_with_image and 'judge_with_image' in preset_defaults: args.judge_with_image = preset_defaults['judge_with_image']
-        else:
-            print("[ERROR] -d flag used with 'process', but no 'defaults' found in config.")
-            sys.exit(1)
+    # Logic mirrors pdf_to_text: CLI > Presets > Global > Prompt
+    ocr_models_for_step2 = list(args.model)
+    preset_defaults = get_preset_defaults(config)
+    
+    # Create a temporary namespace with parser defaults to check against
+    parser_ocr_defaults = {
+        'model': [], 'repeat': [], 'judge_model': None,
+        'judge_mode': 'authoritative', 'judge_with_image': False
+    }
+    temp_parser = argparse.ArgumentParser()
+    for key, val in parser_ocr_defaults.items():
+        temp_parser.add_argument(f"--{key.replace('_', '-')}", default=val, action='append' if isinstance(val, list) else 'store')
+    parser_defaults_ns = temp_parser.parse_args([])
 
-    if not ocr_models_for_step2: # If still no models (no --model for 'process', -d didn't help)
-        # interactive=True as this is main thread for 'process'
+    print("[INFO] Applying OCR settings for 'process' command. Priority: CLI > Presets > Global > Prompt.")
+    if preset_defaults:
+        for key, preset_val in preset_defaults.items():
+            if key in parser_ocr_defaults:
+                cli_value = getattr(args, key)
+                parser_default_value = getattr(parser_defaults_ns, key)
+                if cli_value == parser_default_value:
+                    setattr(args, key, preset_val)
+                    if key == 'model': ocr_models_for_step2 = preset_val
+                    if getattr(args, 'verbose', False): print(f"[INFO] Using preset for --{key.replace('_', '-')}: {preset_val}")
+
+    if not ocr_models_for_step2: # If still no models (no --model for 'process', presets didn't help)
         default_ocr_model = get_default_model(config, interactive=True)
         if default_ocr_model:
             ocr_models_for_step2 = [default_ocr_model]
@@ -652,14 +704,14 @@ def cli_invoke() -> None:
     # --- Images to Text Command ---
     parser_pic2text = subparsers.add_parser("pic2text", help="Extract text from images using OCR.")
     parser_pic2text.add_argument("images_dir", type=str, help="Directory with images.")
-    parser_pic2text.add_argument("output_file", type=str, help="File to save text.")
-    parser_pic2text.add_argument("--model", action="append", default=[], help="OCR model(s).")
-    parser_pic2text.add_argument("--repeat", action="append", type=int, default=[], help="Repeats per model.")
-    parser_pic2text.add_argument("--judge-model", type=str, default=None, help="Judge model.")
+    parser_pic2text.add_argument("output_file", type=str, nargs='?', default=None, help="Optional: File to save text. Defaults to a file named after the input directory.")
+    parser_pic2text.add_argument("--model", action="append", default=[], help="OCR model(s) to use (overrides presets).")
+    parser_pic2text.add_argument("--repeat", action="append", type=int, default=[], help="Repeats per model (overrides presets).")
+    parser_pic2text.add_argument("--judge-model", type=str, default=None, help="Judge model to use (overrides presets).")
     parser_pic2text.add_argument("--judge-mode", type=str, default="authoritative", choices=["authoritative"], help="Judge mode.")
     parser_pic2text.add_argument("--ensemble-strategy", type=str, default=None, help="(Placeholder).")
     parser_pic2text.add_argument("--trust-score", type=float, default=None, help="(Placeholder).")
-    parser_pic2text.add_argument("--judge-with-image", action="store_true", default=False, help="Judge sees image.")
+    parser_pic2text.add_argument("--judge-with-image", action="store_true", default=False, help="Judge sees image (overrides presets).")
     parser_pic2text.set_defaults(func=images_to_text)
 
     # --- PDF to Text Command ---
@@ -668,14 +720,13 @@ def cli_invoke() -> None:
     parser_pdf2text.add_argument("output_dir", type=str, nargs='?', default=None, help="Optional: Image dir base / specific dir.")
     parser_pdf2text.add_argument("rectangles", type=str, nargs="*", default=[], help="Optional: Crop rectangles.")
     parser_pdf2text.add_argument("output_file", type=str, nargs='?', default=None, help="Optional: Text output dir / file.")
-    parser_pdf2text.add_argument("-d", "--default", dest="use_defaults", action="store_true", help="Use preset OCR defaults.")
-    parser_pdf2text.add_argument("--model", action="append", default=[], help="OCR model(s).")
-    parser_pdf2text.add_argument("--repeat", action="append", type=int, default=[], help="Repeats per model.")
-    parser_pdf2text.add_argument("--judge-model", type=str, default=None, help="Judge model.")
+    parser_pdf2text.add_argument("--model", action="append", default=[], help="OCR model(s) to use (overrides presets).")
+    parser_pdf2text.add_argument("--repeat", action="append", type=int, default=[], help="Repeats per model (overrides presets).")
+    parser_pdf2text.add_argument("--judge-model", type=str, default=None, help="Judge model to use (overrides presets).")
     parser_pdf2text.add_argument("--judge-mode", type=str, default="authoritative", choices=["authoritative"], help="Judge mode.")
     parser_pdf2text.add_argument("--ensemble-strategy", type=str, default=None, help="(Placeholder).")
     parser_pdf2text.add_argument("--trust-score", type=float, default=None, help="(Placeholder).")
-    parser_pdf2text.add_argument("--judge-with-image", action="store_true", default=False, help="Judge sees image.")
+    parser_pdf2text.add_argument("--judge-with-image", action="store_true", default=False, help="Judge sees image (overrides presets).")
     parser_pdf2text.set_defaults(func=pdf_to_text)
     
     # --- Text to Anki Command ---
@@ -702,14 +753,13 @@ def cli_invoke() -> None:
     parser_process.add_argument("output_dir", type=str, help="Directory for intermediate images.")
     parser_process.add_argument("anki_file", type=str, help="Output Anki .apkg file.")
     parser_process.add_argument("anki_model", type=str, nargs='?', default=None, help="Model for Anki generation.")
-    parser_process.add_argument("-d", "--default", dest="use_defaults", action="store_true", help="Use preset OCR defaults for text extraction step.")
-    parser_process.add_argument("--model", action="append", default=[], help="OCR model for text extraction.")
-    parser_process.add_argument("--repeat", action="append", type=int, default=[], help="Repeats for OCR model.")
-    parser_process.add_argument("--judge-model", type=str, default=None, help="Judge model for OCR.")
+    parser_process.add_argument("--model", action="append", default=[], help="OCR model for text extraction (overrides presets).")
+    parser_process.add_argument("--repeat", action="append", type=int, default=[], help="Repeats for OCR model (overrides presets).")
+    parser_process.add_argument("--judge-model", type=str, default=None, help="Judge model for OCR (overrides presets).")
     parser_process.add_argument("--judge-mode", type=str, default="authoritative", choices=["authoritative"], help="Judge mode for OCR.")
     parser_process.add_argument("--ensemble-strategy", type=str, default=None, help="(Placeholder).")
     parser_process.add_argument("--trust-score", type=float, default=None, help="(Placeholder).")
-    parser_process.add_argument("--judge-with-image", action="store_true", default=False, help="Judge sees image in OCR step.")
+    parser_process.add_argument("--judge-with-image", action="store_true", default=False, help="Judge sees image in OCR step (overrides presets).")
     parser_process.set_defaults(func=process_pdf_to_anki)
 
     # --- Configuration Command ---
