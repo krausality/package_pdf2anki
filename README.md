@@ -135,9 +135,18 @@ If the configuration is empty, it will report that. Otherwise, it prints the JSO
 
 Sets configuration values. There are three main top-level keys you can manage:
 
-1.  **`default_model`**: The default OCR model used by `pic2text`, `pdf2text`, and `process` if no `--model` is specified for the OCR step and the `-d` (default preset) flag is not used or doesn't specify a model.
+1.  **`default_model`**: The default OCR model used by `pic2text`, `pdf2text`, and `process` if no `--model` is specified for the OCR step and no preset is configured.
 2.  **`default_anki_model`**: The default model used by `text2anki` and `process` for generating Anki cards if the `anki_model` argument is not provided.
 3.  **`defaults`**: A preset object containing OCR settings (`model`, `repeat`, `judge_model`, `judge_mode`, `judge_with_image`) that are **applied automatically** to the `pdf2text`, `pic2text`, and `process` commands. Any settings provided directly on the command line will override these presets.
+
+**Configuration Resolution Priority**  
+Settings are resolved in this strict order:
+1. **CLI Arguments** (highest priority) - e.g., `--model <name>`
+2. **Preset Defaults** - from `defaults` in config.json
+3. **Global Defaults** - `default_model` or `default_anki_model` in config.json
+4. **Interactive Prompt** (lowest priority) - only if running interactively and no other source available
+
+This hierarchy ensures that explicit command-line options always take precedence over configured defaults.
 
 **Usage:**
 
@@ -608,7 +617,8 @@ The `process` command **does not** support explicit cropping arguments. If you n
 
 -   **Configuration and Defaults**:
     *   Set global defaults (`default_model`, `default_anki_model`) and OCR presets (`defaults`) via `pdf2anki config set`.
-    *   Leverage OCR presets in `pdf2text` and `process` using the `-d` flag. Command-line OCR options override presets.
+    *   Leverage OCR presets in `pdf2text`, `pic2text`, and `process`. Command-line OCR options override presets.
+    *   **Configuration Priority Hierarchy**: Settings are resolved in the following order: **CLI arguments > Preset defaults > Global defaults > Interactive prompt**. This ensures explicit command-line options always take precedence.
 
 -   **Advanced OCR**:
     *   Use multiple OCR models (`--model m1 --model m2 ...`).

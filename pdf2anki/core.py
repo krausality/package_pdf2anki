@@ -176,25 +176,34 @@ def images_to_text(args: argparse.Namespace) -> None:
         'judge_mode': 'authoritative', 'judge_with_image': False
     }
 
-    # Apply presets first
-    for key, default_val in preset_defaults.items():
+    # Create a temporary namespace with parser defaults to check against
+    temp_parser = argparse.ArgumentParser()
+    for key, val in parser_ocr_defaults.items():
+        temp_parser.add_argument(f"--{key.replace('_', '-')}", default=val, action='append' if isinstance(val, list) else 'store')
+    parser_defaults_ns = temp_parser.parse_args([])
+
+    # Apply presets first, then allow CLI args to override them.
+    print("[INFO] Applying settings. Priority: CLI > Presets > Global Default > Prompt.")
+    for key, preset_val in preset_defaults.items():
         if key in parser_ocr_defaults:
-            setattr(args, key, default_val)
-            if getattr(args, 'verbose', False): print(f"[INFO] Applying preset for --{key.replace('_', '-')}: {default_val}")
+            # Check if the user provided a value on the CLI.
+            # If not, apply the preset.
+            cli_value = getattr(args, key)
+            parser_default_value = getattr(parser_defaults_ns, key)
+            if cli_value == parser_default_value:
+                setattr(args, key, preset_val)
+                print(f"[INFO] Using preset for --{key.replace('_', '-')}: {preset_val}")
 
-    # Then, check if CLI args were provided to override presets.
-    # This requires checking against the parser's default values.
-    # We assume if the value is not the parser's default, it was user-provided.
-    # (This part is implicitly handled by argparse populating the namespace)
-
-    # Finally, if no model is set by CLI or presets, use global default or prompt.
+    # If models are still not set (neither by CLI's --model nor by presets), try global default_model
     if not args.model:
+        # Pass interactive=True because this is the main thread.
         default_model_from_config = get_default_model(config, interactive=True)
         if default_model_from_config:
-            args.model = [default_model_from_config]
+            args.model = [default_model_from_config] # Set it for the args Namespace
             print(f"[INFO] Using 'default_model' from config (or user prompt): {args.model}")
         else:
-            print("[ERROR] No OCR model specified or configured. Required for 'pic2text'.")
+            # If still no model (no config, and user provided no input when prompted or non-interactive)
+            print("[ERROR] No OCR model specified or configured. Required for 'pdf2text'.")
             print("  Use --model <model_name>, set a 'defaults.model' preset, or set a 'default_model'.")
             sys.exit(1)
     # --- End Model Resolution ---
@@ -333,16 +342,17 @@ def pdf_to_text(args: argparse.Namespace) -> None:
         temp_parser.add_argument(f"--{key.replace('_', '-')}", default=val, action='append' if isinstance(val, list) else 'store')
     parser_defaults_ns = temp_parser.parse_args([])
 
-    # Apply presets only if the arg was not explicitly set by the user via CLI
+    # Apply presets first, then allow CLI args to override them.
     print("[INFO] Applying settings. Priority: CLI > Presets > Global Default > Prompt.")
     for key, preset_val in preset_defaults.items():
         if key in parser_ocr_defaults:
-            # Check if the user provided a value on the CLI
+            # Check if the user provided a value on the CLI.
+            # If not, apply the preset.
             cli_value = getattr(args, key)
             parser_default_value = getattr(parser_defaults_ns, key)
             if cli_value == parser_default_value:
                 setattr(args, key, preset_val)
-                if getattr(args, 'verbose', False): print(f"[INFO] Using preset for --{key.replace('_', '-')}: {preset_val}")
+                print(f"[INFO] Using preset for --{key.replace('_', '-')}: {preset_val}")
 
     # If models are still not set (neither by CLI's --model nor by presets), try global default_model
     if not args.model:

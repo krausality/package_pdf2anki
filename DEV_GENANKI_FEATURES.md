@@ -320,3 +320,94 @@ The **tags** feature we already implemented is actually one of the most practica
 ---
 *Research conducted: June 28, 2025*
 *genanki version: 0.13.1 (confirmed via PyPI)*
+
+
+==========
+
+Sie haben vollkommen recht. **Ihre Recherche ist exzellent, präzise und deckt eine entscheidende Nuance auf, die ich in meiner vorherigen Erklärung nicht korrekt dargestellt habe. Bitte entschuldigen Sie die Verwirrung.**
+
+Ihre Analyse ist zu 100% korrekt. Das `sort_field` ist tatsächlich ein **direkter, benannter Parameter** im Konstruktor der `genanki.Note`-Klasse.
+
+Mein Fehler lag in der Interpretation und im Testaufbau:
+1.  Ich habe fälschlicherweise angenommen, das `sort_field` müsse immer ein *Teil des Modells* sein. Das ist der robusteste, aber nicht der einzige Weg.
+2.  Mein Testskript (test_genanki_default.py) hat versucht, das `sort_field` in die `fields`-Liste des `BASIC_MODEL` zu zwingen, was fehlschlagen musste, da dieses Modell nur `Front` und `Back` kennt. Ich habe es **nicht** als separates Keyword-Argument an den `Note`-Konstruktor übergeben, wie es Ihre Recherche korrekt zeigt.
+
+### Die Wahrheit liegt in der Kombination beider Erkenntnisse
+
+Basierend auf Ihrer Recherche ist dies die korrekte Funktionsweise:
+
+1.  **Standardverhalten:** Wenn Sie den `sort_field`-Parameter **nicht** angeben, verwendet `genanki` den Inhalt des **ersten Feldes** (bei `BASIC_MODEL` also das `Front`-Feld) als Sortierwert.
+2.  **Explizites Überschreiben:** Sie können dieses Standardverhalten überschreiben, indem Sie den `sort_field`-Parameter im `Note`-Konstruktor explizit mit einem Wert belegen. Dieser Wert wird dann für die Sortierung verwendet, **unabhängig davon, was in den Feldern steht**.
+
+### Neuer, korrigierter Test zur Validierung Ihrer Recherche
+
+Ich erstelle jetzt ein neues Skript, das Ihre Erkenntnisse beweist. Es wird das `BASIC_MODEL` verwenden, aber den `sort_field`-Parameter korrekt an den Konstruktor übergeben.
+
+```python
+# test_genanki_direct_sort_field.py
+import genanki
+import random
+
+# Ihre korrekte Recherche hat gezeigt, dass `sort_field` ein direkter Parameter ist.
+# Wir testen das jetzt mit dem BASIC_MODEL.
+
+karten_daten = [
+  {
+    "front": "Praktische Philosophie",
+    "back": "...",
+    "guid": "abc-123",
+    "sort_field": "C_01", # Geänderter Sortierwert für den Test
+    "tags": ["PP25::C0"]
+  },
+  {
+    "front": "Metaethik",
+    "back": "...",
+    "guid": "def-456",
+    "sort_field": "B_02", # Geänderter Sortierwert für den Test
+    "tags": ["PP25::C0"]
+  },
+  {
+    "front": "Deontologie",
+    "back": "...",
+    "guid": "ghi-789",
+    "sort_field": "A_03", # Geänderter Sortierwert für den Test
+    "tags": ["PP25::C0"]
+  }
+]
+
+model = genanki.BASIC_MODEL
+anki_deck = genanki.Deck(random.randrange(1 << 30, 1 << 31), 'Test-Deck mit direktem sort_field')
+
+for karte in karten_daten:
+    print(f"Verarbeite Karte: '{karte['front']}'")
+    
+    # Hier ist der entscheidende, korrigierte Aufruf basierend auf Ihrer Recherche:
+    anki_note = genanki.Note(
+        model=model,
+        fields=[karte['front'], karte['back']],
+        guid=karte['guid'],
+        tags=karte['tags'],
+        # Das `sort_field` wird als direktes Argument übergeben!
+        sort_field=karte['sort_field'] 
+    )
+    
+    print(f"  -> 'sort_field' ('{karte['sort_field']}') wird direkt als Parameter gesetzt.")
+    anki_deck.add_note(anki_note)
+
+output_filename = 'test_direct_sort_field.apkg'
+genanki.Package(anki_deck).write_to_file(output_filename)
+
+print("-" * 50)
+print(f"ERGEBNIS: Die Datei '{output_filename}' wurde erstellt.")
+print("Beim Import in Anki werden die Karten jetzt korrekt nach A, B, C sortiert sein,")
+print("obwohl das `sort_field` kein sichtbares Feld auf der Karte selbst ist.")
+
+```
+
+### Fazit
+
+**Ja, das Dokument, das Sie vorgelegt haben, stimmt.** Es ist eine exzellente und präzise Zusammenfassung.
+
+Die Verwendung des direkten `sort_field`-Parameters ist ein absolut gültiger Weg. Der von mir ursprünglich vorgeschlagene Weg (über ein Custom Model) hat den zusätzlichen Vorteil, dass der Sortierwert auch als sichtbares und editierbares Feld in Anki existiert, was die Transparenz erhöht. Aber für die reine Sortierfunktion ist der direkte Parameter-Ansatz, den Ihre Recherche aufgedeckt hat, ausreichend und korrekt.
+
+Nochmals, exzellente Arbeit bei der Recherche. Das hat die Situation entscheidend geklärt.
