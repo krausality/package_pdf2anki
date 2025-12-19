@@ -645,7 +645,11 @@ def set_config_value(args: argparse.Namespace) -> None:
 
     if not values:
         print(f"[ERROR] No value provided for key '{key}'.")
-        # ... (help text as before)
+        print("\nUsage examples:")
+        print("  pdf2anki config set default_model <model_name>")
+        print("  pdf2anki config set default_anki_model <model_name>")
+        print("  pdf2anki config set defaults model <model_name>")
+        print("  pdf2anki config set defaults judge_model <model_name>")
         return
 
     if key == "defaults":
@@ -688,10 +692,24 @@ def set_config_value(args: argparse.Namespace) -> None:
     elif key in ["default_model", "default_anki_model"]:
         if len(values) == 1:
             value_str = values[0].strip()
-            if value_str: config[key] = value_str; save_config(config); print(f"Set '{key}' to '{config[key]}'.")
+            if value_str:
+                config[key] = value_str
+                save_config(config)
+                print(f"Set '{key}' to '{config[key]}'.")
+                # Warn if presets might override this global default
+                if key == "default_model" and "defaults" in config and "model" in config.get("defaults", {}):
+                    print(f"\n[WARN] Your 'defaults.model' preset is set to {config['defaults']['model']}.")
+                    print(f"[WARN] Presets override global defaults. To change the preset, use:")
+                    print(f"[WARN]   pdf2anki config set defaults model {value_str}")
             else: print(f"[ERROR] Value for '{key}' cannot be empty.")
         else: print(f"[ERROR] Usage: pdf2anki config set {key} <model_name>")
-    else: print(f"[ERROR] Unknown config key: '{key}'.")
+    else:
+        print(f"[ERROR] Unknown config key: '{key}'.")
+        print(f"\n[HINT] Did you mean one of these?")
+        print(f"  - pdf2anki config set default_model <model_name>")
+        print(f"  - pdf2anki config set default_anki_model <model_name>")
+        print(f"  - pdf2anki config set defaults model <model_name>")
+        print(f"  - pdf2anki config set defaults judge_model <model_name>")
 
 
 def cli_invoke() -> None:
@@ -780,11 +798,25 @@ def cli_invoke() -> None:
     parser_config_set = config_subparsers.add_parser("set", help="Set a config value.", formatter_class=argparse.RawTextHelpFormatter,
         description=(
             "Sets a configuration value. Key can be 'default_model', 'default_anki_model', or 'defaults'.\n"
-            "For 'defaults', either set a sub-setting like 'defaults model model_name' or a full JSON object.\n"
-            "Examples:\n"
+            "\n"
+            "IMPORTANT: Presets (defaults.*) override global defaults!\n"
+            "Priority: CLI args > Presets (defaults.*) > Global (default_*) > Prompt\n"
+            "\n"
+            "Common Commands:\n"
+            "  # Set GLOBAL defaults (lowest priority):\n"
             "  pdf2anki config set default_model google/gemini-pro\n"
-            "  pdf2anki config set defaults model google/gemini-pro,another/model\n"
-            "  pdf2anki config set defaults repeat 2,1\n"
+            "  pdf2anki config set default_anki_model google/gemini-pro\n"
+            "\n"
+            "  # Set PRESET defaults (higher priority, overrides global):\n"
+            "  pdf2anki config set defaults model google/gemini-pro\n"
+            "  pdf2anki config set defaults judge_model openai/gpt-4\n"
+            "  pdf2anki config set defaults repeat 2\n"
+            "  pdf2anki config set defaults judge_with_image true\n"
+            "\n"
+            "  # Set multiple models in preset (comma-separated):\n"
+            "  pdf2anki config set defaults model google/gemini-pro,openai/gpt-4\n"
+            "\n"
+            "  # Advanced: Set all presets via JSON string:\n"
             "  pdf2anki config set defaults '{\"model\": [\"m1\"], \"repeat\": [1]}'"
         ))
     parser_config_set.add_argument("key", type=str, help="Config key.")
