@@ -24,6 +24,8 @@ import traceback
 import base64
 import io
 import shutil
+import hashlib
+import time
 from datetime import datetime
 from PIL import Image
 from dotenv import load_dotenv
@@ -40,6 +42,15 @@ DEFAULT_OCR_LOG_BASENAME = "ocr"
 DEFAULT_JUDGE_LOG_BASENAME = "decisionmaking"
 LOG_EXTENSION = ".log"
 MAX_API_CALL_THREADS = 5
+STATE_SCHEMA_VERSION = 1
+DEFAULT_MAX_PAGE_ATTEMPTS = 40
+
+OUTPUT_SECTION_HEADER_RE = re.compile(r'^Image:\s*(.+?)\s*$')
+
+
+class OCRPauseException(RuntimeError):
+    """Raised when OCR processing must pause after hitting the per-page attempt limit."""
+    pass
 
 # --- Helper function for sanitizing filenames ---
 def sanitize_filename(filename: str) -> str:
@@ -52,6 +63,502 @@ def sanitize_filename(filename: str) -> str:
 def extract_page_number(filename: str) -> int:
     match = re.search(r'page_(\d+)', filename)
     return int(match.group(1)) if match else float('inf')
+
+
+def _utcnow_iso() -> str:
+    return datetime.now().isoformat()
+
+
+def _is_error_text(text: Optional[str]) -> bool:
+    if not text:
+        return False
+    return text.lstrip().startswith("[ERROR:")
+
+
+def _is_info_text(text: Optional[str]) -> bool:
+    if not text:
+        return False
+    return text.lstrip().startswith("[INFO:")
+
+
+def _is_successful_ocr_text(text: Optional[str]) -> bool:
+    if not text:
+        return False
+    stripped = text.lstrip()
+    if not stripped:
+        return False
+    return not stripped.startswith(("[ERROR:", "[INFO:"))
+
+
+def _state_file_path_for_output(output_file_path: Path) -> Path:
+    return output_file_path.with_name(f"{output_file_path.name}.ocr_state.json")
+
+
+def _archive_dir_for_output(output_file_path: Path) -> Path:
+    return output_file_path.parent / "log_archive"
+
+
+def _write_text_atomic(path: Path, content: str) -> None:
+    temp_path = path.with_name(f"{path.name}.tmp")
+    with open(temp_path, "w", encoding="utf-8") as tf:
+        tf.write(content)
+    _replace_with_retry(temp_path, path)
+
+
+def _write_json_atomic(path: Path, payload: Dict[str, Any]) -> None:
+    temp_path = path.with_name(f"{path.name}.tmp")
+    with open(temp_path, "w", encoding="utf-8") as jf:
+        json.dump(payload, jf, indent=2, ensure_ascii=False)
+    _replace_with_retry(temp_path, path)
+
+
+def _replace_with_retry(temp_path: Path, target_path: Path, retries: int = 5, base_delay_seconds: float = 0.1) -> None:
+    last_permission_error: Optional[PermissionError] = None
+    for attempt_idx in range(1, retries + 1):
+        try:
+            os.replace(temp_path, target_path)
+            return
+        except PermissionError as perm_err:
+            last_permission_error = perm_err
+            time.sleep(base_delay_seconds * attempt_idx)
+
+    # Last-resort fallback: overwrite target directly, then remove the temp file.
+    # This may not be fully atomic, but prevents losing progress if replace is blocked by transient file locks.
+    try:
+        with open(temp_path, "rb") as src_f:
+            payload = src_f.read()
+        with open(target_path, "wb") as dst_f:
+            dst_f.write(payload)
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            # Best effort cleanup only; some sync/indexing tools keep transient locks.
+            pass
+        return
+    except Exception:
+        if last_permission_error is not None:
+            raise last_permission_error
+        raise
+
+
+def _unlink_with_retry(path: Path, retries: int = 10, base_delay_seconds: float = 0.1) -> bool:
+    for attempt_idx in range(1, retries + 1):
+        try:
+            path.unlink(missing_ok=True)
+            return True
+        except PermissionError:
+            time.sleep(base_delay_seconds * attempt_idx)
+        except OSError:
+            time.sleep(base_delay_seconds * attempt_idx)
+    return not path.exists()
+
+
+def _compute_images_fingerprint(images_dir: str, image_files: List[str]) -> str:
+    hasher = hashlib.sha256()
+    base_dir = Path(images_dir)
+    for image_name in image_files:
+        image_path = base_dir / image_name
+        if image_path.exists():
+            stat = image_path.stat()
+            hasher.update(f"{image_name}|{stat.st_size}|{stat.st_mtime_ns}".encode("utf-8"))
+        else:
+            hasher.update(f"{image_name}|missing".encode("utf-8"))
+    return hasher.hexdigest()
+
+
+def _load_state_file(path: Path, verbose: bool = False) -> Optional[Dict[str, Any]]:
+    if not path.exists():
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as sf:
+            return json.load(sf)
+    except (json.JSONDecodeError, OSError) as state_err:
+        if verbose:
+            print(f"[WARN] Failed to load OCR state '{path}': {state_err}")
+        return None
+
+
+def _find_archived_state_candidates(output_file_path: Path) -> List[Path]:
+    archive_dir = _archive_dir_for_output(output_file_path)
+    if not archive_dir.exists():
+        return []
+    pattern = f"{output_file_path.name}.ocr_state*.json"
+    candidates = [p for p in archive_dir.glob(pattern) if p.is_file()]
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates
+
+
+def _archive_state_file_if_completed(state_file_path: Path, output_file_path: Path, verbose: bool = False) -> Optional[Path]:
+    if not state_file_path.exists():
+        return None
+    archive_folder = _archive_dir_for_output(output_file_path)
+    archive_folder.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    archived_name = f"{state_file_path.stem}_{timestamp}{state_file_path.suffix}"
+    archived_path = archive_folder / archived_name
+    try:
+        shutil.move(str(state_file_path), str(archived_path))
+        if verbose:
+            print(f"[INFO] Archived OCR state: {archived_path}")
+        return archived_path
+    except PermissionError:
+        # Fall back to copy + best-effort delete in environments with transient locks.
+        try:
+            shutil.copy2(str(state_file_path), str(archived_path))
+            removed = _unlink_with_retry(state_file_path)
+            if removed:
+                print(f"[WARN] OCR state could not be moved atomically; copied+removed via fallback: {archived_path}")
+            else:
+                print(f"[WARN] OCR state could not be moved atomically; copied to archive but source is still present: {archived_path}")
+            return archived_path
+        except Exception as archive_err:
+            print(f"[WARN] Failed to archive OCR state '{state_file_path}': {archive_err}")
+            return None
+    except Exception as archive_err:
+        print(f"[WARN] Failed to archive OCR state '{state_file_path}': {archive_err}")
+        return None
+
+
+def _print_progress(
+    pid: Any,
+    total_pages: int,
+    done_pages: int,
+    resumed_pages: int,
+    attempt_cycles: int,
+    current_image: Optional[str],
+    attempt_idx: Optional[int],
+    max_page_attempts: int,
+    status: str,
+    started_monotonic: float,
+    force_print: bool = True
+) -> None:
+    if not force_print:
+        return
+    pct = 100.0 if total_pages == 0 else (done_pages / total_pages) * 100.0
+    bar_width = 24
+    filled = min(bar_width, max(0, int(round((pct / 100.0) * bar_width))))
+    bar = f"[{'#' * filled}{'-' * (bar_width - filled)}]"
+    elapsed = time.monotonic() - started_monotonic
+    current = current_image if current_image else "-"
+    if attempt_idx is None:
+        attempt_repr = "-/-"
+    else:
+        attempt_repr = f"{attempt_idx}/{max_page_attempts}"
+    print(
+        f"[{pid}] [PROGRESS] {bar} {done_pages}/{total_pages} ({pct:5.1f}%) "
+        f"resumed={resumed_pages} attempts={attempt_cycles} current={current} attempt={attempt_repr} "
+        f"status={status} elapsed={elapsed:.1f}s"
+    )
+
+
+def _parse_output_sections(output_file_path: Path) -> Dict[str, str]:
+    if not output_file_path.exists():
+        return {}
+
+    with open(output_file_path, "r", encoding="utf-8") as of:
+        lines = of.read().splitlines()
+
+    sections: Dict[str, str] = {}
+    current_image: Optional[str] = None
+    current_body: List[str] = []
+
+    def flush_section() -> None:
+        if current_image is None:
+            return
+        sections[current_image] = "\n".join(current_body).rstrip()
+
+    for line in lines:
+        match = OUTPUT_SECTION_HEADER_RE.match(line)
+        if match:
+            flush_section()
+            current_image = match.group(1)
+            current_body = []
+            continue
+        if current_image is not None:
+            current_body.append(line)
+
+    flush_section()
+    return sections
+
+
+def _write_output_sections_atomic(output_file_path: Path, image_files: List[str], page_texts: Dict[str, str]) -> None:
+    sections: List[str] = []
+    for image_name in image_files:
+        text = page_texts.get(image_name)
+        if text is None:
+            continue
+        section_text = text.rstrip()
+        if section_text:
+            sections.append(f"Image: {image_name}\n{section_text}")
+        else:
+            sections.append(f"Image: {image_name}")
+    _write_text_atomic(output_file_path, "\n\n".join(sections))
+
+
+def _initialize_state_from_legacy(
+    image_files: List[str],
+    existing_sections: Dict[str, str],
+    images_fingerprint: str,
+    max_page_attempts: int
+) -> Tuple[Dict[str, Any], Dict[str, str]]:
+    now = _utcnow_iso()
+    pages: Dict[str, Dict[str, Any]] = {}
+    page_texts: Dict[str, str] = {}
+
+    for image_name in image_files:
+        existing_text = existing_sections.get(image_name)
+        if _is_successful_ocr_text(existing_text):
+            pages[image_name] = {
+                "status": "done",
+                "attempts_used": 0,
+                "last_error": None,
+                "updated_at": now
+            }
+            page_texts[image_name] = existing_text if existing_text is not None else ""
+        else:
+            pages[image_name] = {
+                "status": "pending",
+                "attempts_used": 0,
+                "last_error": existing_text.splitlines()[0] if existing_text and _is_error_text(existing_text) else None,
+                "updated_at": now
+            }
+
+    state: Dict[str, Any] = {
+        "schema_version": STATE_SCHEMA_VERSION,
+        "images_fingerprint": images_fingerprint,
+        "max_page_attempts": max_page_attempts,
+        "run_status": "running",
+        "pause_reason": None,
+        "updated_at": now,
+        "pages": pages
+    }
+    return state, page_texts
+
+
+def _state_matches_current_images(state: Dict[str, Any], image_files: List[str], images_fingerprint: str) -> bool:
+    if not isinstance(state, dict):
+        return False
+    if state.get("schema_version") != STATE_SCHEMA_VERSION:
+        return False
+    if state.get("images_fingerprint") != images_fingerprint:
+        return False
+    pages = state.get("pages")
+    if not isinstance(pages, dict):
+        return False
+    for image_name in image_files:
+        if image_name not in pages:
+            return False
+    return True
+
+
+def _load_or_initialize_state(
+    output_file_path: Path,
+    state_file_path: Path,
+    image_files: List[str],
+    existing_sections: Dict[str, str],
+    images_fingerprint: str,
+    max_page_attempts: int,
+    resume_enabled: bool,
+    verbose: bool = False
+) -> Tuple[Dict[str, Any], Dict[str, str], Dict[str, Any]]:
+    resume_meta: Dict[str, Any] = {
+        "source": "fresh",
+        "state_path": None,
+        "notes": []
+    }
+
+    if not resume_enabled:
+        state, page_texts = _initialize_state_from_legacy(
+            image_files=image_files,
+            existing_sections={},
+            images_fingerprint=images_fingerprint,
+            max_page_attempts=max_page_attempts
+        )
+        resume_meta["source"] = "no_resume"
+        resume_meta["notes"].append("Resume disabled by --no-resume.")
+        return state, page_texts, resume_meta
+
+    loaded_state: Optional[Dict[str, Any]] = None
+    chosen_source: Optional[str] = None
+    chosen_path: Optional[Path] = None
+
+    main_state_valid: Optional[Dict[str, Any]] = None
+    candidate_main = _load_state_file(state_file_path, verbose=verbose)
+    if candidate_main is not None:
+        if _state_matches_current_images(candidate_main, image_files, images_fingerprint):
+            main_state_valid = candidate_main
+        elif verbose:
+            print(f"[WARN] Ignoring incompatible OCR state file: {state_file_path}")
+
+    archived_state_valid: Optional[Dict[str, Any]] = None
+    archived_state_valid_path: Optional[Path] = None
+    for archived_state_path in _find_archived_state_candidates(output_file_path):
+        archived_candidate = _load_state_file(archived_state_path, verbose=verbose)
+        if archived_candidate is None:
+            continue
+        if _state_matches_current_images(archived_candidate, image_files, images_fingerprint):
+            archived_state_valid = archived_candidate
+            archived_state_valid_path = archived_state_path
+            break
+        elif verbose:
+            print(f"[WARN] Ignoring incompatible archived OCR state file: {archived_state_path}")
+
+    if main_state_valid is not None and main_state_valid.get("run_status") in {"running", "paused"}:
+        loaded_state = main_state_valid
+        chosen_source = "state_file"
+        chosen_path = state_file_path
+    elif archived_state_valid is not None:
+        loaded_state = archived_state_valid
+        chosen_source = "archived_state"
+        chosen_path = archived_state_valid_path
+        resume_meta["notes"].append("Loaded resume state from log_archive.")
+    elif main_state_valid is not None:
+        loaded_state = main_state_valid
+        chosen_source = "state_file"
+        chosen_path = state_file_path
+
+    if loaded_state is not None:
+        resume_meta["source"] = chosen_source or "state_file"
+        resume_meta["state_path"] = str(chosen_path) if chosen_path else None
+
+    if loaded_state is None:
+        state, page_texts = _initialize_state_from_legacy(
+            image_files=image_files,
+            existing_sections=existing_sections,
+            images_fingerprint=images_fingerprint,
+            max_page_attempts=max_page_attempts
+        )
+        if existing_sections:
+            resume_meta["source"] = "legacy_output"
+            resume_meta["notes"].append("Built resume state from existing output sections.")
+        else:
+            resume_meta["source"] = "fresh"
+            resume_meta["notes"].append("No prior state/output found; starting fresh.")
+        return state, page_texts, resume_meta
+
+    now = _utcnow_iso()
+    previous_run_status = loaded_state.get("run_status")
+    loaded_state["max_page_attempts"] = max_page_attempts
+    loaded_state["images_fingerprint"] = images_fingerprint
+    loaded_state["schema_version"] = STATE_SCHEMA_VERSION
+    loaded_state["run_status"] = "running"
+    loaded_state["pause_reason"] = None
+    loaded_state["updated_at"] = now
+
+    pages = loaded_state.get("pages", {})
+    page_texts: Dict[str, str] = {}
+
+    for image_name in image_files:
+        page_state = pages.get(image_name, {})
+        status = page_state.get("status", "pending")
+        existing_text = existing_sections.get(image_name)
+
+        if previous_run_status == "paused" and status != "done":
+            status = "pending"
+            page_state["attempts_used"] = 0
+
+        if status == "done" and _is_successful_ocr_text(existing_text):
+            page_texts[image_name] = existing_text if existing_text is not None else ""
+            page_state["status"] = "done"
+            page_state["last_error"] = None
+        elif status == "done":
+            page_state["status"] = "pending"
+            page_state["last_error"] = "[ERROR: State marked page as done, but no successful section exists in output file.]"
+            page_state["attempts_used"] = 0
+        else:
+            page_state["status"] = "pending"
+            page_state["last_error"] = page_state.get("last_error")
+            if not isinstance(page_state.get("attempts_used"), int):
+                page_state["attempts_used"] = 0
+
+        page_state["updated_at"] = now
+        pages[image_name] = page_state
+
+    loaded_state["pages"] = pages
+    return loaded_state, page_texts, resume_meta
+
+
+def _run_ocr_cycle_for_image(
+    image_path: str,
+    image_name: str,
+    model_repeats: List[Tuple[str, int]],
+    total_api_calls_per_image: int,
+    judge_model: Optional[str],
+    judge_with_image: bool,
+    ocr_log_file_path: str,
+    judge_decision_log_file_path: str,
+    executor: concurrent.futures.ThreadPoolExecutor,
+    pid: Any,
+    verbose: bool
+) -> Tuple[bool, Optional[str], str]:
+    base64_image_data: Optional[str] = None
+    try:
+        base64_image_data = _image_to_base64(image_path)
+    except Exception as image_err:
+        error_text = f"[ERROR: Failed to load/convert image: {image_err}]"
+        if verbose:
+            print(f"[{pid}] {error_text} ({image_name})")
+        return False, None, error_text
+
+    ocr_futures_map: Dict[concurrent.futures.Future, Tuple[str, int, int]] = {}
+    model_info_for_judge_ordered: List[Tuple[str, int]] = []
+
+    for model_name, repeat_count in model_repeats:
+        for i in range(repeat_count):
+            attempt_num = i + 1
+            future = executor.submit(
+                _post_ocr_request,
+                model_name,
+                base64_image_data,
+                ocr_log_file_path,
+                image_name,
+                attempt_num
+            )
+            ocr_futures_map[future] = (model_name, attempt_num, len(model_info_for_judge_ordered))
+            model_info_for_judge_ordered.append((model_name, attempt_num))
+
+    ocr_results_for_image_ordered: List[str] = [""] * len(model_info_for_judge_ordered)
+    for future in concurrent.futures.as_completed(ocr_futures_map):
+        model_name_orig, attempt_num_orig, original_idx = ocr_futures_map[future]
+        try:
+            result_text = future.result()
+            ocr_results_for_image_ordered[original_idx] = result_text
+        except Exception as future_err:
+            ocr_results_for_image_ordered[original_idx] = (
+                f"[ERROR: Future for {model_name_orig} Att.{attempt_num_orig} failed directly: {future_err}]"
+            )
+
+    if not any(ocr_results_for_image_ordered):
+        final_text_for_image = f"[ERROR: No OCR results gathered for image {image_name}]"
+    elif total_api_calls_per_image == 1:
+        final_text_for_image = ocr_results_for_image_ordered[0]
+    elif judge_model:
+        try:
+            final_text_for_image = _post_judge_request(
+                judge_model=judge_model,
+                model_outputs=ocr_results_for_image_ordered,
+                image_name=image_name,
+                model_info_for_judge=model_info_for_judge_ordered,
+                judge_decision_log_file=judge_decision_log_file_path,
+                base64_image=base64_image_data if judge_with_image else None,
+                judge_with_image=judge_with_image
+            )
+        except Exception as judge_exc:
+            print(f"[{pid}] Judge request for {image_name} failed: {judge_exc}. Defaulting to first valid OCR result.")
+            first_valid_ocr = next(
+                (res for res in ocr_results_for_image_ordered if _is_successful_ocr_text(res)),
+                None
+            )
+            final_text_for_image = first_valid_ocr if first_valid_ocr else (
+                ocr_results_for_image_ordered[0] if ocr_results_for_image_ordered else "[ERROR: Judge failed and no OCR results]"
+            )
+    else:
+        print(f"[{pid}] WARNING: Multiple OCR results for {image_name} but no judge. Taking first result.")
+        final_text_for_image = ocr_results_for_image_ordered[0] if ocr_results_for_image_ordered else "[ERROR: No OCR results and no judge]"
+
+    if _is_successful_ocr_text(final_text_for_image):
+        return True, final_text_for_image, ""
+    return False, None, final_text_for_image
 
 def _image_to_base64(image_path: str) -> str:
     try:
@@ -314,15 +821,33 @@ def convert_images_to_text(
     ensemble_strategy: Optional[str] = None,
     trust_score: Optional[float] = None,
     judge_with_image: bool = False,
+    no_resume: bool = False,
+    max_page_attempts: int = DEFAULT_MAX_PAGE_ATTEMPTS,
     verbose: bool = False
 ) -> str:
     pid = os.getpid() if hasattr(os, 'getpid') else 'main'
     if verbose:
-        print(f"[{pid}] convert_images_to_text (pic2text.py) called for images in '{images_dir}', output to '{output_file}'")
+        print(
+            f"[{pid}] convert_images_to_text called for images in '{images_dir}', "
+            f"output to '{output_file}', resume={'off' if no_resume else 'on'}, "
+            f"max_page_attempts={max_page_attempts}"
+        )
 
     if not model_repeats:
         raise ValueError(f"[{pid}] No OCR model specified in model_repeats.")
-    
+
+    if max_page_attempts < 1:
+        raise ValueError(f"[{pid}] max_page_attempts must be >= 1, got {max_page_attempts}.")
+
+    if judge_mode != "authoritative" and verbose:
+        print(f"[{pid}] WARN: Unsupported judge_mode '{judge_mode}'. Falling back to authoritative behavior.")
+
+    if ensemble_strategy is not None and verbose:
+        print(f"[{pid}] INFO: ensemble_strategy is currently a placeholder and has no runtime effect.")
+
+    if trust_score is not None and verbose:
+        print(f"[{pid}] INFO: trust_score is currently a placeholder and has no runtime effect.")
+
     total_api_calls_per_image = sum(repeat_count for _, repeat_count in model_repeats)
     if total_api_calls_per_image > 1 and not judge_model:
         raise ValueError(
@@ -330,17 +855,15 @@ def convert_images_to_text(
             "but no judge model specified. This should be caught by the calling function in core.py."
         )
 
-    with open(output_file, "w", encoding="utf-8") as f: f.write("")
-    processed_images_count = 0
-
     output_file_path = Path(output_file)
-    # Use sanitize_filename here
-    log_file_basename_prefix = sanitize_filename(output_file_path.stem) # <<< --- CORRECTED
+    state_file_path = _state_file_path_for_output(output_file_path)
+
+    log_file_basename_prefix = sanitize_filename(output_file_path.stem)
     instance_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     unique_log_suffix = f"{log_file_basename_prefix}_pid{pid}_{instance_timestamp}"
     ocr_log_file_path = str(output_file_path.parent / f"{DEFAULT_OCR_LOG_BASENAME}_{unique_log_suffix}{LOG_EXTENSION}")
     judge_decision_log_file_path = str(output_file_path.parent / f"{DEFAULT_JUDGE_LOG_BASENAME}_{unique_log_suffix}{LOG_EXTENSION}")
-    
+
     if verbose:
         print(f"[{pid}] OCR log for this worker: {ocr_log_file_path}")
         print(f"[{pid}] Judge log for this worker: {judge_decision_log_file_path}")
@@ -348,77 +871,217 @@ def convert_images_to_text(
     image_files = [f for f in os.listdir(images_dir) if f.lower().endswith((".png", ".jpg", ".jpeg"))]
     image_files.sort(key=extract_page_number)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_API_CALL_THREADS, thread_name_prefix=f"OCR_API_Thread_PID{pid}") as executor:
-        for image_idx, image_name in enumerate(image_files):
-            image_path = os.path.join(images_dir, image_name)
-            if verbose: print(f"[{pid}] Submitting OCR tasks for image {image_idx + 1}/{len(image_files)}: {image_name}")
-            
-            base64_image_data: Optional[str] = None
-            try:
-                base64_image_data = _image_to_base64(image_path)
-            except Exception as e:
-                print(f"[{pid}] Failed to convert {image_name} to base64. Error: {e}. Appending error to output.")
-                with open(output_file, "a", encoding="utf-8") as f:
-                    if processed_images_count > 0: f.write("\n\n")
-                    f.write(f"Image: {image_name}\n[ERROR: Failed to load/convert image: {e}]")
-                processed_images_count +=1
-                continue
+    images_fingerprint = _compute_images_fingerprint(images_dir, image_files)
+    existing_sections = _parse_output_sections(output_file_path) if not no_resume else {}
 
-            ocr_futures_map = {} 
-            model_info_for_judge_ordered: List[Tuple[str,int]] = []
+    state, page_texts, resume_meta = _load_or_initialize_state(
+        output_file_path=output_file_path,
+        state_file_path=state_file_path,
+        image_files=image_files,
+        existing_sections=existing_sections,
+        images_fingerprint=images_fingerprint,
+        max_page_attempts=max_page_attempts,
+        resume_enabled=not no_resume,
+        verbose=verbose
+    )
 
-            for model_name, repeat_count in model_repeats:
-                for i in range(repeat_count):
-                    attempt_num = i + 1
-                    future = executor.submit(_post_ocr_request, model_name, base64_image_data, ocr_log_file_path, image_name, attempt_num)
-                    # Store future with its metadata for ordered reconstruction
-                    ocr_futures_map[future] = (model_name, attempt_num, len(model_info_for_judge_ordered)) # Store original index
-                    model_info_for_judge_ordered.append((model_name, attempt_num))
-            
-            # Initialize results list to match the order of submission
-            ocr_results_for_image_ordered: List[str] = [""] * len(model_info_for_judge_ordered)
+    # Immediately materialize "known-good only" output; this removes stale [ERROR] sections from prior runs.
+    _write_output_sections_atomic(output_file_path, image_files, page_texts)
+    _write_json_atomic(state_file_path, state)
 
-            for future in concurrent.futures.as_completed(ocr_futures_map):
-                _model_name_orig, _attempt_num_orig, original_idx = ocr_futures_map[future]
-                try:
-                    res_text = future.result()
-                    ocr_results_for_image_ordered[original_idx] = res_text
-                except Exception as exc_f:
-                    err_res_text = f"[ERROR: Future for {_model_name_orig} Att.{_attempt_num_orig} failed directly: {exc_f}]"
-                    ocr_results_for_image_ordered[original_idx] = err_res_text
-            
-            final_text_for_image = ""
-            if not any(ocr_results_for_image_ordered): # Check if list is empty or all are empty strings
-                final_text_for_image = f"[ERROR: No OCR results gathered for image {image_name}]"
-            elif total_api_calls_per_image == 1:
-                final_text_for_image = ocr_results_for_image_ordered[0]
-            else:
-                if judge_model:
-                    try:
-                        final_text_for_image = _post_judge_request(
-                            judge_model=judge_model,
-                            model_outputs=ocr_results_for_image_ordered, 
-                            image_name=image_name,
-                            model_info_for_judge=model_info_for_judge_ordered,
-                            judge_decision_log_file=judge_decision_log_file_path,
-                            base64_image=base64_image_data if judge_with_image else None,
-                            judge_with_image=judge_with_image
+    total_pages = len(image_files)
+    processed_images_count = sum(
+        1 for image_name in image_files
+        if state.get("pages", {}).get(image_name, {}).get("status") == "done"
+    )
+    resumed_pages_count = processed_images_count
+    newly_done_pages_count = 0
+    attempt_cycles = 0
+    failed_attempt_cycles = 0
+    started_monotonic = time.monotonic()
+
+    state_source = resume_meta.get("source", "unknown")
+    state_path_used = resume_meta.get("state_path")
+    print(
+        f"[{pid}] [RESUME] source={state_source}, state_path={state_path_used or '-'}, "
+        f"output={output_file}, images_dir={images_dir}"
+    )
+    notes = resume_meta.get("notes", [])
+    for note in notes:
+        print(f"[{pid}] [RESUME] {note}")
+    print(
+        f"[{pid}] [RESUME] total_pages={total_pages}, already_done={resumed_pages_count}, "
+        f"pending={max(0, total_pages - resumed_pages_count)}, max_page_attempts={max_page_attempts}"
+    )
+    _print_progress(
+        pid=pid,
+        total_pages=total_pages,
+        done_pages=processed_images_count,
+        resumed_pages=resumed_pages_count,
+        attempt_cycles=attempt_cycles,
+        current_image=None,
+        attempt_idx=None,
+        max_page_attempts=max_page_attempts,
+        status="initialized",
+        started_monotonic=started_monotonic
+    )
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=MAX_API_CALL_THREADS,
+            thread_name_prefix=f"OCR_API_Thread_PID{pid}"
+        ) as executor:
+            for image_idx, image_name in enumerate(image_files):
+                image_path = os.path.join(images_dir, image_name)
+                page_state = state["pages"][image_name]
+
+                if page_state.get("status") == "done" and not no_resume:
+                    if verbose:
+                        print(f"[{pid}] Skipping already completed image {image_idx + 1}/{len(image_files)}: {image_name}")
+                    continue
+
+                if verbose:
+                    print(f"[{pid}] Processing image {image_idx + 1}/{len(image_files)}: {image_name}")
+
+                attempts_used = int(page_state.get("attempts_used", 0))
+                page_completed = False
+
+                for attempt_idx in range(attempts_used + 1, max_page_attempts + 1):
+                    attempt_cycles += 1
+                    _print_progress(
+                        pid=pid,
+                        total_pages=total_pages,
+                        done_pages=processed_images_count,
+                        resumed_pages=resumed_pages_count,
+                        attempt_cycles=attempt_cycles,
+                        current_image=image_name,
+                        attempt_idx=attempt_idx,
+                        max_page_attempts=max_page_attempts,
+                        status="attempting",
+                        started_monotonic=started_monotonic,
+                        force_print=True
+                    )
+
+                    is_success, final_text, error_text = _run_ocr_cycle_for_image(
+                        image_path=image_path,
+                        image_name=image_name,
+                        model_repeats=model_repeats,
+                        total_api_calls_per_image=total_api_calls_per_image,
+                        judge_model=judge_model,
+                        judge_with_image=judge_with_image,
+                        ocr_log_file_path=ocr_log_file_path,
+                        judge_decision_log_file_path=judge_decision_log_file_path,
+                        executor=executor,
+                        pid=pid,
+                        verbose=verbose
+                    )
+
+                    page_state["attempts_used"] = attempt_idx
+                    page_state["updated_at"] = _utcnow_iso()
+
+                    if is_success and final_text is not None:
+                        page_state["status"] = "done"
+                        page_state["last_error"] = None
+                        state["run_status"] = "running"
+                        state["pause_reason"] = None
+                        state["updated_at"] = _utcnow_iso()
+                        page_texts[image_name] = final_text
+
+                        _write_output_sections_atomic(output_file_path, image_files, page_texts)
+                        _write_json_atomic(state_file_path, state)
+                        processed_images_count += 1
+                        newly_done_pages_count += 1
+                        page_completed = True
+
+                        _print_progress(
+                            pid=pid,
+                            total_pages=total_pages,
+                            done_pages=processed_images_count,
+                            resumed_pages=resumed_pages_count,
+                            attempt_cycles=attempt_cycles,
+                            current_image=image_name,
+                            attempt_idx=attempt_idx,
+                            max_page_attempts=max_page_attempts,
+                            status="completed",
+                            started_monotonic=started_monotonic,
+                            force_print=True
                         )
-                    except Exception as judge_exc:
-                        print(f"[{pid}] Judge request for {image_name} failed: {judge_exc}. Defaulting to first valid OCR result.")
-                        first_valid_ocr = next((r for r in ocr_results_for_image_ordered if not r.startswith(("[ERROR:", "[INFO:"))), None)
-                        final_text_for_image = first_valid_ocr if first_valid_ocr else (ocr_results_for_image_ordered[0] if ocr_results_for_image_ordered else "[ERROR: Judge failed and no OCR results]")
-                else:
-                    print(f"[{pid}] WARNING: Multiple OCR results for {image_name} but no judge. Taking first result.")
-                    final_text_for_image = ocr_results_for_image_ordered[0] if ocr_results_for_image_ordered else "[ERROR: No OCR results and no judge]"
-            
-            with open(output_file, "a", encoding="utf-8") as f:
-                if processed_images_count > 0: f.write("\n\n")
-                f.write(f"Image: {image_name}\n{final_text_for_image}")
-            processed_images_count += 1
-            if verbose: print(f"[{pid}] Appended result for {image_name} to {output_file}")
+                        break
 
-    if verbose: print(f"[{pid}] All images processed for this document worker. Total: {processed_images_count}")
-    _archive_old_logs(output_file, [ocr_log_file_path, judge_decision_log_file_path])
-    if verbose: print(f"[{pid}] Worker logs archived. Output for '{images_dir}' saved to '{output_file}'.")
-    return output_file
+                    failed_attempt_cycles += 1
+                    page_state["status"] = "pending"
+                    page_state["last_error"] = (error_text or "[ERROR: OCR cycle failed without a concrete error message.]")[:1000]
+                    state["updated_at"] = _utcnow_iso()
+                    _write_json_atomic(state_file_path, state)
+
+                    if attempt_idx >= max_page_attempts:
+                        page_state["status"] = "paused"
+                        state["run_status"] = "paused"
+                        state["pause_reason"] = (
+                            f"Reached max_page_attempts={max_page_attempts} for '{image_name}'. "
+                            "Fix external issue and rerun to resume."
+                        )
+                        state["updated_at"] = _utcnow_iso()
+                        _write_json_atomic(state_file_path, state)
+                        _print_progress(
+                            pid=pid,
+                            total_pages=total_pages,
+                            done_pages=processed_images_count,
+                            resumed_pages=resumed_pages_count,
+                            attempt_cycles=attempt_cycles,
+                            current_image=image_name,
+                            attempt_idx=attempt_idx,
+                            max_page_attempts=max_page_attempts,
+                            status="paused",
+                            started_monotonic=started_monotonic,
+                            force_print=True
+                        )
+                        raise OCRPauseException(state["pause_reason"])
+
+                    # Bounded backoff before retrying this page.
+                    backoff_seconds = min(5.0, 0.5 * attempt_idx)
+                    if verbose:
+                        print(f"[{pid}] Retry backoff for {image_name}: sleeping {backoff_seconds:.1f}s")
+                    time.sleep(backoff_seconds)
+
+                if not page_completed and page_state.get("status") != "paused":
+                    raise OCRPauseException(
+                        f"Page '{image_name}' did not complete and was not marked paused. "
+                        "Stopping to avoid ambiguous state."
+                    )
+
+        state["run_status"] = "completed"
+        state["pause_reason"] = None
+        state["updated_at"] = _utcnow_iso()
+        _write_json_atomic(state_file_path, state)
+        _write_output_sections_atomic(output_file_path, image_files, page_texts)
+        archived_state_path = _archive_state_file_if_completed(
+            state_file_path=state_file_path,
+            output_file_path=output_file_path,
+            verbose=verbose
+        )
+
+        elapsed_seconds = time.monotonic() - started_monotonic
+        print(
+            f"[{pid}] [SUMMARY] run_status=completed total_pages={total_pages} "
+            f"resumed_pages={resumed_pages_count} newly_done={newly_done_pages_count} "
+            f"attempt_cycles={attempt_cycles} failed_attempts={failed_attempt_cycles} "
+            f"elapsed={elapsed_seconds:.1f}s archived_state={archived_state_path or '-'}"
+        )
+
+        if verbose:
+            print(f"[{pid}] All images processed successfully for this document worker. Total: {processed_images_count}")
+        return output_file
+    except OCRPauseException:
+        elapsed_seconds = time.monotonic() - started_monotonic
+        print(
+            f"[{pid}] [SUMMARY] run_status=paused total_pages={total_pages} "
+            f"resumed_pages={resumed_pages_count} newly_done={newly_done_pages_count} "
+            f"attempt_cycles={attempt_cycles} failed_attempts={failed_attempt_cycles} "
+            f"elapsed={elapsed_seconds:.1f}s"
+        )
+        raise
+    finally:
+        _archive_old_logs(output_file, [ocr_log_file_path, judge_decision_log_file_path])
+        if verbose:
+            print(f"[{pid}] Worker logs archived. Output for '{images_dir}' saved to '{output_file}'.")

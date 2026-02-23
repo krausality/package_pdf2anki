@@ -117,6 +117,31 @@ Using the `.env` file is generally more convenient for repeated use.
 
 ---
 
+## OCR Resume and Pause Behavior
+
+OCR commands now support resilient continuation by default:
+
+1.  **Automatic Resume (Default)**
+    *   `pic2text`, `pdf2text`, and the OCR step of `process` will try to resume from existing OCR output.
+    *   A sidecar checkpoint file is written during processing next to the output text file:
+        *   `<output_file>.ocr_state.json`
+    *   After successful completion, this state file is archived into:
+        *   `log_archive/`
+    *   On later restarts, archived state snapshots are automatically consulted to avoid unnecessary re-OCR work.
+    *   Legacy `.txt` files (without sidecar state) are still supported. Successful sections are reused, failed/incomplete sections are retried.
+
+2.  **Per-Page Attempt Limit**
+    *   Each page is retried up to `--max-page-attempts` full OCR cycles (default: `40`).
+    *   If the limit is reached, processing is marked as **paused** and exits with an error so you can fix external issues (e.g., expired API key) and rerun.
+
+3.  **Disable Resume Explicitly**
+    *   Use `--no-resume` to start OCR from scratch for that run.
+
+4.  **Runtime Metrics**
+    *   OCR now prints resume-source diagnostics and live progress metrics (done/total, resumed pages, attempts, current page, status, elapsed time).
+
+---
+
 ## Configuration (`config` command)
 
 The `pdf2anki config` command allows you to manage persistent settings stored in `~/.pdf2anki/config.json`. This is useful for setting default models or defining presets for OCR options, which can simplify command-line invocations.
@@ -285,6 +310,8 @@ pdf2anki pic2text <images_dir> [output_file] [OPTIONS...]
 | `--judge-with-image`      | Flag. If set, the judge model also receives the base64-encoded image along with text candidates to aid its decision.                                                      |
 | `--ensemble-strategy <S>` | (Placeholder) Intended for future ensemble methods. Currently ignored.                                                                                                  |
 | `--trust-score <W>`       | (Placeholder) Intended for future model weighting. Currently ignored.                                                                                                   |
+| `--no-resume`             | Disable OCR resume for this run. Starts from scratch instead of reusing previous progress.                                                                             |
+| `--max-page-attempts <N>` | Maximum full OCR attempts per page before pausing the run. Default: `40`.                                                                                               |
 
 **Behavior**
 *   Processes images sorted by page number (if `page_X` in filename).
@@ -294,6 +321,7 @@ pdf2anki pic2text <images_dir> [output_file] [OPTIONS...]
         *   If `--judge-model` is provided, the judge selects the best text.
         *   Otherwise (multiple candidates but no judge), an error occurs.
     *   If only one text candidate results, it's used directly.
+    *   Failed pages are retried up to `--max-page-attempts`. When the limit is reached, the run pauses with a non-zero exit.
 *   Logs OCR calls to `ocr_*.log` and judge decisions to `decisionmaking_*.log`. These logs are archived after processing.
 
 **Examples**
@@ -361,11 +389,12 @@ pdf2anki pdf2text <pdf_path_or_dir> [images_output_dir] [rectangle1 ...] [text_o
         Default: Current working directory.
 
 **Optional OCR Arguments (Options)**
-*   `--model <MODEL_NAME>`, `--repeat <N>`, `--judge-model <MODEL_NAME>`, `--judge-mode <MODE>`, `--judge-with-image`, `--ensemble-strategy <S>`, `--trust-score <W>`: Same as for the `pic2text` command. These settings will override any presets in `config.json`. If no model is specified via these options or in presets, the `default_model` from config is used.
+*   `--model <MODEL_NAME>`, `--repeat <N>`, `--judge-model <MODEL_NAME>`, `--judge-mode <MODE>`, `--judge-with-image`, `--ensemble-strategy <S>`, `--trust-score <W>`, `--no-resume`, `--max-page-attempts <N>`: Same as for the `pic2text` command. These settings will override any presets in `config.json`. If no model is specified via these options or in presets, the `default_model` from config is used.
 
 **Behavior**
 *   **Single PDF:** Converts to images (with cropping if `rectangles` provided), then performs OCR on these images.
 *   **Directory of PDFs:** Processes each PDF found in the directory. Image conversion and OCR for different PDFs are run in parallel using multiple CPU cores for efficiency.
+*   If any page reaches `--max-page-attempts`, OCR is paused and `pdf2text` exits with an error so the run can be resumed later.
 *   Default paths are intelligently determined if optional path arguments are omitted.
 *   Uses the same logging and archiving mechanism as `pic2text` for each PDF processed.
 
@@ -562,7 +591,7 @@ pdf2anki process <pdf_path> <images_output_dir> <anki_file> [anki_model_name] [O
 **Optional OCR Arguments (OCR_OPTIONS...)**
 These options apply to the images-to-text (OCR) step (step 2) of the pipeline:
 *   `-d`, `--default`: Use preset OCR settings from `config.json` (`defaults` key).
-*   `--model <MODEL_NAME>`, `--repeat <N>`, `--judge-model <MODEL_NAME>`, `--judge-mode <MODE>`, `--judge-with-image`, etc.: Same as for `pic2text`. If no OCR model is specified via these options or `-d`, `default_model` from config is used.
+*   `--model <MODEL_NAME>`, `--repeat <N>`, `--judge-model <MODEL_NAME>`, `--judge-mode <MODE>`, `--judge-with-image`, `--no-resume`, `--max-page-attempts <N>`, etc.: Same as for `pic2text`. If no OCR model is specified via these options or `-d`, `default_model` from config is used.
 
 **Important Note on Cropping**
 The `process` command **does not** support explicit cropping arguments. If you need to crop the PDF pages, you must perform the steps manually:
@@ -625,6 +654,7 @@ The `process` command **does not** support explicit cropping arguments. If you n
     *   Specify repeat calls per model (`--repeat r1 --repeat r2 ...`).
     *   A `--judge-model` is required if more than one OCR text candidate is generated per image.
     *   Enhance judge decisions with `--judge-with-image`.
+    *   Resume interrupted OCR runs automatically and control retries with `--max-page-attempts`.
 
 -   **Cropping**:
     *   Available via `pdf2pic` and `pdf2text` by specifying rectangle coordinates.

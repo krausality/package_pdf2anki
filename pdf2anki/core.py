@@ -173,7 +173,8 @@ def images_to_text(args: argparse.Namespace) -> None:
     preset_defaults = get_preset_defaults(config)
     parser_ocr_defaults = {
         'model': [], 'repeat': [], 'judge_model': None,
-        'judge_mode': 'authoritative', 'judge_with_image': False
+        'judge_mode': 'authoritative', 'judge_with_image': False,
+        'no_resume': False, 'max_page_attempts': 40
     }
 
     # Create a temporary namespace with parser defaults to check against
@@ -227,6 +228,8 @@ def images_to_text(args: argparse.Namespace) -> None:
         ensemble_strategy=args.ensemble_strategy,
         trust_score=args.trust_score,
         judge_with_image=args.judge_with_image,
+        no_resume=getattr(args, 'no_resume', False),
+        max_page_attempts=getattr(args, 'max_page_attempts', 40),
         verbose=getattr(args, 'verbose', False) # Pass verbose down
     )
     if getattr(args, 'verbose', False):
@@ -285,6 +288,8 @@ def _process_pdf_worker(pdf_file_path_str: str, common_args_dict: dict) -> str:
             ensemble_strategy=worker_args.ensemble_strategy,
             trust_score=worker_args.trust_score,
             judge_with_image=worker_args.judge_with_image,
+            no_resume=getattr(worker_args, 'no_resume', False),
+            max_page_attempts=getattr(worker_args, 'max_page_attempts', 40),
             verbose=getattr(worker_args, 'verbose', False)
         )
 
@@ -295,6 +300,10 @@ def _process_pdf_worker(pdf_file_path_str: str, common_args_dict: dict) -> str:
         print(f"[{pid}] {success_msg}")
         return f"SUCCESS: {pdf_path.name}"
 
+    except pic2text.OCRPauseException as pause_exc:
+        pause_msg = f"PAUSED processing {pdf_path.name} in process {pid}: {pause_exc}"
+        print(f"[{pid}] {pause_msg}")
+        return f"PAUSED: {pdf_path.name} - {pause_exc}"
     except Exception as e:
         error_msg = f"ERROR processing {pdf_path.name} in process {pid}: {e}"
         detailed_error = f"{error_msg}\n{traceback.format_exc()}"
@@ -333,7 +342,8 @@ def pdf_to_text(args: argparse.Namespace) -> None:
     preset_defaults = get_preset_defaults(config)
     parser_ocr_defaults = {
         'model': [], 'repeat': [], 'judge_model': None,
-        'judge_mode': 'authoritative', 'judge_with_image': False
+        'judge_mode': 'authoritative', 'judge_with_image': False,
+        'no_resume': False, 'max_page_attempts': 40
     }
 
     # Create a temporary namespace with parser defaults to check against
@@ -378,6 +388,8 @@ def pdf_to_text(args: argparse.Namespace) -> None:
 
         success_count = 0
         failure_count = 0
+        paused_count = 0
+        pause_detected = False
         results_summary = []
 
         with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
@@ -385,30 +397,50 @@ def pdf_to_text(args: argparse.Namespace) -> None:
                 executor.submit(_process_pdf_worker, str(pdf_path), common_args_dict): pdf_path
                 for pdf_path in pdf_files_to_process
             }
+            completed_workers = 0
             for future in concurrent.futures.as_completed(future_to_pdf):
                 pdf_path_completed = future_to_pdf[future]
+                completed_workers += 1
                 try:
                     result_msg = future.result()
                     results_summary.append(result_msg)
                     if result_msg.startswith("SUCCESS"):
-                        success_count +=1
+                        success_count += 1
+                    elif result_msg.startswith("PAUSED"):
+                        paused_count += 1
+                        pause_detected = True
+                        # Stop scheduling remaining work where possible.
+                        for pending_future in future_to_pdf:
+                            if not pending_future.done():
+                                pending_future.cancel()
                     else:
-                        failure_count +=1
+                        failure_count += 1
                 except Exception as exc:
-                    failure_count +=1
+                    failure_count += 1
                     err_msg = f"FAILURE: {pdf_path_completed.name} - Worker unhandled exception: {exc}"
                     print(f"[ERROR] {err_msg}") # Also print here for main thread visibility
                     results_summary.append(err_msg)
+                print(
+                    f"[INFO] Batch progress: {completed_workers}/{len(pdf_files_to_process)} PDFs finished "
+                    f"(success={success_count}, paused={paused_count}, failed={failure_count})."
+                )
         
         print("\n--- Batch Processing Summary ---")
         for res_msg in results_summary:
-             print(f"  - {res_msg}")
+            print(f"  - {res_msg}")
         print(f"Total successfully processed: {success_count}")
+        print(f"Total paused: {paused_count}")
         print(f"Total failed: {failure_count}")
+        if pause_detected:
+            raise ValueError("OCR processing paused after reaching per-page attempt limit. Fix external issue and rerun to resume.")
     else:
         print("[INFO] Processing sequentially (single file or only one PDF in directory).")
         result_msg = _process_pdf_worker(str(pdf_files_to_process[0]), common_args_dict)
         print(f"\n--- Processing Summary ---\n  - {result_msg}")
+        if result_msg.startswith("PAUSED"):
+            raise ValueError("OCR processing paused after reaching per-page attempt limit. Fix external issue and rerun to resume.")
+        if result_msg.startswith("FAILURE"):
+            raise ValueError(f"OCR processing failed: {result_msg}")
     print("All 'pdf2text' tasks complete.")
 
 
@@ -553,7 +585,8 @@ def process_pdf_to_anki(args: argparse.Namespace) -> None:
     # Create a temporary namespace with parser defaults to check against
     parser_ocr_defaults = {
         'model': [], 'repeat': [], 'judge_model': None,
-        'judge_mode': 'authoritative', 'judge_with_image': False
+        'judge_mode': 'authoritative', 'judge_with_image': False,
+        'no_resume': False, 'max_page_attempts': 40
     }
     temp_parser = argparse.ArgumentParser()
     for key, val in parser_ocr_defaults.items():
@@ -612,7 +645,10 @@ def process_pdf_to_anki(args: argparse.Namespace) -> None:
         model=ocr_models_for_step2, # Use resolved OCR models
         repeat=args.repeat, judge_model=args.judge_model, judge_mode=args.judge_mode,
         ensemble_strategy=args.ensemble_strategy, trust_score=args.trust_score,
-        judge_with_image=args.judge_with_image, verbose=getattr(args, 'verbose', False)
+        judge_with_image=args.judge_with_image,
+        no_resume=getattr(args, 'no_resume', False),
+        max_page_attempts=getattr(args, 'max_page_attempts', 40),
+        verbose=getattr(args, 'verbose', False)
     )
     print(f"[INFO] Step 2 (process): Extracting text to '{output_text_file_path}'...")
     images_to_text(images_to_text_args_for_process)
@@ -740,6 +776,8 @@ def cli_invoke() -> None:
     parser_pic2text.add_argument("--ensemble-strategy", type=str, default=None, help="(Placeholder).")
     parser_pic2text.add_argument("--trust-score", type=float, default=None, help="(Placeholder).")
     parser_pic2text.add_argument("--judge-with-image", action="store_true", default=False, help="Judge sees image (overrides presets).")
+    parser_pic2text.add_argument("--no-resume", action="store_true", default=False, help="Disable OCR resume and start this OCR run from scratch.")
+    parser_pic2text.add_argument("--max-page-attempts", type=int, default=40, help="Maximum full OCR attempts per page before pausing the run.")
     parser_pic2text.set_defaults(func=images_to_text)
 
     # --- PDF to Text Command ---
@@ -755,6 +793,8 @@ def cli_invoke() -> None:
     parser_pdf2text.add_argument("--ensemble-strategy", type=str, default=None, help="(Placeholder).")
     parser_pdf2text.add_argument("--trust-score", type=float, default=None, help="(Placeholder).")
     parser_pdf2text.add_argument("--judge-with-image", action="store_true", default=False, help="Judge sees image (overrides presets).")
+    parser_pdf2text.add_argument("--no-resume", action="store_true", default=False, help="Disable OCR resume and start this OCR run from scratch.")
+    parser_pdf2text.add_argument("--max-page-attempts", type=int, default=40, help="Maximum full OCR attempts per page before pausing the run.")
     parser_pdf2text.set_defaults(func=pdf_to_text)
     
     # --- Text to Anki Command ---
@@ -788,6 +828,8 @@ def cli_invoke() -> None:
     parser_process.add_argument("--ensemble-strategy", type=str, default=None, help="(Placeholder).")
     parser_process.add_argument("--trust-score", type=float, default=None, help="(Placeholder).")
     parser_process.add_argument("--judge-with-image", action="store_true", default=False, help="Judge sees image in OCR step (overrides presets).")
+    parser_process.add_argument("--no-resume", action="store_true", default=False, help="Disable OCR resume and start this OCR run from scratch.")
+    parser_process.add_argument("--max-page-attempts", type=int, default=40, help="Maximum full OCR attempts per page before pausing the run.")
     parser_process.set_defaults(func=process_pdf_to_anki)
 
     # --- Configuration Command ---
@@ -834,6 +876,9 @@ def cli_invoke() -> None:
     except (FileNotFoundError, ValueError) as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         sys.exit(1) # Exit with error code 1 for known errors
+    except pic2text.OCRPauseException as e:
+        print(f"[PAUSED] {e}", file=sys.stderr)
+        sys.exit(3)
     except KeyboardInterrupt:
         print("\n[INFO] Operation cancelled by user (KeyboardInterrupt).", file=sys.stderr)
         sys.exit(130) # Standard exit code for Ctrl+C
