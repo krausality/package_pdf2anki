@@ -123,6 +123,7 @@ OCR commands now support resilient continuation by default:
 
 1.  **Automatic Resume (Default)**
     *   `pic2text`, `pdf2text`, and the OCR step of `process` will try to resume from existing OCR output.
+    *   For `pdf2text` and `process`, image generation is also resume-aware: existing valid page images/crops are reused, and only missing/invalid ones are regenerated.
     *   A sidecar checkpoint file is written during processing next to the output text file:
         *   `<output_file>.ocr_state.json`
     *   After successful completion, this state file is archived into:
@@ -244,7 +245,7 @@ Converts pages of a PDF into separate image files. It can save full-page images 
 
 **Syntax**
 ```bash
-pdf2anki pdf2pic <pdf_path> <output_dir> [rectangle1 rectangle2 ...]
+pdf2anki pdf2pic <pdf_path> <output_dir> [rectangle1 rectangle2 ...] [--resume-existing]
 ```
 
 **Positional Arguments**
@@ -260,6 +261,7 @@ pdf2anki pdf2pic <pdf_path> <output_dir> [rectangle1 rectangle2 ...]
     *   Cropping is performed on a high-resolution render of the page for maximum detail.
     *   Cropped images are saved (e.g., `page_1_crop_1.jpg`, `page_1_crop_2.jpg`).
     *   A `*_recrop.pdf` file is generated in `output_dir`, containing all cropped images, each on a separate page, auto-oriented (portrait/landscape).
+*   With `--resume-existing`, already existing valid page files are reused and only missing/invalid files are regenerated.
 
 **Examples**
 
@@ -394,6 +396,7 @@ pdf2anki pdf2text <pdf_path_or_dir> [images_output_dir] [rectangle1 ...] [text_o
 **Behavior**
 *   **Single PDF:** Converts to images (with cropping if `rectangles` provided), then performs OCR on these images.
 *   **Directory of PDFs:** Processes each PDF found in the directory. Image conversion and OCR for different PDFs are run in parallel using multiple CPU cores for efficiency.
+*   When OCR resume is enabled (default), image generation is resume-aware: existing valid page files are reused and only missing/invalid pages are regenerated.
 *   If any page reaches `--max-page-attempts`, OCR is paused and `pdf2text` exits with an error so the run can be resumed later.
 *   Default paths are intelligently determined if optional path arguments are omitted.
 *   Uses the same logging and archiving mechanism as `pic2text` for each PDF processed.

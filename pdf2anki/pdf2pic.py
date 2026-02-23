@@ -18,6 +18,7 @@ import fitz     # We'll use "fitz" for certain PDF-specific calls
 from PIL import Image
 import os
 import sys
+import time
 from typing import List, Tuple, Optional
 
 def find_acceptable_dpi(
@@ -70,7 +71,19 @@ def find_acceptable_dpi(
         finally:
              # Clean up temporary file
             if os.path.exists(temp_path):
-                os.remove(temp_path)
+                removed = False
+                for attempt in range(5):
+                    try:
+                        os.remove(temp_path)
+                        removed = True
+                        break
+                    except PermissionError:
+                        time.sleep(0.05 * (attempt + 1))
+                if not removed:
+                    try:
+                        os.remove(temp_path)
+                    except OSError:
+                        pass
 
     # Ensure acceptable_dpi is within reasonable bounds
     acceptable_dpi = max(lower_dpi if lower_dpi > 50 else 50, acceptable_dpi)
@@ -79,12 +92,28 @@ def find_acceptable_dpi(
 
     return acceptable_dpi
 
+
+def _is_usable_image_file(image_path: str) -> bool:
+    """Return True if the image file exists, is non-empty, and can be opened."""
+    if not os.path.exists(image_path):
+        return False
+    try:
+        if os.path.getsize(image_path) <= 0:
+            return False
+        with Image.open(image_path) as img:
+            img.verify()
+        return True
+    except Exception:
+        return False
+
+
 def convert_pdf_to_images(
     pdf_path: str,
     output_dir: str,
     target_dpi: int = 300,
     rectangles: Optional[List[Tuple[int, int, int, int]]] = None,
-    verbose: bool = False # Add verbose parameter here
+    verbose: bool = False, # Add verbose parameter here
+    resume_existing: bool = False
 ) -> List[str]:
     """
     Convert each page of a PDF to a full-page image at 'target_dpi'.
@@ -104,6 +133,8 @@ def convert_pdf_to_images(
         output_dir: Directory to store the generated images
         target_dpi: The DPI for the main page images, defaults to 300
         rectangles: Optional list of (left, top, right, bottom) tuples in 300-dpi coordinates
+        resume_existing: If True, reuse already existing valid page images/crops and
+            generate only missing or invalid ones.
     
     Returns:
         List[str]: Paths to all generated images (full-page + cropped)
@@ -128,8 +159,68 @@ def convert_pdf_to_images(
         # ^ For demonstration, we pick 'target_dpi * 10' just as an example factor.
         #   Or simply: hi_dpi = 2400  # always, if rectangles exist
 
+    reused_pages = 0
+    generated_pages = 0
+    repaired_pages = 0
+    total_pages = 0
+
     with pymupdf.open(pdf_path) as pdf:
+        total_pages = len(pdf)
         for page_num, page in enumerate(pdf, start=1):
+            img_path = os.path.join(output_dir, f"page_{page_num}.png")
+
+            # Fast path for standard full-page mode: reuse an existing valid page image.
+            if not rectangles and resume_existing and _is_usable_image_file(img_path):
+                images.append(img_path)
+                reused_pages += 1
+                print(f"Reused page {page_num}/{total_pages}: {img_path}")
+                continue
+
+            if not rectangles:
+                had_existing = resume_existing and os.path.exists(img_path)
+                if had_existing:
+                    print(f"Rebuilding invalid page {page_num}/{total_pages}: {img_path}")
+
+                chosen_dpi = find_acceptable_dpi(page, img_path, target_dpi, "PNG", verbose=verbose)
+                zoom_chosen = chosen_dpi / 72.0
+                mat_chosen = fitz.Matrix(zoom_chosen, zoom_chosen)
+                pix_chosen = page.get_pixmap(matrix=mat_chosen, alpha=False)
+                img_chosen = Image.frombytes("RGB", (pix_chosen.width, pix_chosen.height), pix_chosen.samples)
+                img_chosen.save(img_path, format="PNG", dpi=(chosen_dpi, chosen_dpi))
+                print(f"Saved page {page_num} at final {chosen_dpi} dpi: {img_path}")
+                images.append(img_path)
+
+                if had_existing:
+                    repaired_pages += 1
+                else:
+                    generated_pages += 1
+                continue
+
+            # Rectangles mode: reuse if all expected crops for this page are already valid.
+            expected_crop_paths = [
+                os.path.join(output_dir, f"page_{page_num}_crop_{i}.jpg")
+                for i in range(1, len(rectangles) + 1)
+            ]
+            had_partial_existing = False
+            if resume_existing and expected_crop_paths:
+                valid_crop_paths = [crop_path for crop_path in expected_crop_paths if _is_usable_image_file(crop_path)]
+                if len(valid_crop_paths) == len(expected_crop_paths):
+                    for crop_path in expected_crop_paths:
+                        images.append(crop_path)
+                        cropped_images.append(crop_path)
+                    reused_pages += 1
+                    print(
+                        f"Reused cropped page {page_num}/{total_pages} with "
+                        f"{len(expected_crop_paths)} crop(s)."
+                    )
+                    continue
+                had_partial_existing = any(os.path.exists(crop_path) for crop_path in expected_crop_paths)
+                if had_partial_existing:
+                    print(
+                        f"Rebuilding partial/invalid crops for page "
+                        f"{page_num}/{total_pages}."
+                    )
+
             # ======================
             # 1) Render at target_dpi for the full-page image
             # ======================
@@ -138,29 +229,6 @@ def convert_pdf_to_images(
             pix_300 = page.get_pixmap(matrix=mat_300, alpha=False)
             img_300 = Image.frombytes("RGB", (pix_300.width, pix_300.height), pix_300.samples)
 
-            # Save the main full-page image
-            img_path = os.path.join(output_dir, f"page_{page_num}.png")
-
-            # If rectangles are provided, skip the regular page save
-            if not rectangles:            
-                # ======================
-                # Use the new helper to find acceptable dpi
-                # ======================
-                # Pass verbose flag to the helper function
-                chosen_dpi = find_acceptable_dpi(page, img_path, target_dpi, "PNG", verbose=verbose)
-                zoom_chosen = chosen_dpi / 72.0
-                mat_chosen = fitz.Matrix(zoom_chosen, zoom_chosen)
-                pix_chosen = page.get_pixmap(matrix=mat_chosen, alpha=False)
-                img_chosen = Image.frombytes("RGB", (pix_chosen.width, pix_chosen.height), pix_chosen.samples)
-                img_chosen.save(img_path, format="PNG", dpi=(chosen_dpi, chosen_dpi))
-                # Use standard print for final save message
-                print(f"Saved page {page_num} at final {chosen_dpi} dpi: {img_path}")
-                images.append(img_path)
-
-            # If no rectangles, skip cropping
-            if not rectangles:
-                continue
-
             # ======================
             # 2) Convert each rect to fractional coords
             #    relative to 300-dpi image dimension
@@ -168,15 +236,15 @@ def convert_pdf_to_images(
             width_300, height_300 = img_300.size
             fractional_rects = []
             for (left_300, top_300, right_300, bottom_300) in rectangles:
-                frac_left   = left_300 / width_300
-                frac_top    = top_300 / height_300
-                frac_right  = right_300 / width_300
+                frac_left = left_300 / width_300
+                frac_top = top_300 / height_300
+                frac_right = right_300 / width_300
                 frac_bottom = bottom_300 / height_300
 
                 # clamp fractions in [0.0, 1.0] just to be safe
-                frac_left   = max(0.0, min(frac_left, 1.0))
-                frac_top    = max(0.0, min(frac_top, 1.0))
-                frac_right  = max(0.0, min(frac_right, 1.0))
+                frac_left = max(0.0, min(frac_left, 1.0))
+                frac_top = max(0.0, min(frac_top, 1.0))
+                frac_right = max(0.0, min(frac_right, 1.0))
                 frac_bottom = max(0.0, min(frac_bottom, 1.0))
 
                 fractional_rects.append((frac_left, frac_top, frac_right, frac_bottom))
@@ -194,17 +262,16 @@ def convert_pdf_to_images(
             #    and save at hi_dpi
             # ======================
             hi_w, hi_h = img_hi.size
-
             for i, (fl, ft, fr, fb) in enumerate(fractional_rects, start=1):
                 # scale fractional coords to hi-res pixel coords
-                left_px   = int(round(fl * hi_w))
-                top_px    = int(round(ft * hi_h))
-                right_px  = int(round(fr * hi_w))
+                left_px = int(round(fl * hi_w))
+                top_px = int(round(ft * hi_h))
+                right_px = int(round(fr * hi_w))
                 bottom_px = int(round(fb * hi_h))
 
                 cropped = img_hi.crop((left_px, top_px, right_px, bottom_px))
                 cropped_path = os.path.join(output_dir, f"page_{page_num}_crop_{i}.jpg")
-                
+
                 # Save with hi_dpi
                 cropped.save(cropped_path, format="JPEG", quality=100, dpi=(hi_dpi, hi_dpi))
                 print(f"  Cropped rectangle {i} saved at {hi_dpi} dpi: {cropped_path}")
@@ -212,12 +279,23 @@ def convert_pdf_to_images(
                 images.append(cropped_path)
                 cropped_images.append(cropped_path)
 
+            if had_partial_existing:
+                repaired_pages += 1
+            else:
+                generated_pages += 1
+
     # ======================
     # 5) Create "recrop.pdf" if we have any cropped images
     # ======================
     if cropped_images:
         create_recrop_pdf(cropped_images, output_dir, pdf_base_name)
         print(f"Created {pdf_base_name}_recrop.pdf from all cropped images.\n")
+
+    if resume_existing:
+        print(
+            f"[PDF2PIC] Resume image check: total_pages={total_pages}, "
+            f"reused={reused_pages}, generated={generated_pages}, repaired={repaired_pages}"
+        )
 
     return images
 

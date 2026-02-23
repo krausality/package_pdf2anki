@@ -142,7 +142,8 @@ def pdf_to_images(args: argparse.Namespace) -> None:
         pdf_path=args.pdf_path,
         output_dir=args.output_dir,
         rectangles=parsed_rectangles,
-        verbose=getattr(args, 'verbose', False)
+        verbose=getattr(args, 'verbose', False),
+        resume_existing=getattr(args, 'resume_existing', False)
     )
     if getattr(args, 'verbose', False):
         print(f"{pid_str} pdf_to_images completed for: {args.pdf_path}")
@@ -274,6 +275,7 @@ def _process_pdf_worker(pdf_file_path_str: str, common_args_dict: dict) -> str:
             pdf_path=str(pdf_path),
             output_dir=str(current_image_output_dir),
             rectangles=worker_args.rectangles,
+            resume_existing=not getattr(worker_args, 'no_resume', False),
             verbose=getattr(worker_args, 'verbose', False)
         )
         
@@ -634,6 +636,7 @@ def process_pdf_to_anki(args: argparse.Namespace) -> None:
     # Step 1: PDF to Images
     pdf_to_images_args = argparse.Namespace(
         pdf_path=args.pdf_path, output_dir=args.output_dir, rectangles=[],
+        resume_existing=not getattr(args, 'no_resume', False),
         verbose=getattr(args, 'verbose', False)
     )
     print(f"[INFO] Step 1 (process): Converting PDF '{args.pdf_path}' to images in '{args.output_dir}'...")
@@ -763,6 +766,7 @@ def cli_invoke() -> None:
     parser_pdf2pic.add_argument("pdf_path", type=str, help="Path to PDF.")
     parser_pdf2pic.add_argument("output_dir", type=str, help="Directory for images.")
     parser_pdf2pic.add_argument("rectangles", type=str, nargs="*", default=[], help="Crop rectangles 'l,t,r,b'.")
+    parser_pdf2pic.add_argument("--resume-existing", action="store_true", default=False, help="Reuse existing valid page images/crops and only generate missing or invalid ones.")
     parser_pdf2pic.set_defaults(func=pdf_to_images)
 
     # --- Images to Text Command ---
