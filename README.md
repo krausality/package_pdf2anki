@@ -4,6 +4,34 @@
 
 `pdf2anki` is a powerful command-line interface (CLI) tool designed to streamline the conversion of PDF documents into Anki flashcards. It offers a multi-step, configurable pipeline involving PDF-to-image conversion (with optional cropping), advanced OCR using multiple models and a "judge" model, and automated Anki card generation.
 
+```
+PDF  ──pdf2pic──►  Images  ──pic2text──►  Text  ──text2anki──►  Anki Deck (.apkg)
+```
+
+## Quick Start
+
+```bash
+# 1. Install (editable, inside a virtual environment)
+pip install --editable .
+
+# 2. Set a default OCR model and a default Anki-generation model
+pdf2anki config set default_model      google/gemini-2.0-flash-001
+pdf2anki config set default_anki_model google/gemini-2.0-flash-001
+
+# 3a. Full pipeline for a single PDF
+pdf2anki process lecture.pdf ./images/ lecture.apkg
+
+# 3b. Or step by step
+pdf2anki pdf2pic   lecture.pdf ./images/
+pdf2anki pic2text  ./images/   lecture.txt
+pdf2anki text2anki lecture.txt lecture.apkg
+
+# 3c. Already have cards as JSON? Convert offline, no API key needed
+pdf2anki json2anki cards.json
+```
+
+---
+
 ## General Notes & License Summary
 
 - **License & Usage Restrictions**
@@ -632,38 +660,159 @@ The `process` command **does not** support explicit cropping arguments. If you n
 
 ---
 
+---
+
+## 7. Advanced: SSOT text2anki Workflow
+
+For larger learning projects with multiple card collections, `pdf2anki` includes a structured **Single-Source-of-Truth (SSOT)** workflow. All cards live in one `card_database.json`; derived files (per-collection JSON, Markdown index, `.apkg`) are generated from it.
+
+### Project structure
+
+```
+my_project/
+  project.json                  ← project configuration (edit once)
+  card_database.json            ← SSOT: all cards live here
+  collection_0_Kapitel1.json    ← derived, do not edit manually
+  collection_1_Kapitel2.json
+  All_fronts.md                 ← human-readable card index
+  new_cards_output.json         ← LLM-generated candidates, pending review
+```
+
+### Setup
+
+```bash
+# Initialize a new project
+python -m pdf2anki.text2anki.workflow_manager --init "MeinKurs" --project ./my_project/
+
+# Then edit project.json to define collections, language, domain, LLM model
+```
+
+**`project.json` minimal example:**
+```json
+{
+  "project_name": "MeinKurs",
+  "tag_prefix": "MEINKURS",
+  "language": "de",
+  "domain": "Organische Chemie",
+  "orphan_collection_name": "Unsortierte_Karten",
+  "files": {
+    "db_path": "card_database.json",
+    "markdown_file": "All_fronts.md",
+    "new_cards_file": "new_cards_output.json"
+  },
+  "collections": {
+    "collection_0_Grundlagen": {
+      "display_name": "Kapitel 1: Grundlagen",
+      "filename": "collection_0_Grundlagen.json",
+      "description": "Einführende Konzepte"
+    }
+  },
+  "llm": { "model": "google/gemini-2.5-flash", "temperature": 0.1 }
+}
+```
+
+### Workflow commands
+
+```bash
+cd ./my_project/
+
+# Smart extract: bootstrap if no DB exists, sync if DB already exists (safe)
+python -m pdf2anki.text2anki.workflow_manager --extract
+
+# Force bootstrap from legacy collection files + All_fronts.md
+python -m pdf2anki.text2anki.workflow_manager --bootstrap --auto-all
+
+# Ingest new text → generate card candidates via LLM → new_cards_output.json
+python -m pdf2anki.text2anki.workflow_manager --ingest notes.txt
+
+# Integrate: merge new_cards_output.json into the SSOT
+python -m pdf2anki.text2anki.workflow_manager --integrate
+
+# Sync: regenerate derived files from existing SSOT (safe, non-destructive)
+python -m pdf2anki.text2anki.workflow_manager --sync
+
+# Export: write .apkg files from current SSOT
+python -m pdf2anki.text2anki.workflow_manager --export
+```
+
+**Bootstrap flags** (avoid interactive prompts):
+
+| Flag | Effect |
+|------|--------|
+| `--auto-rescue-orphans` | Save orphaned cards (only in collection, not in markdown) to a new collection |
+| `--auto-skip-conflicts` | Use first back when multiple backs exist for the same front |
+| `--auto-create-missing` | Create TODO cards for fronts without backs |
+| `--auto-ignore-orphans` | Drop orphaned cards silently |
+| `--auto-all` | Enable rescue + skip-conflicts + create-missing |
+| `--force` | Skip the "overwrite DB?" confirmation prompt |
+| `--skip-export` | Don't write `.apkg` files after extract/integrate |
+
+**LLM-assist flags:**
+
+| Flag | Effect |
+|------|--------|
+| `--llm-resolve-conflicts` | Ask LLM to choose the best back for conflicting answers |
+| `--llm-complete-backs` | Ask LLM to generate missing backs |
+| `--llm-categorize-orphans` | Ask LLM to assign orphaned cards to the right collection |
+| `--llm-all` | Enable all LLM-assist features |
+
+---
+
+## Testing
+
+The test suite covers all modules with mocked external dependencies — no network, no real PDFs required.
+
+```bash
+# Install dev dependencies
+pip install -e ".[dev]"
+
+# Run all 146 tests
+python -m pytest tests/ -v
+
+# Run a specific module
+python -m pytest tests/test_database_manager.py -v
+```
+
+| Test file | What it covers |
+|-----------|----------------|
+| `test_card.py` | `AnkiCard` serialization, defaults, roundtrip |
+| `test_project_config.py` | `ProjectConfig` loading, validation, path helpers |
+| `test_database_manager.py` | SSOT load/save/find/integrate/bootstrap/distribute |
+| `test_text_ingester.py` | LLM prompt building, response parsing, file ingestion |
+| `test_apkg_exporter.py` | `.apkg` generation, stable IDs, collection grouping |
+| `test_text2anki_init.py` | `convert_text_to_anki`, `convert_json_to_anki` |
+| `test_pdf2pic.py` | DPI finding, full-page and crop-mode conversion |
+| `test_pic2text.py` | OCR state machine, resume/pause, API mocking |
+| `test_core_config.py` | `load_config`, `save_config`, `get_default_model` |
+
+---
+
+## Project Layout
+
+```
+pdf2anki/
+  core.py               ← CLI entry point + load_config / save_config
+  pdf2pic.py            ← PDF → image conversion (pymupdf)
+  pic2text.py           ← OCR via OpenRouter (multi-model, resume/pause)
+  text2anki/
+    __init__.py         ← convert_text_to_anki, convert_json_to_anki
+    card.py             ← AnkiCard dataclass (SSOT data model)
+    project_config.py   ← ProjectConfig (loads project.json)
+    database_manager.py ← SSOT operations (bootstrap, integrate, distribute)
+    text_ingester.py    ← TextFileIngestor (text → card candidates via LLM)
+    apkg_exporter.py    ← ApkgExporter (cards → .apkg via genanki)
+    workflow_manager.py ← WorkflowManager (orchestrates SSOT workflows)
+    llm_helper.py       ← get_llm_decision() via OpenRouter
+    material_manager.py ← Course material loading
+    prompt_updater.py   ← LLM prompt template management
+tests/
+  conftest.py + test_*.py   ← 146 tests, all external deps mocked
+```
+
+---
+
 ## Conclusion
 
 `pdf2anki` provides a flexible and powerful suite of tools for converting PDF documents into Anki flashcards.
-
-**Key Features Recap:**
-
--   **Modular Commands**:
-    1.  **`config`**: Manage default models and OCR presets.
-    2.  **`pdf2pic`**: PDF to images with advanced optional cropping.
-    3.  **`pic2text`**: Images to text with multi-model/judge OCR capabilities.
-    4.  **`pdf2text`**: Streamlined PDF (or directory of PDFs) to text, with full OCR options and parallel processing for directories.
-    5.  **`text2anki`**: Text file to Anki deck.
-    6.  **`json2anki`**: Convert a JSON file (or all JSON files in a directory) containing flashcards to an Anki deck (no LLM). Supports optional fields: tags, guid, sort_field, due. Output file is optional and defaults to input filename with `.apkg` extension. Supports bulk processing. Includes `--show-format` for displaying the expected JSON format with examples.
-    7.  **`process`**: Full PDF to Anki pipeline for a single PDF.
-
--   **Configuration and Defaults**:
-    *   Set global defaults (`default_model`, `default_anki_model`) and OCR presets (`defaults`) via `pdf2anki config set`.
-    *   Leverage OCR presets in `pdf2text`, `pic2text`, and `process`. Command-line OCR options override presets.
-    *   **Configuration Priority Hierarchy**: Settings are resolved in the following order: **CLI arguments > Preset defaults > Global defaults > Interactive prompt**. This ensures explicit command-line options always take precedence.
-
--   **Advanced OCR**:
-    *   Use multiple OCR models (`--model m1 --model m2 ...`).
-    *   Specify repeat calls per model (`--repeat r1 --repeat r2 ...`).
-    *   A `--judge-model` is required if more than one OCR text candidate is generated per image.
-    *   Enhance judge decisions with `--judge-with-image`.
-    *   Resume interrupted OCR runs automatically and control retries with `--max-page-attempts`.
-
--   **Cropping**:
-    *   Available via `pdf2pic` and `pdf2text` by specifying rectangle coordinates.
-    *   The `process` command does not directly support cropping.
-
--   **Placeholders**:
-    *   `--ensemble-strategy` and `--trust-score` are reserved for future enhancements and currently have no effect.
 
 Remember to configure your `OPENROUTER_API_KEY`. For any commercial or server-based usage, please contact **martinkrausemediaATgmail.com** for licensing inquiries.

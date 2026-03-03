@@ -29,5 +29,11 @@ dependencies = [
     "python-dotenv~=1.0.1"
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.12",
+]
+
 [project.scripts]
 pdf2anki = "pdf2anki.core:cli_invoke"
