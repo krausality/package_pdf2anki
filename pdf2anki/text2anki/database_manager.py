@@ -54,7 +54,7 @@ class DatabaseManager:
             self._tag_prefix = "ANKI"
             self._domain = "Allgemeines Wissen"
             self._language = "de"
-            self._orphan_collection = "Unsortierte_Karten"
+            self._orphan_collection = "Gerettete_Karten"
 
         # Dynamic Display Name Cache
         self._collection_display_names: Dict[str, str] = {}
@@ -90,8 +90,10 @@ class DatabaseManager:
                 json.dump([card.to_dict() for card in self.cards], f, indent=2, ensure_ascii=False)
             # This print can be noisy in tests, let's show it only when interactive
             safe_print(f"✅ Datenbank mit {len(self.cards)} Karten gespeichert in '{self.db_path}'.")
+            return True
         except Exception as e:
             safe_print(f"❌ Fehler beim Speichern der Datenbank: {e}")
+            return False
 
     def bootstrap_from_legacy(self, collection_files: List[str], markdown_file: str, 
                          auto_rescue_orphans: bool = False,
@@ -222,9 +224,12 @@ class DatabaseManager:
                     safe_print(f"🤖 AUTO-RESCUE: Rette verwaiste Karte '{original_front[:50]}...'")
                     self._rescued_cards_data.append({"front": original_front, "back": aggregated_cards[front]["backs"][0]})
                 else:
-                    # Interaktive Lösung (dein bestehender Code)
-                    if self._prompt_resolve_orphan(original_front, markdown_structure):
-                        clean_cards_data.append({"front": original_front, "back": aggregated_cards[front]["backs"][0]})
+                    # Interaktive Lösung
+                    result = self._prompt_resolve_orphan(original_front, markdown_structure)
+                    if result == ("__RESCUE__", "__RESCUE__"):
+                        self._rescued_cards_data.append({"front": original_front, "back": aggregated_cards[front]["backs"][0]})
+                    elif result is not None:
+                        clean_cards_data.append({"front": original_front, "back": aggregated_cards[front]["backs"][0], "collection_key": result[0], "category_key": result[1]})
             elif not in_collections and in_markdown:
                 # Fall 3: Fehlende Karte (nur in Markdown)
                 if llm_complete_backs:
@@ -277,9 +282,9 @@ class DatabaseManager:
                     continue
 
             rescued_coll_num = max_coll_num + 1
-            orphan_name = self._orphan_collection.replace(' ', '_').lower()
+            orphan_name = self._orphan_collection.replace(' ', '_')
             rescued_collection_key = f"collection_{rescued_coll_num}_{orphan_name}"
-            rescued_category_key = "a_unsortiert"
+            rescued_category_key = "a_Unsortiert"
             
             for i, card_data in enumerate(self._rescued_cards_data):
                 # Füge die geretteten Karten den clean_cards_data hinzu
@@ -1419,7 +1424,12 @@ class DatabaseManager:
         
         missing_files = expected_files - actual_files
         extra_files = actual_files - expected_files
-        
+
+        # Toleriere stale Rescue-Collection-Dateien (entstehen nach Bootstrap mit Orphan-Rettung,
+        # wenn die geretteten Karten später in andere Collections verschoben wurden)
+        orphan_pattern = self._orphan_collection.replace(' ', '_')
+        extra_files = {f for f in extra_files if orphan_pattern.lower() not in f.lower()}
+
         if missing_files or extra_files:
             message = ""
             if missing_files:
@@ -1427,7 +1437,7 @@ class DatabaseManager:
             if extra_files:
                 message += f"Unerwartete Dateien: {sorted(extra_files)}"
             return False, message.strip()
-        
+
         return True, f"{len(expected_files)} Collection-Dateien mit korrekten Legacy-Namen"
 
     def _test_card_count_consistency(self, output_dir: str) -> Tuple[bool, str]:
