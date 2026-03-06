@@ -41,7 +41,7 @@ class WorkflowManager:
     def run_export_workflow(self) -> bool:
         """Exportiert den aktuellen SSOT als .apkg Dateien."""
         safe_print("\n=== 📦 Starting '--export' Workflow ===")
-        from apkg_exporter import export_to_apkg
+        from .apkg_exporter import export_to_apkg
         generated = export_to_apkg(self.db_manager, self._config, self._project_dir)
         safe_print(f"\n=== ✨ '--export' abgeschlossen: {len(generated)} .apkg Datei(en) ===")
         return True
@@ -49,7 +49,7 @@ class WorkflowManager:
     def run_ingest_workflow(self, input_files: list) -> bool:
         """Liest Textdateien und generiert new_cards_output.json via LLM."""
         safe_print(f"\n=== 📥 Starting '--ingest' Workflow ({len(input_files)} Datei(en)) ===")
-        from text_ingester import ingest_text
+        from .text_ingester import ingest_text
         result = ingest_text(input_files, self._config, self.new_cards_file)
         safe_print("\n=== ✨ '--ingest' abgeschlossen ===")
         return result
@@ -152,7 +152,7 @@ class WorkflowManager:
         # 6. Export to .apkg
         if not skip_export:
             safe_print("  -> Step 6: Exporting to .apkg...")
-            from apkg_exporter import export_to_apkg
+            from .apkg_exporter import export_to_apkg
             generated = export_to_apkg(self.db_manager, self._config, self._project_dir)
             safe_print(f"  ✅ OK: {len(generated)} .apkg Datei(en) exportiert.")
         else:
@@ -182,7 +182,9 @@ class WorkflowManager:
                 # Parse the structure of new_cards_output.json
                 if isinstance(new_cards_data, list): # Simple list of cards
                      pending_cards = new_cards_data
-                elif isinstance(new_cards_data, dict) and 'generated_cards' in new_cards_data: # Nested structure from LLM
+                elif isinstance(new_cards_data, dict) and 'new_cards' in new_cards_data: # Output from ingest_text()
+                    pending_cards = new_cards_data['new_cards']
+                elif isinstance(new_cards_data, dict) and 'generated_cards' in new_cards_data: # Legacy nested structure
                     for collection, categories in new_cards_data['generated_cards'].items():
                         for category, cards in categories.items():
                             for card in cards:
@@ -247,7 +249,7 @@ class WorkflowManager:
         # 5. Export to .apkg
         if not skip_export:
             safe_print("  -> Step 5: Exporting to .apkg...")
-            from apkg_exporter import export_to_apkg
+            from .apkg_exporter import export_to_apkg
             generated = export_to_apkg(self.db_manager, self._config, self._project_dir)
             safe_print(f"  ✅ OK: {len(generated)} .apkg Datei(en) exportiert.")
         else:
