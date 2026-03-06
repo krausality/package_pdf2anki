@@ -53,10 +53,11 @@ pdf2anki json2anki cards.json
   1.  **`pdf2pic`**: Convert PDF pages to images, with optional advanced cropping.
   2.  **`pic2text`**: Perform OCR on images using one or more models, with an optional judge model to select the best result.
   3.  **`pdf2text`**: A comprehensive pipeline to convert a PDF (or a directory of PDFs) directly to text, utilizing `pdf2pic` and `pic2text` functionalities internally. Supports batch processing with parallel execution.
-  4.  **`text2anki`**: Convert a pre-existing text file into an Anki deck.
+  4.  **`text2anki`**: Convert a pre-existing text file into an Anki deck (simple, one-shot).
   5.  **`json2anki`**: Convert a JSON file (or all JSON files in a directory) containing flashcards to an Anki deck (no LLM). Supports optional fields for advanced organization: tags, guid, sort_field, due. The output file is optional and defaults to the same name as the input with `.apkg` extension. Supports bulk processing for directories. Includes `--show-format` to display expected JSON structure with examples.
   6.  **`process`**: The full end-to-end pipeline: PDF → images → text → Anki deck for a single PDF.
-  7.  **`config`**: View or set persistent configuration options, such as default models and OCR presets.
+  7.  **`workflow`**: **Project-based SSOT card management** — ingest text via LLM, integrate into a structured card database, sync derived files, export `.apkg`. This is the recommended entry point for semester-long learning projects. See [Section 7](#7-advanced-ssot-text2anki-workflow).
+  8.  **`config`**: View or set persistent configuration options, such as default models and OCR presets.
 
 ---
 
@@ -666,23 +667,26 @@ The `process` command **does not** support explicit cropping arguments. If you n
 
 For larger learning projects with multiple card collections, `pdf2anki` includes a structured **Single-Source-of-Truth (SSOT)** workflow. All cards live in one `card_database.json`; derived files (per-collection JSON, Markdown index, `.apkg`) are generated from it.
 
+This workflow is designed for semester-long use: ingest lecture notes chapter by chapter, exercise sheets week by week, and your own annotations — the database grows incrementally while always producing a clean, exportable Anki deck.
+
 ### Project structure
 
 ```
 my_project/
-  project.json                  ← project configuration (edit once)
-  card_database.json            ← SSOT: all cards live here
-  collection_0_Kapitel1.json    ← derived, do not edit manually
+  project.json                      ← project configuration (edit once)
+  card_database.json                ← SSOT: all cards live here (do not edit manually)
+  collection_0_Kapitel1.json        ← derived, regenerated from SSOT
   collection_1_Kapitel2.json
-  All_fronts.md                 ← human-readable card index
-  new_cards_output.json         ← LLM-generated candidates, pending review
+  All_collections_only_fronts.md    ← human-readable card index
+  new_cards_output.json             ← LLM-generated candidates (pending integration)
+  new_cards_output.json.processed_* ← archived after successful integration
 ```
 
 ### Setup
 
 ```bash
-# Initialize a new project
-python -m pdf2anki.text2anki.workflow_manager --init "MeinKurs" --project ./my_project/
+# Initialize a new project (creates project.json template)
+pdf2anki workflow --init "MeinKurs" --project ./my_project/
 
 # Then edit project.json to define collections, language, domain, LLM model
 ```
@@ -697,14 +701,16 @@ python -m pdf2anki.text2anki.workflow_manager --init "MeinKurs" --project ./my_p
   "orphan_collection_name": "Unsortierte_Karten",
   "files": {
     "db_path": "card_database.json",
-    "markdown_file": "All_fronts.md",
+    "markdown_file": "All_collections_only_fronts.md",
     "new_cards_file": "new_cards_output.json"
   },
   "collections": {
     "collection_0_Grundlagen": {
       "display_name": "Kapitel 1: Grundlagen",
-      "filename": "collection_0_Grundlagen.json",
       "description": "Einführende Konzepte"
+    },
+    "collection_1_Vertiefung": {
+      "display_name": "Kapitel 2: Vertiefung"
     }
   },
   "llm": { "model": "google/gemini-2.5-flash", "temperature": 0.1 }
@@ -713,29 +719,39 @@ python -m pdf2anki.text2anki.workflow_manager --init "MeinKurs" --project ./my_p
 
 ### Workflow commands
 
+All commands use `pdf2anki workflow --project ./my_project/` (or the equivalent `python -m pdf2anki workflow`):
+
 ```bash
-cd ./my_project/
+# --- First time: bootstrap from legacy files (if you have existing collection JSON + markdown) ---
+pdf2anki workflow --project ./my_project/ --extract --auto-all
 
-# Smart extract: bootstrap if no DB exists, sync if DB already exists (safe)
-python -m pdf2anki.text2anki.workflow_manager --extract
+# --- Regular semester workflow ---
 
-# Force bootstrap from legacy collection files + All_fronts.md
-python -m pdf2anki.text2anki.workflow_manager --bootstrap --auto-all
+# 1. Ingest new text → LLM generates card candidates → new_cards_output.json
+pdf2anki workflow --project ./my_project/ --ingest chapter3_notes.txt
 
-# Ingest new text → generate card candidates via LLM → new_cards_output.json
-python -m pdf2anki.text2anki.workflow_manager --ingest notes.txt
+# 2. Integrate candidates into the SSOT database
+pdf2anki workflow --project ./my_project/ --integrate
 
-# Integrate: merge new_cards_output.json into the SSOT
-python -m pdf2anki.text2anki.workflow_manager --integrate
+# 3. Export to Anki (.apkg files, one per collection)
+pdf2anki workflow --project ./my_project/ --export
 
-# Sync: regenerate derived files from existing SSOT (safe, non-destructive)
-python -m pdf2anki.text2anki.workflow_manager --sync
-
-# Export: write .apkg files from current SSOT
-python -m pdf2anki.text2anki.workflow_manager --export
+# --- Optional: force sync derived files without touching the database ---
+pdf2anki workflow --project ./my_project/ --sync
 ```
 
-**Bootstrap flags** (avoid interactive prompts):
+**Typical semester rhythm:**
+```
+Week 1:  --ingest kapitel1.txt  →  --integrate  →  --export
+Week 2:  --ingest uebungsblatt1.txt  →  --integrate  →  --export
+Week 3:  --ingest kapitel2.txt uebungsblatt2.txt  →  --integrate  →  --export
+...
+Exam:    --export  (re-export the accumulated deck at any time)
+```
+
+💡 **Tip:** You can pass multiple files to `--ingest` in one call. The LLM sees all of them and assigns cards to the appropriate collection based on the project context defined in `project.json`.
+
+**Bootstrap flags** (avoid interactive prompts during `--extract`):
 
 | Flag | Effect |
 |------|--------|
@@ -747,7 +763,7 @@ python -m pdf2anki.text2anki.workflow_manager --export
 | `--force` | Skip the "overwrite DB?" confirmation prompt |
 | `--skip-export` | Don't write `.apkg` files after extract/integrate |
 
-**LLM-assist flags:**
+**LLM-assist flags** (for `--extract`/`--bootstrap`):
 
 | Flag | Effect |
 |------|--------|
@@ -755,6 +771,18 @@ python -m pdf2anki.text2anki.workflow_manager --export
 | `--llm-complete-backs` | Ask LLM to generate missing backs |
 | `--llm-categorize-orphans` | Ask LLM to assign orphaned cards to the right collection |
 | `--llm-all` | Enable all LLM-assist features |
+
+### Duplicate detection
+
+The workflow includes two layers of duplicate detection during `--integrate`:
+
+1. **Text normalization** (always active): Exact string matches on normalized front text (whitespace- and case-insensitive) are rejected as duplicates.
+
+2. **LLM semantic dedup** (active by default): Before inserting candidates, the LLM is asked to identify conceptually identical cards that differ in wording. For example, cards about the same theorem written with different LaTeX notation or phrasing are caught here.
+
+**Known limitation — multi-source semantic overlap:** When you ingest material from multiple sources covering the same topic (e.g., a lecture chapter, then the corresponding exercise sheet, then tutorial notes), the LLM dedup catches most but not all conceptually redundant cards. Cards with low surface-text overlap but the same underlying concept — e.g., "What is an alphabet?" (from the lecture) vs. "Is ℤ an alphabet? Why not?" (from the exercises) — may both be accepted because they frame the same concept as different question types.
+
+This is by design: exercise-style application cards complement definition cards and have value even when they test the same underlying knowledge. If you want stricter dedup, review `new_cards_output.json` before running `--integrate` and remove candidates manually.
 
 ---
 
@@ -766,12 +794,14 @@ The test suite covers all modules with mocked external dependencies — no netwo
 # Install dev dependencies
 pip install -e ".[dev]"
 
-# Run all 146 tests
+# Run all tests
 python -m pytest tests/ -v
 
 # Run a specific module
 python -m pytest tests/test_database_manager.py -v
 ```
+
+> **Note:** A small number of integration tests in `test_regression_e2e.py` make real LLM API calls and require `OPENROUTER_API_KEY` to be set. All other tests are fully offline.
 
 | Test file | What it covers |
 |-----------|----------------|
@@ -784,6 +814,9 @@ python -m pytest tests/test_database_manager.py -v
 | `test_pdf2pic.py` | DPI finding, full-page and crop-mode conversion |
 | `test_pic2text.py` | OCR state machine, resume/pause, API mocking |
 | `test_core_config.py` | `load_config`, `save_config`, `get_default_model` |
+| `test_regression_e2e.py` | End-to-end workflow regression tests |
+| `test_real_data_and_sync.py` | SSOT sync, integrity verification |
+| `test_specification.py` | Behavioral specification tests |
 
 ---
 
@@ -791,22 +824,22 @@ python -m pytest tests/test_database_manager.py -v
 
 ```
 pdf2anki/
-  core.py               ← CLI entry point + load_config / save_config
+  core.py               ← CLI entry point (pdf2anki / python -m pdf2anki)
   pdf2pic.py            ← PDF → image conversion (pymupdf)
   pic2text.py           ← OCR via OpenRouter (multi-model, resume/pause)
   text2anki/
     __init__.py         ← convert_text_to_anki, convert_json_to_anki
     card.py             ← AnkiCard dataclass (SSOT data model)
     project_config.py   ← ProjectConfig (loads project.json)
-    database_manager.py ← SSOT operations (bootstrap, integrate, distribute)
+    database_manager.py ← SSOT operations (bootstrap, integrate, distribute, dedup)
     text_ingester.py    ← TextFileIngestor (text → card candidates via LLM)
     apkg_exporter.py    ← ApkgExporter (cards → .apkg via genanki)
-    workflow_manager.py ← WorkflowManager (orchestrates SSOT workflows)
-    llm_helper.py       ← get_llm_decision() via OpenRouter
-    material_manager.py ← Course material loading
+    workflow_manager.py ← WorkflowManager (orchestrates SSOT workflows; entry point for `pdf2anki workflow`)
+    llm_helper.py       ← get_llm_decision() via OpenRouter (auto-loads .env)
+    material_manager.py ← Course material loading (workflow_config.json)
     prompt_updater.py   ← LLM prompt template management
 tests/
-  conftest.py + test_*.py   ← 146 tests, all external deps mocked
+  conftest.py + test_*.py   ← 364 tests; most fully offline, a few require OPENROUTER_API_KEY
 ```
 
 ---
