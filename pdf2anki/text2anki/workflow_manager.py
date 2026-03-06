@@ -111,7 +111,8 @@ class WorkflowManager:
 
         # 2. Distribute
         safe_print("  -> Step 2: Distributing from SSOT to derived files...")
-        success_distribute = self.db_manager.distribute_to_derived_files('.') # Output to current dir
+        _extract_output_dir = os.path.dirname(os.path.abspath(self.db_manager.db_path))
+        success_distribute = self.db_manager.distribute_to_derived_files(_extract_output_dir)
         if not success_distribute:
             safe_print("❌ ERROR: Distribution failed. Aborting.")
             return False
@@ -119,7 +120,7 @@ class WorkflowManager:
 
         # 3. Verify
         safe_print("  -> Step 3: Verifying integrity...")
-        is_ok, message = self.db_manager.verify_integrity('.')
+        is_ok, message = self.db_manager.verify_integrity(_extract_output_dir)
         if not is_ok:
             safe_print(f"❌ CRITICAL ERROR: System is inconsistent after bootstrap. This indicates a bug. Details: {message}")
             return False
@@ -284,7 +285,8 @@ class WorkflowManager:
 
         # 2. Verify integrity
         safe_print("  -> Step 2: Verifying integrity...")
-        is_ok, message = self.db_manager.verify_integrity('.')
+        _sync_output_dir = os.path.dirname(os.path.abspath(self.db_manager.db_path))
+        is_ok, message = self.db_manager.verify_integrity(_sync_output_dir)
         if not is_ok:
             safe_print(f"❌ CRITICAL ERROR: System is inconsistent after sync. This indicates a bug. Details: {message}")
             return False

@@ -446,6 +446,17 @@ def pdf_to_text(args: argparse.Namespace) -> None:
     print("All 'pdf2text' tasks complete.")
 
 
+def _run_workflow(workflow_args: list) -> None:
+    """Delegate to the text2anki workflow_manager, passing remaining args."""
+    from .text2anki import workflow_manager as wm_module
+    original_argv = sys.argv[:]
+    sys.argv = [sys.argv[0]] + list(workflow_args)
+    try:
+        wm_module.main()
+    finally:
+        sys.argv = original_argv
+
+
 def text_to_anki(args: argparse.Namespace) -> None:
     """
     Convert a text file into an Anki-compatible format, creating an Anki deck.
@@ -752,6 +763,14 @@ def set_config_value(args: argparse.Namespace) -> None:
 
 
 def cli_invoke() -> None:
+    # Early intercept for 'workflow' subcommand — delegate directly to workflow_manager
+    # before argparse tries to parse workflow-specific flags (--project, --extract, etc.)
+    if len(sys.argv) > 1 and sys.argv[1] == 'workflow':
+        from .text2anki import workflow_manager as wm_module
+        sys.argv = [sys.argv[0]] + sys.argv[2:]
+        wm_module.main()
+        return
+
     parser = argparse.ArgumentParser(
         description="Convert PDFs to Anki flashcards."
     )
@@ -835,6 +854,24 @@ def cli_invoke() -> None:
     parser_process.add_argument("--no-resume", action="store_true", default=False, help="Disable OCR resume and start this OCR run from scratch.")
     parser_process.add_argument("--max-page-attempts", type=int, default=40, help="Maximum full OCR attempts per page before pausing the run.")
     parser_process.set_defaults(func=process_pdf_to_anki)
+
+    # --- Workflow Command (project-based card generation) ---
+    parser_workflow = subparsers.add_parser(
+        "workflow",
+        help="Project-based Anki card workflow: ingest, integrate, sync, export.",
+        description=(
+            "Project-based card management workflow.\n"
+            "All options are passed through to the workflow manager.\n\n"
+            "Common usage:\n"
+            "  pdf2anki workflow --project ./my_project --extract\n"
+            "  pdf2anki workflow --project ./my_project --ingest notes.txt\n"
+            "  pdf2anki workflow --project ./my_project --integrate\n"
+            "  pdf2anki workflow --project ./my_project --export\n"
+        ),
+        add_help=False,
+    )
+    parser_workflow.add_argument("workflow_args", nargs=argparse.REMAINDER)
+    parser_workflow.set_defaults(func=lambda args: _run_workflow(args.workflow_args))
 
     # --- Configuration Command ---
     parser_config = subparsers.add_parser("config", help="View or modify configuration.")
