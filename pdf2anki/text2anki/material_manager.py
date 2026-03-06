@@ -31,8 +31,11 @@ class MaterialManager:
         try:
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
+        except FileNotFoundError:
+            safe_print(f"Workflow-Config nicht gefunden (optional, wird ignoriert).", "INFO")
+            return None
         except Exception as e:
-            safe_print(f"❌ Fehler beim Laden der Config: {e}")
+            safe_print(f"Fehler beim Laden der Workflow-Config: {e}", "ERROR")
             return None
     
     def save_config(self):

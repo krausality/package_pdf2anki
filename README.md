@@ -707,15 +707,20 @@ pdf2anki workflow --init "MeinKurs" --project ./my_project/
   "collections": {
     "collection_0_Grundlagen": {
       "display_name": "Kapitel 1: Grundlagen",
+      "filename": "collection_0_Grundlagen.json",
       "description": "Einführende Konzepte"
     },
     "collection_1_Vertiefung": {
-      "display_name": "Kapitel 2: Vertiefung"
+      "display_name": "Kapitel 2: Vertiefung",
+      "filename": "collection_1_Vertiefung.json"
     }
   },
   "llm": { "model": "google/gemini-2.5-flash", "temperature": 0.1 }
 }
 ```
+
+> **Hinweis:** `"filename"` ist ein Pflichtfeld pro Collection (muss auf `.json` enden).
+> `--init` generiert es automatisch — bei manuellem `project.json` muss es selbst gesetzt werden.
 
 ### Workflow commands
 

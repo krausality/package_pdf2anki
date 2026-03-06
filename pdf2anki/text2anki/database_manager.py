@@ -23,6 +23,15 @@ from .llm_helper import get_llm_decision, reset_llm_session
 from .material_manager import MaterialManager
 
 
+_NON_SSOT_FILES = frozenset({'project.json', 'card_database.json', 'workflow_config.json'})
+
+def _is_non_ssot_file(filename: str) -> bool:
+    """True für Dateien die NICHT vom SSOT abgeleitet werden."""
+    return (filename in _NON_SSOT_FILES or
+            filename.startswith('new_cards_output.json') or
+            filename.endswith('.apkg'))
+
+
 class DatabaseManager:
     """Manages all operations on the Anki card database (SSOT)."""
 
@@ -1194,7 +1203,9 @@ class DatabaseManager:
             # Generiere frische Dateien an einem temporären Ort
             if not self.distribute_to_derived_files(temp_dir):
                 # This can happen if the DB is empty. Check if the original is also empty.
-                if not os.path.exists(derived_files_dir) or not os.listdir(derived_files_dir):
+                dir_contents = os.listdir(derived_files_dir) if os.path.exists(derived_files_dir) else []
+                derived_files_present = [f for f in dir_contents if not _is_non_ssot_file(f)]
+                if not derived_files_present:
                     message = "Externe Prüfung erfolgreich. Quelldatenbank und Zielverzeichnis sind beide leer."
                     safe_print(f"✅ {message}")
                     return True, message
