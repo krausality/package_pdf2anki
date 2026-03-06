@@ -36,13 +36,16 @@ class AnkiCard:
     @classmethod
     def from_dict(cls, data: dict):
         """Deserializes a dictionary back into a card object."""
+        import dataclasses
+        known_fields = {f.name for f in dataclasses.fields(cls)}
+        filtered = {k: v for k, v in data.items() if k in known_fields}
         # Convert ISO format strings back to datetime objects
-        if isinstance(data.get("created_at"), str):
-            data["created_at"] = datetime.fromisoformat(data["created_at"])
-        if isinstance(data.get("updated_at"), str):
-            data["updated_at"] = datetime.fromisoformat(data["updated_at"])
-        
-        return cls(**data)
+        if isinstance(filtered.get("created_at"), str):
+            filtered["created_at"] = datetime.fromisoformat(filtered["created_at"])
+        if isinstance(filtered.get("updated_at"), str):
+            filtered["updated_at"] = datetime.fromisoformat(filtered["updated_at"])
+
+        return cls(**filtered)
 
     def __post_init__(self):
         """Ensure timestamps are set correctly after initialization."""

@@ -342,8 +342,9 @@ class DatabaseManager:
             AnkiCard: Das gefundene Kartenobjekt oder None, wenn nichts gefunden wurde.
         """
         # Durchsuche alle Karten in der aktuellen Datenbank-Instanz
+        normalized_query = self._normalize_text(front_text)
         for card in self.cards:
-            if card.front == front_text:
+            if self._normalize_text(card.front) == normalized_query:
                 return card
         return None
 
@@ -706,13 +707,16 @@ class DatabaseManager:
         
         # Nur illegale Zeichen entfernen (nach Ersetzung)
         normalized = re.sub(r'[^a-z0-9_]', '', normalized)
-        
+
+        # Aufeinanderfolgende Unterstriche kollabieren und führende/abschließende entfernen
+        normalized = re.sub(r'_+', '_', normalized).strip('_')
+
         return normalized
 
     def _generate_sort_field(self, sort_key: str, front: str) -> str:
         """Generiert ein standardisiertes Sortierfeld."""
-        normalized_front = self._normalize_text(front).replace(' ', '_')
-        return f"{sort_key}_{re.sub(r'[^a-z0-9_]', '', normalized_front)[:50]}"
+        normalized_front = self._normalize_for_key(front)
+        return f"{sort_key}_{normalized_front[:50]}"
 
     def _generate_tags(self, collection: str, category: str) -> List[str]:
         """Generiert hierarchische Tags."""
@@ -957,7 +961,7 @@ class DatabaseManager:
             return ""
 
         # Sortiere alle Karten nach ihrem Sortierfeld für die korrekte Reihenfolge
-        sorted_cards = sorted(self.cards, key=lambda c: c.sort_field)
+        sorted_cards = sorted(self.cards, key=lambda c: c.sort_field or "")
 
         # Gruppiere nach Collection und dann nach Kategorie
         structure: Dict[str, Dict[str, List[AnkiCard]]] = {}
@@ -1009,7 +1013,7 @@ class DatabaseManager:
                 md_content.append(f"**{cat_letter}. {cat_display_name}**")
 
                 # Sort cards within a category by their sort_field to ensure consistent numbering
-                sorted_cards_in_cat = sorted(cards_in_cat, key=lambda c: c.sort_field)
+                sorted_cards_in_cat = sorted(cards_in_cat, key=lambda c: c.sort_field or "")
                 for i, card in enumerate(sorted_cards_in_cat):
                     md_content.append(f"{i+1}. {card.front}")
                 md_content.append("") # Leerzeile nach jeder Kategorie

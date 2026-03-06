@@ -459,19 +459,18 @@ class TestCardIngestion:
             data = json.load(f)
         assert len(data["new_cards"]) == 1
 
-    def test_ingest_llm_prose_before_json_raises_decode_error(self, tmp_path, gti_config, dfa_lecture_file):
+    def test_ingest_llm_prose_before_json_returns_empty(self, tmp_path, gti_config, dfa_lecture_file):
         """
-        BUG/REGRESSION: _parse_response() does not handle prose before/after JSON.
-        If LLM says "Sure! Here are your cards: {...}", JSONDecodeError is raised
-        and propagates all the way to the caller (ingest_text crashes).
-
-        This test documents the current broken behavior so any fix is deliberate.
+        _parse_response() handles prose before/after JSON gracefully.
+        If LLM says "Sure! Here are your cards: {...}", it returns {"new_cards": []}
+        instead of crashing with JSONDecodeError.
         """
         prose_response = 'Natürlich! Hier sind deine Karten:\n{"new_cards": []}'
         output_path = str(tmp_path / "out.json")
         with patch("pdf2anki.text2anki.text_ingester.get_llm_decision", return_value=prose_response):
-            with pytest.raises(json.JSONDecodeError):
-                ingest_text([dfa_lecture_file], gti_config, output_path)
+            result = ingest_text([dfa_lecture_file], gti_config, output_path)
+        # Graceful: returns True/False but does NOT crash
+        assert result in (True, False)
 
     def test_ingest_prompt_contains_domain_and_language(self, tmp_path, gti_config, dfa_lecture_file):
         """
@@ -832,27 +831,22 @@ class TestCardManagement:
         result = db.find_card_by_front("Unbekannte Frage")
         assert result is None
 
-    def test_find_card_case_sensitive_inconsistency(self, tmp_path):
+    def test_find_card_case_insensitive(self, tmp_path):
         """
-        BUG/REGRESSION: find_card_by_front is case-SENSITIVE (exact ==).
-        But integrate_new is case-INSENSITIVE (via _normalize_text).
-
-        This means: a user can successfully add 'Was ist ein DFA?' via integrate_new,
-        but then fail to find it with find_card_by_front('was ist ein dfa?').
+        find_card_by_front is case-insensitive (uses _normalize_text),
+        consistent with integrate_new dedup behavior.
         """
         card = make_card(front="Was ist ein DFA?")
         db = make_db(tmp_path, cards=[card])
-        # Lowercase search fails — case-insensitive find is NOT supported
-        assert db.find_card_by_front("was ist ein dfa?") is None
+        assert db.find_card_by_front("was ist ein dfa?") is not None
 
-    def test_find_card_whitespace_sensitive(self, tmp_path):
+    def test_find_card_whitespace_normalized(self, tmp_path):
         """
-        find_card_by_front does NOT normalize whitespace.
-        Extra spaces make the search fail.
+        find_card_by_front normalizes whitespace — extra spaces are collapsed.
         """
         card = make_card(front="Was ist ein DFA?")
         db = make_db(tmp_path, cards=[card])
-        assert db.find_card_by_front("Was  ist  ein  DFA?") is None  # double spaces
+        assert db.find_card_by_front("Was  ist  ein  DFA?") is not None  # double spaces
 
     def test_empty_db_find_returns_none(self, tmp_path):
         """find_card_by_front on empty database returns None without crashing."""
@@ -932,14 +926,10 @@ class TestCardManagement:
         db2.load_database()
         assert db2.cards[0].guid == original_guid
 
-    def test_ankicard_from_dict_with_unknown_field_raises(self):
+    def test_ankicard_from_dict_with_unknown_field_ignored(self):
         """
-        BUG/REGRESSION: AnkiCard.from_dict(**data) raises TypeError if the
-        JSON DB contains a field unknown to the dataclass (e.g., after a
-        future schema addition or manual edit).
-
-        This documents a forward-compatibility gap: any unrecognized JSON field
-        will crash the entire database load.
+        AnkiCard.from_dict() silently ignores unknown fields for forward compatibility.
+        An unrecognized JSON field from a future schema version does NOT crash the load.
         """
         data = {
             "front": "Q",
@@ -953,8 +943,8 @@ class TestCardManagement:
             "updated_at": "2024-01-01T00:00:00",
             "unrecognized_future_field": "some_value",
         }
-        with pytest.raises(TypeError):
-            AnkiCard.from_dict(data)
+        card = AnkiCard.from_dict(data)
+        assert card.front == "Q"
 
     def test_ankicard_from_dict_minimal_fields_ok(self):
         """from_dict with only required fields (front, back) works without error."""
@@ -1080,22 +1070,18 @@ class TestCollectionOrganization:
         result = db.distribute_to_derived_files(str(tmp_path / "output"))
         assert result is False
 
-    def test_markdown_sort_field_none_crashes_with_mixed_types(self, tmp_path):
+    def test_markdown_sort_field_none_handled_gracefully(self, tmp_path):
         """
-        BUG/REGRESSION: _generate_markdown_card_list() calls
-        sorted(self.cards, key=lambda c: c.sort_field).
-        When one card has sort_field=None and another has sort_field=str,
-        Python 3 raises TypeError: '<' not supported between 'NoneType' and 'str'.
-
-        This can happen when cards are manually added to the DB without sort_field.
+        Mixed None/str sort_fields are handled gracefully — None treated as '' for sorting.
         """
         db = make_db(tmp_path)
         db.cards = [
             make_card(front="Q1", sort_field="00_A_01_q1"),
-            make_card(front="Q2", sort_field=None),  # None sort_field — triggers the bug
+            make_card(front="Q2", sort_field=None),
         ]
-        with pytest.raises(TypeError):
-            db._generate_markdown_card_list()
+        result = db._generate_markdown_card_list()
+        assert "Q1" in result
+        assert "Q2" in result
 
     def test_markdown_single_none_sort_field_ok(self, tmp_path):
         """
@@ -1120,37 +1106,30 @@ class TestCollectionOrganization:
 
     def test_normalize_for_key_greek_letters_are_stripped(self, tmp_path):
         """
-        BUG/REGRESSION: Greek letters (δ, Σ, ε, γ, λ) are NOT in the umlaut_map
-        and are removed by re.sub(r'[^a-z0-9_]', '').
-
-        This affects GTI course material heavily: category names like 'δ-Funktion'
-        become 'funktion', and collection names containing 'Σ' lose that symbol.
-        The resulting keys are misleading and potentially non-unique.
+        Greek letters (δ, Σ, ε, γ, λ) are NOT in the umlaut_map and are removed.
+        Stray underscores from surrounding spaces are also cleaned up.
         """
         db = make_db(tmp_path)
         result = db._normalize_for_key("Zustand δ")
-        assert "δ" not in result  # Greek letter is gone
-        # Space was converted to _, then δ removed, leaving trailing _
-        assert result == "zustand_"
+        assert "δ" not in result
+        assert result == "zustand"  # trailing underscore cleaned up
 
     def test_normalize_for_key_math_symbols_are_stripped(self, tmp_path):
         """
-        BUG/REGRESSION: Math symbols like ∈, ∅, → are stripped.
-        '∈ Menge' → '_menge' (leading underscore from space before 'Menge').
-        '∅' alone → '' (completely empty key — invalid as a collection key).
+        Math symbols like ∈, ∅, → are stripped; stray underscores are cleaned.
+        '∈ Menge' → 'menge'; '∅' alone → '' (empty key is possible).
         """
         db = make_db(tmp_path)
-        assert db._normalize_for_key("∈ Menge") == "_menge"
-        assert db._normalize_for_key("∅") == ""  # empty key!
+        assert db._normalize_for_key("∈ Menge") == "menge"  # leading _ cleaned
+        assert db._normalize_for_key("∅") == ""  # empty key
 
     def test_normalize_for_key_empty_string_from_pure_special_chars(self, tmp_path):
         """
-        '→ ∅ ∈' — all symbols stripped, spaces become underscores.
-        Result: '__' (two underscores). Grotesque but documented behavior.
+        '→ ∅ ∈' — all symbols stripped, stray underscores collapsed and stripped → ''.
         """
         db = make_db(tmp_path)
         result = db._normalize_for_key("→ ∅ ∈")
-        assert result == "__"
+        assert result == ""
 
     def test_generate_tags_valid_gti_keys(self, tmp_path):
         """

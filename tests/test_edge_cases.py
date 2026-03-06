@@ -45,11 +45,10 @@ def make_card(**kwargs):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestAnkiCardFromDict:
-    def test_unknown_field_raises_typeerror(self):
+    def test_unknown_field_is_ignored(self):
         """
-        If the JSON DB gains a new field (schema evolution), from_dict(**data)
-        will crash with TypeError because the dataclass doesn't accept unknown kwargs.
-        This test documents current behavior so any fix is deliberate.
+        from_dict silently ignores unknown fields for forward compatibility
+        (e.g. when the JSON DB gains a new field after a schema migration).
         """
         data = {
             "guid": "abc",
@@ -63,8 +62,8 @@ class TestAnkiCardFromDict:
             "updated_at": "2024-01-01T00:00:00",
             "unknown_future_field": "value",  # simulates DB schema evolution
         }
-        with pytest.raises(TypeError):
-            AnkiCard.from_dict(data)
+        card = AnkiCard.from_dict(data)
+        assert card.front == "Q"
 
     def test_missing_optional_fields_use_defaults(self):
         """from_dict should work when optional fields are absent (minimal card)."""
@@ -82,39 +81,31 @@ class TestAnkiCardFromDict:
 class TestNormalizeForKey:
     """
     GTI (Grundlagen der Theoretischen Informatik) material contains Greek letters
-    (δ, Σ, ε, γ) and math symbols (∈, ∅, →). These all get silently stripped by
-    the `re.sub(r'[^a-z0-9_]', '')` filter since they're not in the umlaut_map.
+    (δ, Σ, ε, γ) and math symbols (∈, ∅, →). These get stripped, and the
+    resulting stray underscores are cleaned up (leading/trailing/consecutive removed).
     """
 
     def _normalize(self, db, text):
         return db._normalize_for_key(text)
 
     def test_greek_letters_are_stripped(self, tmp_path):
-        """δ, Σ, ε are not in umlaut_map → silently removed from keys."""
+        """δ is not in umlaut_map → removed; trailing underscore from space is also stripped."""
         db = make_db(tmp_path)
         result = self._normalize(db, "Zustand δ")
-        # Greek letter is gone — only ASCII remains
         assert "δ" not in result
-        assert result == "zustand_"  # trailing underscore from space→_ before strip
+        assert result == "zustand"  # trailing underscore cleaned up
 
     def test_math_symbols_are_stripped(self, tmp_path):
-        """
-        ∈, ∅, → are common in GTI and produce partial/garbled keys.
-        The space before 'Menge' becomes '_' AFTER the ∈ is removed,
-        so '∈ Menge' → '_menge' (leading underscore, not clean 'menge').
-        """
+        """∈ stripped, but resulting leading underscore is also cleaned; ∅ → empty string."""
         db = make_db(tmp_path)
-        assert self._normalize(db, "∈ Menge") == "_menge"   # leading _ from removed ∈
-        assert self._normalize(db, "∅") == ""               # empty key is possible!
+        assert self._normalize(db, "∈ Menge") == "menge"   # leading _ cleaned
+        assert self._normalize(db, "∅") == ""              # empty key is possible!
 
     def test_empty_key_from_pure_special_chars(self, tmp_path):
-        """
-        '→ ∅ ∈' → spaces become '_', then symbols stripped → '__' (not empty).
-        Underscores from spaces remain even when surrounding chars are gone.
-        """
+        """'→ ∅ ∈' → symbols stripped → stray underscores collapsed/stripped → ''."""
         db = make_db(tmp_path)
         result = self._normalize(db, "→ ∅ ∈")
-        assert result == "__"  # two underscores from the two spaces
+        assert result == ""  # underscores fully cleaned up
 
     def test_german_umlauts_are_replaced(self, tmp_path):
         """Umlauts ARE handled correctly via umlaut_map."""
@@ -128,18 +119,18 @@ class TestNormalizeForKey:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestGenerateMarkdownCardList:
-    def test_sort_field_none_raises(self, tmp_path):
+    def test_sort_field_none_does_not_crash(self, tmp_path):
         """
-        sorted(..., key=lambda c: c.sort_field) crashes with TypeError in Python 3
-        when any card has sort_field=None (can't compare NoneType with str).
+        Mixed None/str sort_fields are handled gracefully — None treated as ''.
         """
         db = make_db(tmp_path)
         db.cards = [
             make_card(front="Q1", sort_field="00_A_01_q1"),
-            make_card(front="Q2", sort_field=None),  # None sort_field
+            make_card(front="Q2", sort_field=None),
         ]
-        with pytest.raises(TypeError):
-            db._generate_markdown_card_list()
+        result = db._generate_markdown_card_list()
+        assert "Q1" in result
+        assert "Q2" in result
 
     def test_single_none_sort_field_does_not_raise(self, tmp_path):
         """
@@ -172,21 +163,17 @@ class TestFindCardByFront:
         db = make_db(tmp_path, cards=[card])
         assert db.find_card_by_front("Was ist ein Automat?") is not None
 
-    def test_case_insensitive_not_found(self, tmp_path):
-        """
-        find_card_by_front uses exact string match (==), NOT case-normalized.
-        So 'was ist ein automat?' won't find 'Was ist ein Automat?'.
-        This is inconsistent with integrate_new which uses _normalize_text (lowercase).
-        """
+    def test_case_insensitive_found(self, tmp_path):
+        """find_card_by_front normalizes case — lowercase query finds titlecase card."""
         card = make_card(front="Was ist ein Automat?")
         db = make_db(tmp_path, cards=[card])
-        assert db.find_card_by_front("was ist ein automat?") is None
+        assert db.find_card_by_front("was ist ein automat?") is not None
 
-    def test_whitespace_variant_not_found(self, tmp_path):
-        """Extra whitespace is not normalized in find_card_by_front."""
+    def test_whitespace_variant_found(self, tmp_path):
+        """Extra whitespace is normalized by find_card_by_front (_normalize_text collapses \\s+)."""
         card = make_card(front="Was ist ein Automat?")
         db = make_db(tmp_path, cards=[card])
-        assert db.find_card_by_front("Was ist ein  Automat?") is None
+        assert db.find_card_by_front("Was ist ein  Automat?") is not None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -281,25 +268,22 @@ class TestParseResponse:
         result = self.ingestor._parse_response(raw)
         assert result == {"new_cards": []}
 
-    def test_prose_before_json_raises(self):
-        """
-        _parse_response only strips code fences, not leading prose.
-        LLM saying 'Sure! Here is your JSON: {...}' causes JSONDecodeError.
-        """
+    def test_prose_before_json_returns_empty(self):
+        """LLM prose before JSON returns graceful fallback instead of crashing."""
         raw = 'Sure! Here is your JSON:\n{"new_cards": []}'
-        with pytest.raises(json.JSONDecodeError):
-            self.ingestor._parse_response(raw)
+        result = self.ingestor._parse_response(raw)
+        assert result == {"new_cards": []}
 
-    def test_trailing_prose_raises(self):
-        """Trailing prose after the JSON also breaks parsing."""
+    def test_trailing_prose_returns_empty(self):
+        """Trailing prose after JSON returns graceful fallback."""
         raw = '{"new_cards": []}\nHope this helps!'
-        with pytest.raises(json.JSONDecodeError):
-            self.ingestor._parse_response(raw)
+        result = self.ingestor._parse_response(raw)
+        assert result == {"new_cards": []}
 
-    def test_empty_response_raises(self):
-        """Empty string from LLM → JSONDecodeError."""
-        with pytest.raises(json.JSONDecodeError):
-            self.ingestor._parse_response("")
+    def test_empty_response_returns_empty(self):
+        """Empty string from LLM returns graceful fallback."""
+        result = self.ingestor._parse_response("")
+        assert result == {"new_cards": []}
 
     def test_nested_code_fence_json(self):
         """Bare triple-backtick without 'json' label is also stripped."""

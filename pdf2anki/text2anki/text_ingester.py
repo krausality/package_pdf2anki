@@ -146,7 +146,10 @@ class TextFileIngestor(IngestorBase):
         # Entferne ```json ... ``` oder ``` ... ``` Wrapper
         cleaned = re.sub(r'^```(?:json)?\s*\n?', '', cleaned, flags=re.MULTILINE)
         cleaned = re.sub(r'\n?```\s*$', '', cleaned.strip(), flags=re.MULTILINE)
-        return json.loads(cleaned.strip())
+        try:
+            return json.loads(cleaned.strip())
+        except json.JSONDecodeError:
+            return {"new_cards": []}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

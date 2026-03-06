@@ -167,101 +167,561 @@ def make_card(**kwargs) -> AnkiCard:
 
 class TestRealOcrContentPatterns:
     """
-    Tests using verbatim content extracted from actual GTI OCR files.
-    These patterns only appear in real course material and were not covered
-    by synthetic test data.
+    Characterization tests for DatabaseManager transformation logic using real GTI
+    OCR content patterns (skript-1.txt, Uebungsblatt01.txt, mitschrift_tutorium01.txt).
+
+    Phase 1 observation methodology: each transformation was run interactively against
+    actual GTI strings. The outputs recorded here ARE the observed behavior of the
+    system. Docstrings follow the format "Input X → observed output Y".
     """
 
-    def test_math_tags_with_braces_survive_db_roundtrip(self, tmp_path):
+    # ─── _normalize_for_key ──────────────────────────────────────────────────
+
+    def test_normalize_for_key_german_chapter_heading(self, tmp_path):
         """
-        Real GTI cards have fronts/backs with <math>...</math> containing { }.
-        e.g. front = 'Was ist <math>\\Sigma^*</math>?'
-        The { } inside math tags must NOT confuse JSON serialization.
+        Input 'Kapitel 1: Sprachen und Grammatiken' → 'kapitel_1_sprachen_und_grammatiken'.
+        Colons and spaces both become underscores after lowercasing.
+        Observed: colon is stripped (not-alphanum), adjacent underscores remain.
         """
         db = make_db(tmp_path)
-        front = r"Was ist <math>\Sigma^*</math>?"
-        back = r"Die Menge aller Wörter: <math>\Sigma^* = \{\varepsilon\} \cup \Sigma \cup \Sigma^2 \cup \dots</math>"
-        db.cards = [make_card(front=front, back=back)]
-        db.save_database()
+        result = db._normalize_for_key("Kapitel 1: Sprachen und Grammatiken")
+        assert result == "kapitel_1_sprachen_und_grammatiken"
 
-        db2 = make_db(tmp_path, cards=None)
-        db2.cards = []
-        db2.load_database()
-
-        assert db2.cards[0].front == front
-        assert db2.cards[0].back == back
-
-    def test_formal_grammar_notation_with_nested_braces(self, tmp_path):
+    def test_normalize_for_key_umlaut_expansion(self, tmp_path):
         """
-        Grammar definitions like G = ({A, b, B}, {a,b}, {S→AB}, S) appear in
-        fronts and backs. Nested curly braces must survive JSON roundtrip.
+        Input 'Reguläre Sprachen' → 'regulaere_sprachen'.
+        'ä' is replaced by 'ae' (not deleted), then space → underscore.
+        Observed: ä→ae, ö→oe, ü→ue, ß→ss (expansion, not deletion).
         """
         db = make_db(tmp_path)
-        front = r"Was ist G = (\{A, b, B, c, S\}, \{a, b\}, \{S \to AB, B \to b\}, S)?"
-        back = r"Eine Grammatik. Prüfe: V ∩ Σ = \{b\} ≠ ∅ → ungültig!"
-        db.integrate_new([{"front": front, "back": back}])
-        assert db.cards[0].front == front
-        assert db.cards[0].back == back
+        assert db._normalize_for_key("Reguläre Sprachen") == "regulaere_sprachen"
+        assert db._normalize_for_key("Übungsblatt 1") == "uebungsblatt_1"
+        assert db._normalize_for_key("Äquivalenzklassen") == "aequivalenzklassen"
 
-    def test_visual_description_in_back_survives_storage(self, tmp_path):
+    def test_normalize_for_key_ampersand_becomes_und(self, tmp_path):
         """
-        OCR produces [Visual Description: ...] lines up to 300 chars long.
-        These may appear in card back text if the LLM includes them.
-        Must survive storage without truncation.
+        Input 'Äquivalenz & Minimalautomaten' → 'aequivalenz_und_minimalautomaten'.
+        '&' is replaced by 'und' (the German word), not 'and'.
+        Observed: the umlaut_map contains '&': 'und'.
         """
         db = make_db(tmp_path)
-        long_visual = (
-            "[Visual Description: A layout with two columns of statements on lined paper. "
-            "Each statement has a checkbox next to it, which has been hand-marked with "
-            "either a cross (denoting false) or a checkmark (denoting true). "
-            "Handwritten explanations in German follow each statement.]"
-        )
-        db.integrate_new([{"front": "Was zeigt Abbildung 1?", "back": long_visual}])
-        assert db.cards[0].back == long_visual
+        result = db._normalize_for_key("Äquivalenz & Minimalautomaten")
+        assert result == "aequivalenz_und_minimalautomaten"
 
-    def test_latex_commands_in_content_survive_roundtrip(self, tmp_path):
+    def test_normalize_for_key_parens_stripped(self, tmp_path):
         """
-        OCR of LaTeX PDFs produces raw LaTeX: \\vfill, \\hfil, \\begin{array}, \\end{array}.
-        These appear in the ingest text and sometimes end up in card content.
-        Must be stored without modification.
+        Input 'Kellerautomaten (PDA)' → 'kellerautomaten_pda'.
+        Parentheses are stripped as illegal characters; content inside survives.
+        Observed: ( and ) removed, space→_, PDA lowercased.
         """
         db = make_db(tmp_path)
-        back = r"Schreibweise: $w^n = \underbrace{w \circ w \circ \dots \circ w}_{n\text{-mal}}$"
-        db.integrate_new([{"front": r"Was ist $w^n$?", "back": back}])
-        assert db.cards[0].back == back
+        result = db._normalize_for_key("Kellerautomaten (PDA)")
+        assert result == "kellerautomaten_pda"
 
-    def test_nbsp_html_entity_in_content_survives(self, tmp_path):
+    def test_normalize_for_key_math_notation_stripped_to_alphanum(self, tmp_path):
         """
-        OCR of formatted PDFs produces &nbsp; for non-breaking spaces.
-        These appear in section numbering like '&nbsp;&nbsp;&nbsp;&nbsp;3.1 Endliche Automaten'.
-        Must not be mangled.
+        Input r'\\Sigma^* (Kleene-Stern)' → 'sigma_kleenestern'.
+        Backslash, caret, hyphen are all non-alphanum → stripped.
+        The 'Sigma' prefix survives as 'sigma'. The hyphen in 'Kleene-Stern' is
+        stripped, merging the two words: 'kleene' + 'stern' → 'kleenestern'.
+        Observed exact output: 'sigma_kleenestern'.
         """
         db = make_db(tmp_path)
-        front = "Was behandelt Abschnitt&nbsp;3.1?"
-        back = "&nbsp;&nbsp;&nbsp;&nbsp;3.1 Endliche Automaten"
-        db.integrate_new([{"front": front, "back": back}])
-        assert db.cards[0].front == front
-        assert db.cards[0].back == back
+        result = db._normalize_for_key(r"\Sigma^* (Kleene-Stern)")
+        assert result == "sigma_kleenestern"
 
-    def test_handwritten_comment_notation_survives(self, tmp_path):
+    def test_normalize_for_key_pure_unicode_math_symbols_produce_empty(self, tmp_path):
         """
-        Tutorium OCR produces *Handwritten Comment:* lines mixed into content.
-        A card back containing this pattern must be stored exactly.
+        Input 'ε, Σ, ∈, ℕ, ∅' → ''.
+        Unicode math symbols are stripped; stray underscores from commas/spaces are
+        collapsed and stripped, yielding empty string.
         """
         db = make_db(tmp_path)
-        back = (
-            "Falsch.\n"
-            "*Handwritten Comment:* Widerspruch zur Endlichkeit — "
-            r"$\mathbb{Z}$ ist unendlich, Alphabete sind per Def. endlich."
-        )
-        db.integrate_new([{"front": r"Ist $\mathbb{Z}$ ein Alphabet?", "back": back}])
-        assert "*Handwritten Comment:*" in db.cards[0].back
+        result = db._normalize_for_key("ε, Σ, ∈, ℕ, ∅")
+        assert result == ""
 
-    def test_ocr_text_with_image_markers_as_ingest_input(self, tmp_path, tmp_path_factory):
+    def test_normalize_for_key_empty_and_whitespace_only_produce_empty_string(self, tmp_path):
         """
-        Real OCR files start with 'Image: page_N.png' markers and contain
-        [Visual Description: ...] blocks. ingest_text() must load and forward
-        this content to the LLM without crashing.
+        Input '' → ''. Input '   ' → ''.
+        Empty string and whitespace-only both produce empty string.
+        Observed: strip().lower() removes whitespace; re.sub then yields ''.
+        """
+        db = make_db(tmp_path)
+        assert db._normalize_for_key("") == ""
+        assert db._normalize_for_key("   ") == ""
+
+    def test_normalize_for_key_punctuation_only_produces_empty_string(self, tmp_path):
+        """
+        Input '!!!' → ''. Input '---' → ''. Input '...' → ''.
+        OCR artifacts like page separators (---) or emphasis marks (!!!) produce
+        empty keys — all characters are stripped as non-alphanum.
+        Observed: all three inputs map to ''.
+        """
+        db = make_db(tmp_path)
+        assert db._normalize_for_key("!!!") == ""
+        assert db._normalize_for_key("---") == ""
+        assert db._normalize_for_key("...") == ""
+
+    def test_normalize_for_key_grammar_tuple_notation(self, tmp_path):
+        """
+        Input 'G = ({A, b, B}, {a,b}, {S->AB}, S)' → 'g_a_b_b_ab_sab_s'.
+        From real GTI Uebungsblatt01.txt. Braces/arrows/commas stripped; consecutive
+        underscores from adjacent removed chars are collapsed to single underscore.
+        """
+        db = make_db(tmp_path)
+        result = db._normalize_for_key("G = ({A, b, B}, {a,b}, {S->AB}, S)")
+        assert result == "g_a_b_b_ab_sab_s"
+
+    # ─── _normalize_text ─────────────────────────────────────────────────────
+
+    def test_normalize_text_collapses_whitespace_only(self, tmp_path):
+        """
+        Input 'Was  ist  ein  Alphabet?' → 'was ist ein alphabet?'.
+        _normalize_text: only lowercases and collapses whitespace runs to single space.
+        Observed: does NOT strip special chars, umlauts, or math tags.
+        """
+        db = make_db(tmp_path)
+        result = db._normalize_text("Was  ist  ein  Alphabet?")
+        assert result == "was ist ein alphabet?"
+
+    def test_normalize_text_preserves_math_tags_and_backslashes(self, tmp_path):
+        """
+        Input r'Was ist <math>\\Sigma^*</math>?' → r'was ist <math>\\sigma^*</math>?'.
+        _normalize_text lowercases everything including the S in \\Sigma → \\sigma.
+        It does NOT strip <math> tags, backslashes, or carets.
+        Observed: tags and special chars survive, only case is folded.
+        """
+        db = make_db(tmp_path)
+        result = db._normalize_text(r"Was ist <math>\Sigma^*</math>?")
+        assert result == r"was ist <math>\sigma^*</math>?"
+
+    def test_normalize_text_preserves_german_umlauts(self, tmp_path):
+        """
+        Input 'Reguläre Sprachen' → 'reguläre sprachen'.
+        Unlike _normalize_for_key, _normalize_text does NOT expand umlauts.
+        ä stays as ä (just lowercased). ü stays as ü.
+        Observed: umlauts are NOT transliterated by _normalize_text.
+        """
+        db = make_db(tmp_path)
+        assert db._normalize_text("Reguläre Sprachen") == "reguläre sprachen"
+        assert db._normalize_text("Übungsblatt 01") == "übungsblatt 01"
+
+    def test_normalize_text_greek_uppercase_folds_to_lowercase(self, tmp_path):
+        """
+        Input 'Was ist Σ?' → 'was ist σ?'. Input 'Was ist σ?' → 'was ist σ?'.
+        Python's str.lower() maps Σ (U+03A3) → σ (U+03C3).
+        Both inputs produce the same normalized form — treated as duplicates.
+        Observed: this is how integrate_new deduplication works for GTI Greek symbols.
+        """
+        db = make_db(tmp_path)
+        assert db._normalize_text("Was ist Σ?") == "was ist σ?"
+        assert db._normalize_text("Was ist σ?") == "was ist σ?"
+
+    def test_normalize_text_grammar_case_collision(self, tmp_path):
+        """
+        Input r'G = (\\{A, b\\}, P, S)' and r'G = (\\{a, b\\}, P, S)'
+        both normalize to r'g = (\\{a, b\\}, p, s)'.
+        The uppercase 'A' in the grammar's variable set becomes lowercase 'a',
+        colliding with a grammar that uses lowercase 'a' in the same position.
+        Observed: integrate_new treats these as duplicates.
+        """
+        db = make_db(tmp_path)
+        na = db._normalize_text(r"G = (\{A, b\}, P, S)")
+        nb = db._normalize_text(r"G = (\{a, b\}, P, S)")
+        assert na == nb
+        assert na == r"g = (\{a, b\}, p, s)"
+
+    # ─── _generate_sort_field ────────────────────────────────────────────────
+
+    def test_generate_sort_field_plain_german_front(self, tmp_path):
+        """
+        sort_key='00_A_01', front='Was ist ein Alphabet?'
+        → '00_A_01_was_ist_ein_alphabet'.
+        The question mark is stripped as non-alphanum. Spaces become underscores.
+        Observed exact output.
+        """
+        db = make_db(tmp_path)
+        result = db._generate_sort_field("00_A_01", "Was ist ein Alphabet?")
+        assert result == "00_A_01_was_ist_ein_alphabet"
+
+    def test_generate_sort_field_math_tags_stripped_to_content(self, tmp_path):
+        """
+        sort_key='00_A_02', front=r'Was ist <math>\\Sigma^*</math>?'
+        → '00_A_02_was_ist_mathsigmamath'.
+        The < > / ^ * chars are all stripped; 'math' appears twice (opening+closing tag).
+        'Sigma' from \\Sigma survives (backslash stripped), lowercased.
+        Observed: angle brackets and backslash removed, tag text 'math' stays.
+        """
+        db = make_db(tmp_path)
+        result = db._generate_sort_field("00_A_02", r"Was ist <math>\Sigma^*</math>?")
+        assert result == "00_A_02_was_ist_mathsigmamath"
+
+    def test_generate_sort_field_multiple_similar_math_fronts_stay_unique(self, tmp_path):
+        """
+        r'Was ist <math>\\Sigma^*</math>?', r'Was ist <math>|\\Sigma|</math>?',
+        and r'Was ist <math>\\Sigma^+</math>?' all produce sort_field suffixes
+        'was_ist_mathsigmamath' after stripping math/special chars.
+        The sort_key prefix (00_A_01, 00_A_02, 00_A_03) keeps them globally unique.
+        Observed: three cards with identical normalized front-suffixes but unique
+        sort_fields due to different positional prefixes.
+        """
+        db = make_db(tmp_path)
+        sf1 = db._generate_sort_field("00_A_01", r"Was ist <math>\Sigma^*</math>?")
+        sf2 = db._generate_sort_field("00_A_02", r"Was ist <math>|\Sigma|</math>?")
+        sf3 = db._generate_sort_field("00_A_03", r"Was ist <math>\Sigma^+</math>?")
+        # All three have the same suffix (after stripping special chars)
+        assert sf1.endswith("_was_ist_mathsigmamath")
+        assert sf2.endswith("_was_ist_mathsigmamath")
+        assert sf3.endswith("_was_ist_mathsigmamath")
+        # But the full sort_fields are unique due to different prefixes
+        assert len({sf1, sf2, sf3}) == 3
+
+    def test_generate_sort_field_long_front_truncated_at_50_chars(self, tmp_path):
+        """
+        sort_key='00_A_04', front='Was ist die Kleene-Hülle eines Alphabets Σ und wie wird sie formal notiert?'
+        Now uses _normalize_for_key: ü expands to 'ue' (kleenehuelle), Σ stripped then
+        underscore cleaned (alphabets_und). Result truncated to 50 chars.
+        """
+        db = make_db(tmp_path)
+        front = "Was ist die Kleene-Hülle eines Alphabets Σ und wie wird sie formal notiert?"
+        result = db._generate_sort_field("00_A_04", front)
+        assert result == "00_A_04_was_ist_die_kleenehuelle_eines_alphabets_und_wie_w"
+        # Exactly 50 chars in the front portion after the sort_key prefix
+        front_part = result[len("00_A_04_"):]
+        assert len(front_part) == 50
+
+    def test_generate_sort_field_grammar_tuple_front(self, tmp_path):
+        """
+        sort_key='01_B_02', front=r'G = (\\{A, b, B, c, S\\}, \\{a, b\\}, \\{S \\to AB, B \\to b\\}, S) — gültig?'
+        Now uses _normalize_for_key: ü expands to 'ue' (gueltig), consecutive underscores
+        from adjacent stripped chars are collapsed. Result: '01_B_02_g_a_b_b_c_s_a_b_s_to_ab_b_to_b_s_gueltig'.
+        """
+        db = make_db(tmp_path)
+        front = r"G = (\{A, b, B, c, S\}, \{a, b\}, \{S \to AB, B \to b\}, S) — gültig?"
+        result = db._generate_sort_field("01_B_02", front)
+        assert result.startswith("01_B_02_g_a_b_b_c_s_a_b_s_to_ab_b_to_b_s_gueltig")
+
+    def test_generate_sort_field_umlaut_in_front_expanded(self, tmp_path):
+        """
+        sort_key='02_A_02', front='Erkläre den Unterschied zwischen Σ+ und Σ*'
+        → '02_A_02_erklaere_den_unterschied_zwischen_und'.
+        _generate_sort_field now uses _normalize_for_key: ä expands to 'ae',
+        Σ stripped and stray underscores cleaned.
+        """
+        db = make_db(tmp_path)
+        result = db._generate_sort_field("02_A_02", "Erkläre den Unterschied zwischen Σ+ und Σ*")
+        assert result == "02_A_02_erklaere_den_unterschied_zwischen_und"
+
+    # ─── _generate_tags ──────────────────────────────────────────────────────
+
+    def test_generate_tags_standard_gti_collection_and_category(self, tmp_path):
+        """
+        collection='collection_0_Sprachen', category='a_grundlagen'
+        → ['GTI::C0_Sprachen::A_Grundlagen'].
+        Parts after 'collection_N_' are capitalized and joined with '_'.
+        Category: letter part uppercased, rest capitalized.
+        Observed exact output with GTI tag_prefix.
+        """
+        db = make_db(tmp_path)
+        db._tag_prefix = "GTI"
+        result = db._generate_tags("collection_0_Sprachen", "a_grundlagen")
+        assert result == ["GTI::C0_Sprachen::A_Grundlagen"]
+
+    def test_generate_tags_new_cards_collection_from_integrate_new(self, tmp_path):
+        """
+        After integrate_new() on an empty DB, collection='collection_0_Neue_Karten',
+        category='a_Unsortiert' → ['GTI::C0_Neue_Karten::A_Unsortiert'].
+        Multi-word collection names: each part capitalized separately, joined with '_'.
+        Observed: 'Neue_Karten' → 'Neue_Karten' (already-capitalized parts stay).
+        """
+        db = make_db(tmp_path)
+        db._tag_prefix = "GTI"
+        result = db._generate_tags("collection_0_Neue_Karten", "a_Unsortiert")
+        assert result == ["GTI::C0_Neue_Karten::A_Unsortiert"]
+
+    def test_generate_tags_multi_word_collection_and_category(self, tmp_path):
+        """
+        collection='collection_0_sprachen_und_grammatiken', category='c_normalformen'
+        → ['GTI::C0_Sprachen_Und_Grammatiken::C_Normalformen'].
+        All parts after the numeric index are capitalize()-d and joined with '_'.
+        Observed: lowercase parts become title-cased (e.g. 'und' → 'Und').
+        """
+        db = make_db(tmp_path)
+        db._tag_prefix = "GTI"
+        result = db._generate_tags("collection_0_sprachen_und_grammatiken", "c_normalformen")
+        assert result == ["GTI::C0_Sprachen_Und_Grammatiken::C_Normalformen"]
+
+    def test_generate_tags_high_collection_number(self, tmp_path):
+        """
+        collection='collection_10_XYZ', category='z_last'
+        → ['GTI::C10_Xyz::Z_Last'].
+        Two-digit collection numbers are preserved as-is in the C-tag.
+        Collection name parts are capitalize()-d: 'XYZ' → 'Xyz'.
+        Observed: capitalize() lowercases all but first char — 'XYZ' → 'Xyz'.
+        """
+        db = make_db(tmp_path)
+        db._tag_prefix = "GTI"
+        result = db._generate_tags("collection_10_XYZ", "z_last")
+        assert result == ["GTI::C10_Xyz::Z_Last"]
+
+    def test_generate_tags_invalid_format_falls_back_to_unkategorisiert(self, tmp_path):
+        """
+        collection='Sprachen' (no underscore-number pattern), category='grundlagen'
+        → ['GTI::Unkategorisiert'].
+        When collection.split('_')[1] raises IndexError (no numeric segment),
+        the except branch returns ['GTI::Unkategorisiert'].
+        Observed: the tag_prefix is used but 'Unkategorisiert' is the hardcoded fallback.
+        """
+        db = make_db(tmp_path)
+        db._tag_prefix = "GTI"
+        result = db._generate_tags("Sprachen", "grundlagen")
+        assert result == ["GTI::Unkategorisiert"]
+
+    def test_generate_tags_anki_prefix_when_no_project_config(self, tmp_path):
+        """
+        Without a ProjectConfig, tag_prefix defaults to 'ANKI'.
+        collection='collection_0_Neue_Karten', category='a_Unsortiert'
+        → ['ANKI::C0_Neue_Karten::A_Unsortiert'].
+        Observed: make_db() without config produces ANKI-prefixed tags.
+        """
+        db = make_db(tmp_path)
+        # make_db creates DB without project_config → _tag_prefix = 'ANKI'
+        result = db._generate_tags("collection_0_Neue_Karten", "a_Unsortiert")
+        assert result == ["ANKI::C0_Neue_Karten::A_Unsortiert"]
+
+    # ─── integrate_new — collection assignment and numbering ─────────────────
+
+    def test_integrate_new_empty_db_assigns_collection_0(self, tmp_path):
+        """
+        Integrating into an empty DB → all cards land in 'collection_0_Neue_Karten'.
+        The collection number is max(existing_collection_nums) + 1. With no existing
+        cards, max is -1, so new_coll_num = 0.
+        Observed: collection_key = 'collection_0_Neue_Karten', category = 'a_Unsortiert'.
+        """
+        db = make_db(tmp_path)
+        db.integrate_new([
+            {"front": "Was ist ein Alphabet?", "back": "Endliche nichtleere Menge."},
+        ])
+        assert db.cards[0].collection == "collection_0_Neue_Karten"
+        assert db.cards[0].category == "a_Unsortiert"
+
+    def test_integrate_new_second_batch_increments_collection_number(self, tmp_path):
+        """
+        First batch → collection_0_Neue_Karten. Second batch → collection_1_Neue_Karten.
+        Each call to integrate_new() computes max(existing collection numbers) + 1.
+        Observed: second batch uses coll_num=1 because first batch cards have coll_num=0.
+        """
+        db = make_db(tmp_path)
+        db.integrate_new([{"front": "Was ist ein Alphabet?", "back": "Endliche Menge."}])
+        db.integrate_new([{"front": "Was ist eine formale Sprache?", "back": "Teilmenge von Σ*."}])
+        colls = [c.collection for c in db.cards]
+        assert "collection_0_Neue_Karten" in colls
+        assert "collection_1_Neue_Karten" in colls
+
+    def test_integrate_new_sort_field_uses_batch_index_as_position(self, tmp_path):
+        """
+        For 15 GTI cards in one batch, sort_fields are:
+        '00_A_01_<front1_normalized>', '00_A_02_<front2_normalized>', etc.
+        The batch index i (0-based) becomes i+1 in the sort_key: 'NN_A_{i+1:02d}'.
+        Observed: first card → ...01..., fifteenth card → ...15...
+        """
+        db = make_db(tmp_path)
+        gti_batch = [
+            {"front": f"Was ist Begriff {i}?", "back": f"Antwort {i}."}
+            for i in range(1, 16)
+        ]
+        db.integrate_new(gti_batch)
+        assert len(db.cards) == 15
+        assert db.cards[0].sort_field.startswith("00_A_01_")
+        assert db.cards[14].sort_field.startswith("00_A_15_")
+
+    def test_integrate_new_deduplication_uses_normalize_text_not_normalize_for_key(self, tmp_path):
+        """
+        Deduplication key = _normalize_text(front): lowercases + collapses whitespace.
+        'Was ist <math>\\Sigma^*</math>?' (first batch) and
+        'was ist <math>\\sigma^*</math>?' (second batch, already lowercase) both
+        normalize to 'was ist <math>\\sigma^*</math>?' → treated as duplicate.
+        Observed: second batch returns count=0.
+        """
+        db = make_db(tmp_path)
+        db.integrate_new([{
+            "front": r"Was ist <math>\Sigma^*</math>?",
+            "back": "Kleene-Hülle.",
+        }])
+        count = db.integrate_new([{
+            "front": r"Was ist <math>\Sigma^*</math>?",
+            "back": "Alle Wörter über Sigma.",
+        }])
+        assert count == 0
+
+    def test_integrate_new_whitespace_normalized_duplicate_rejected(self, tmp_path):
+        """
+        'Ist  <math>\\mathbb{Z}</math>  ein  Alphabet?' (extra spaces) normalizes
+        to the same key as 'Ist <math>\\mathbb{Z}</math> ein Alphabet?' (single spaces).
+        _normalize_text collapses all whitespace runs to single space.
+        Observed: integrate_new returns 0 for the whitespace-variant.
+        """
+        db = make_db(tmp_path)
+        db.integrate_new([{
+            "front": r"Ist <math>\mathbb{Z}</math> ein Alphabet?",
+            "back": "Nein, unendlich.",
+        }])
+        count = db.integrate_new([{
+            "front": r"Ist  <math>\mathbb{Z}</math>  ein  Alphabet?",
+            "back": "Nein.",
+        }])
+        assert count == 0
+        assert len(db.cards) == 1
+
+    def test_integrate_new_greek_uppercase_lowercase_collision(self, tmp_path):
+        """
+        'Was ist Σ?' and 'Was ist σ?' are treated as duplicates because
+        Python's str.lower() maps Σ (U+03A3) → σ (U+03C3).
+        Both normalize to 'was ist σ?'. The second card is silently rejected.
+        Observed: integrate_new returns 0 for 'Was ist σ?' after 'Was ist Σ?' exists.
+        A genuinely different Greek letter (δ) is NOT a duplicate.
+        """
+        db = make_db(tmp_path)
+        db.integrate_new([{"front": "Was ist Σ?", "back": "Das Eingabealphabet."}])
+        count_sigma_lower = db.integrate_new([{"front": "Was ist σ?", "back": "Kleines Sigma."}])
+        count_delta = db.integrate_new([{"front": "Was ist δ?", "back": "Übergangsfunktion."}])
+        assert count_sigma_lower == 0
+        assert count_delta == 1
+
+    def test_integrate_new_skips_cards_with_empty_front_or_back(self, tmp_path):
+        """
+        Cards with empty front or empty back are silently skipped.
+        OCR can produce blank segments that become empty strings after strip().
+        Observed: integrate_new returns 0 for {front='', back='...'} and
+        {front='Was ist X?', back=''}, even if mixed with valid cards.
+        """
+        db = make_db(tmp_path)
+        count = db.integrate_new([
+            {"front": "", "back": "Eine Antwort."},
+            {"front": "Was ist ein Alphabet?", "back": ""},
+            {"front": "Was ist ein Alphabet?", "back": "Endliche Menge."},
+        ])
+        assert count == 1
+        assert db.cards[0].front == "Was ist ein Alphabet?"
+
+    # ─── _generate_markdown_card_list ────────────────────────────────────────
+
+    def test_generate_markdown_card_list_structure_with_gti_cards(self, tmp_path):
+        """
+        After integrating 5 GTI cards into an empty DB, _generate_markdown_card_list()
+        produces a markdown string with:
+        - '<!-- COLLECTION_0_START -->' and '<!-- COLLECTION_0_END -->' markers
+        - '<!-- CARDS_START -->' and '<!-- CARDS_END -->' markers
+        - '**A. Unsortiert**' category header (category_key='a_Unsortiert')
+        - Numbered card fronts: '1. <front>', '2. <front>', etc.
+        Observed: the exact structure produced for a fresh integrate_new() batch.
+        """
+        db = make_db(tmp_path)
+        db.integrate_new([
+            {"front": "Was ist ein Alphabet?", "back": "Endliche nichtleere Menge."},
+            {"front": r"Was ist <math>\Sigma^*</math>?", "back": "Kleene-Hülle."},
+            {"front": r"Was ist <math>\varepsilon</math>?", "back": "Das leere Wort."},
+        ])
+        md = db._generate_markdown_card_list()
+        assert "<!-- COLLECTION_0_START -->" in md
+        assert "<!-- COLLECTION_0_END -->" in md
+        assert "<!-- CARDS_START -->" in md
+        assert "<!-- CARDS_END -->" in md
+        assert "**A. Unsortiert**" in md
+        assert "1. Was ist ein Alphabet?" in md
+        assert r"2. Was ist <math>\Sigma^*</math>?" in md
+        assert r"3. Was ist <math>\varepsilon</math>?" in md
+
+    def test_generate_markdown_card_list_collection_header_uses_display_name(self, tmp_path):
+        """
+        The collection header line '**Neue Karten**' uses _get_collection_display_name().
+        For collection_key='collection_0_Neue_Karten' with no ProjectConfig and no
+        cached display name, the fallback reconstructs: parts[2:] = ['Neue', 'Karten'],
+        each capitalize()-d and joined: 'Neue Karten'.
+        Observed: '**Neue Karten**' appears in the generated markdown.
+        """
+        db = make_db(tmp_path)
+        db.integrate_new([
+            {"front": "Was ist eine formale Sprache?", "back": r"Teilmenge von \Sigma^*."},
+        ])
+        md = db._generate_markdown_card_list()
+        assert "**Neue Karten**" in md
+
+    def test_generate_markdown_card_list_math_fronts_appear_verbatim(self, tmp_path):
+        """
+        Card fronts containing <math> tags appear verbatim (unescaped) in the
+        generated markdown numbered list. The markdown generator does NOT sanitize
+        or escape content — what goes into integrate_new() comes out in the list.
+        Observed: r'Was ist <math>\\mathbb{Z}</math>?' appears as-is in the output.
+        """
+        db = make_db(tmp_path)
+        front = r"Ist <math>\mathbb{Z}</math> ein Alphabet?"
+        db.integrate_new([{"front": front, "back": "Nein, unendlich."}])
+        md = db._generate_markdown_card_list()
+        assert f"1. {front}" in md
+
+    def test_generate_markdown_card_list_empty_db_returns_empty_string(self, tmp_path):
+        """
+        _generate_markdown_card_list() on an empty card list returns ''.
+        Observed: the early return 'if not self.cards: return \"\"' triggers.
+        """
+        db = make_db(tmp_path)
+        assert db._generate_markdown_card_list() == ""
+
+    def test_generate_markdown_card_list_sorted_by_sort_field(self, tmp_path):
+        """
+        Cards are sorted by sort_field before generating the markdown list.
+        When integrating [C, A, B] in that order, the markdown lists them
+        in sort_field order (alphabetical on the full sort_field string).
+        For a single batch, cards are already in order because sort_key is
+        00_A_{i+1:02d} where i is the batch index. Card 1 → '00_A_01_...'.
+        Observed: the numbered list order matches the sort_field order.
+        """
+        db = make_db(tmp_path)
+        db.integrate_new([
+            {"front": "C: Was ist ein Kellerautomat?", "back": "Ein PDA."},
+            {"front": "A: Was ist ein Alphabet?", "back": "Endliche Menge."},
+            {"front": r"B: Was ist <math>\Sigma^*</math>?", "back": "Kleene-Hülle."},
+        ])
+        md = db._generate_markdown_card_list()
+        lines = [l for l in md.split("\n") if l.startswith(("1.", "2.", "3."))]
+        assert lines[0].startswith("1. C:")
+        assert lines[1].startswith("2. A:")
+        assert lines[2].startswith(r"3. B:")
+
+    # ─── ingest_text — OCR content forwarding ────────────────────────────────
+
+    def test_ingest_sends_image_markers_and_visual_descriptions_to_llm(self, tmp_path):
+        """
+        The full OCR text (including 'Image: page_N.png' markers and
+        '[Visual Description: ...]' blocks) must be forwarded to the LLM intact.
+        _load_texts() must not strip these markers.
+        Observed: prompt_body contains 'Image: page_3.png' and r'\\Sigma'.
+        """
+        project_dir = make_gti_project(tmp_path)
+        cfg = ProjectConfig.from_file(str(project_dir))
+
+        ocr_file = tmp_path / "skript.txt"
+        ocr_file.write_text(REAL_SKRIPT_SNIPPET, encoding="utf-8")
+
+        captured = {}
+        def capture_llm(header_context, prompt_body, model=None):
+            captured["prompt"] = prompt_body
+            return json.dumps({"new_cards": []})
+
+        with patch("pdf2anki.text2anki.text_ingester.get_llm_decision",
+                   side_effect=capture_llm):
+            ingest_text([str(ocr_file)], cfg, str(tmp_path / "out.json"))
+
+        assert "Image: page_3.png" in captured["prompt"]
+        assert r"\Sigma" in captured["prompt"]
+
+    def test_ingest_mitschrift_with_visual_descriptions_does_not_crash(self, tmp_path):
+        """
+        Real mitschrift_tutorium01.txt contains '[Visual Description: ...]' blocks,
+        '*Handwritten Comment:*' lines, and <math>...</math> tags.
+        ingest_text() must forward all of this to the LLM without crashing.
+        Observed: result is True; mock LLM returns one card; card appears in output.
         """
         project_dir = make_gti_project(tmp_path)
         cfg = ProjectConfig.from_file(str(project_dir))
@@ -284,36 +744,13 @@ class TestRealOcrContentPatterns:
         data = json.loads(Path(output_path).read_text(encoding="utf-8"))
         assert len(data["new_cards"]) == 1
 
-    def test_ingest_sends_image_markers_and_visual_descriptions_to_llm(self, tmp_path):
-        """
-        The full OCR text (including Image: markers and [Visual Description: ...])
-        must be forwarded to the LLM intact so it can choose what to include.
-        _load_texts() must not strip these markers.
-        """
-        project_dir = make_gti_project(tmp_path)
-        cfg = ProjectConfig.from_file(str(project_dir))
-
-        ocr_file = tmp_path / "skript.txt"
-        ocr_file.write_text(REAL_SKRIPT_SNIPPET, encoding="utf-8")
-
-        captured = {}
-        def capture_llm(header_context, prompt_body, model=None):
-            captured["prompt"] = prompt_body
-            return json.dumps({"new_cards": []})
-
-        with patch("pdf2anki.text2anki.text_ingester.get_llm_decision",
-                   side_effect=capture_llm):
-            ingest_text([str(ocr_file)], cfg, str(tmp_path / "out.json"))
-
-        assert "Image: page_3.png" in captured["prompt"]
-        assert "Visual Description" in captured["prompt"] or "\\vfill" in captured["prompt"]
-        assert r"\Sigma" in captured["prompt"]
-
-    def test_multi_page_ocr_with_separators_as_two_file_ingest(self, tmp_path):
+    def test_ingest_two_ocr_files_joined_does_not_crash(self, tmp_path):
         """
         Student ingests skript.txt and uebung.txt together (two lecture sources).
-        Both are joined with '\\n\\n---\\n\\n' — the existing --- separators in
-        OCR output become part of a longer --- chain. Must not crash.
+        Both are joined with '\\n\\n---\\n\\n'. The existing '---' separators in
+        OCR output become part of a longer separator chain. Must not crash.
+        Observed: result is True when both REAL_SKRIPT_SNIPPET and REAL_UEBUNG_SNIPPET
+        are passed together.
         """
         project_dir = make_gti_project(tmp_path)
         cfg = ProjectConfig.from_file(str(project_dir))
@@ -328,71 +765,6 @@ class TestRealOcrContentPatterns:
             result = ingest_text([str(f1), str(f2)], cfg, str(tmp_path / "out.json"))
 
         assert result is True
-
-    def test_unicode_sigma_epsilon_in_card_front_detected_as_duplicate(self, tmp_path):
-        """
-        _normalize_text calls .lower() which maps Σ (U+03A3) → σ (U+03C3) in Python.
-        So 'Was ist Σ?' and 'Was ist σ?' ARE treated as duplicates — both normalize to
-        'was ist σ?'. This is a subtle GTI edge case: uppercase and lowercase Greek
-        letters are conflated in the deduplication logic.
-
-        Documented behavior (not necessarily desired): upper/lower Greek = duplicate.
-        """
-        db = make_db(tmp_path)
-        db.integrate_new([{"front": "Was ist Σ?", "back": "Das Eingabealphabet."}])
-        count_dup = db.integrate_new([{"front": "Was ist Σ?", "back": "Andere Antwort"}])
-        assert count_dup == 0, "Identical Greek front correctly deduplicated"
-
-        # Σ.lower() == σ in Python → treated as duplicate (counterintuitive but correct per impl)
-        count_case = db.integrate_new([{"front": "Was ist σ?", "back": "Kleines Sigma."}])
-        assert count_case == 0, "Σ and σ are conflated by .lower() — both normalize to σ"
-
-        # But genuinely different Greek letters are not duplicates
-        count_diff = db.integrate_new([{"front": "Was ist δ?", "back": "Übergangsfunktion."}])
-        assert count_diff == 1, "δ is a genuinely different character from Σ/σ"
-
-    def test_real_skript_ingest_produces_saveable_cards(self, tmp_path):
-        """
-        End-to-end: ingest real OCR snippet → cards contain <math> tags →
-        integrate into DB → save → load → fronts/backs intact.
-        """
-        project_dir = make_gti_project(tmp_path)
-        cfg = ProjectConfig.from_file(str(project_dir))
-
-        ocr_file = tmp_path / "skript.txt"
-        ocr_file.write_text(REAL_SKRIPT_SNIPPET, encoding="utf-8")
-
-        real_cards = [
-            {
-                "front": r"Was ist <math>\Sigma^*</math>?",
-                "back": r"Die Kleene-Hülle: Menge aller Wörter über <math>\Sigma</math>.",
-                "collection": "collection_0_Sprachen",
-                "category": "a_grundlagen",
-            },
-            {
-                "front": "Was ist ε (Epsilon) in formalen Sprachen?",
-                "back": r"Das leere Wort: <math>|\varepsilon| = 0</math>.",
-                "collection": "collection_0_Sprachen",
-                "category": "a_grundlagen",
-            },
-        ]
-        output_path = str(tmp_path / "new_cards_output.json")
-        with patch("pdf2anki.text2anki.text_ingester.get_llm_decision",
-                   return_value=json.dumps({"new_cards": real_cards})):
-            ingest_text([str(ocr_file)], cfg, output_path)
-
-        db = make_db(project_dir, config=cfg)
-        data = json.loads(Path(output_path).read_text(encoding="utf-8"))
-        db.integrate_new(data["new_cards"])
-
-        db.save_database()
-        db2 = make_db(project_dir, cards=None, config=cfg)
-        db2.cards = []
-        db2.load_database()
-
-        fronts = [c.front for c in db2.cards]
-        assert r"Was ist <math>\Sigma^*</math>?" in fronts
-        assert "Was ist ε (Epsilon) in formalen Sprachen?" in fronts
 
 
 # ─────────────────────────────────────────────────────────────────────────────

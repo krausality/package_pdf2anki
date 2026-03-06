@@ -2,7 +2,10 @@ import os
 import requests
 import json
 import getpass
+from dotenv import load_dotenv
 from .console_utils import safe_print
+
+load_dotenv()
 
 # --- NEUE, ROBUSTE SESSION-VERWALTUNG ---
 # Speichert die vollständigen JSON-Antworten jedes API-Aufrufs in der Session.
