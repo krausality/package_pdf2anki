@@ -40,7 +40,11 @@ class DatabaseManager:
 
         # Dependency Injection: Wenn kein MaterialManager übergeben wird, erstelle einen neuen.
         # Das macht den Code testbar, ohne die normale Funktionalität zu brechen.
-        self.material_manager = material_manager if material_manager is not None else MaterialManager()
+        if material_manager is not None:
+            self.material_manager = material_manager
+        else:
+            proj_dir = str(project_config.project_dir) if project_config else None
+            self.material_manager = MaterialManager(project_dir=proj_dir)
 
         # ProjectConfig-gesteuerte Werte (oder Defaults ohne Config)
         if project_config:
@@ -421,9 +425,15 @@ class DatabaseManager:
 
         collection_name = collection_name_match.group(1).strip() if collection_name_match else f"Unbenannte_Sammlung_{collection_id}"
         
-        # Create canonical collection key
+        # Create canonical collection key — prefer project_config casing over normalized lowercase
         normalized_coll_name = self._normalize_for_key(collection_name)
         collection_key = f"collection_{collection_id}_{normalized_coll_name}"
+        if self._config:
+            for key in self._config.collections:
+                parts = key.split('_')
+                if len(parts) >= 2 and parts[1] == str(collection_id):
+                    collection_key = key
+                    break
 
         # WICHTIG: Speichere das Display-Name-Mapping für diese Collection
         self._collection_display_names[collection_key] = collection_name
@@ -685,6 +695,80 @@ class DatabaseManager:
         """Normalisiert Text für Vergleiche."""
         return re.sub(r'\s+', ' ', text).strip().lower()
 
+    @staticmethod
+    def _has_mojibake(text: str) -> bool:
+        """Erkennt typische UTF-8→Latin-1 Korruption (z.B. 'Ã¼' statt 'ü')."""
+        _MARKERS = ['Ã¼', 'Ã¶', 'Ã¤', 'Ã©', 'Ã ', 'â€™', 'â€œ', 'â€']
+        return any(m in text for m in _MARKERS)
+
+    def _check_semantic_duplicates_llm(self, candidates: list, existing_cards: list) -> set:
+        """
+        Nutzt das LLM zur semantischen Duplikaterkennung.
+        Gibt eine Menge von Kandidaten-Indices zurück, die als Duplikate erkannt wurden.
+        Nur Kandidaten mit Token-Overlap > 0.3 zu bestehenden Karten werden ans LLM geschickt.
+        Bei LLM-Fehler: stille Rückgabe leerer Menge (kein Crash).
+        """
+        def token_set(text: str) -> set:
+            return set(re.sub(r'[^a-z0-9]', ' ', text.lower()).split())
+
+        # Pre-filter: nur Kandidaten mit signifikantem Token-Overlap weiterprüfen
+        candidates_to_check = []
+        for cand_idx, (i, card_data, front, back, norm_front) in enumerate(candidates):
+            cand_tokens = token_set(front)
+            overlapping = []
+            for ec in existing_cards:
+                if not ec.front:
+                    continue
+                ec_tokens = token_set(ec.front)
+                if not cand_tokens or not ec_tokens:
+                    continue
+                jaccard = len(cand_tokens & ec_tokens) / len(cand_tokens | ec_tokens)
+                if jaccard > 0.3:
+                    overlapping.append(ec.front)
+            if overlapping:
+                candidates_to_check.append((cand_idx, front, overlapping))
+
+        if not candidates_to_check:
+            return set()
+
+        # Baue kompakten LLM-Prompt
+        new_cards_text = "\n".join(
+            f'{li}: "{front}"' for li, (_, front, _) in enumerate(candidates_to_check)
+        )
+        all_existing_fronts = []
+        seen_fronts: set = set()
+        for _, _, overlapping in candidates_to_check:
+            for ef in overlapping:
+                if ef not in seen_fronts:
+                    seen_fronts.add(ef)
+                    all_existing_fronts.append(ef)
+        existing_text = "\n".join(
+            f'{chr(65 + i)}: "{ef}"' for i, ef in enumerate(all_existing_fronts[:20])
+        )
+
+        prompt = (
+            "Prüfe ob neue Kartenanfragen inhaltlich mit bestehenden Karten übereinstimmen.\n"
+            "Antworte NUR mit JSON: {\"duplicates\": [0, 1, ...]}\n\n"
+            f"NEUE KARTEN:\n{new_cards_text}\n\n"
+            f"BESTEHENDE KARTEN:\n{existing_text}\n\n"
+            "Welche neuen Karten (Nummer) sind inhaltliche Duplikate (gleiches Konzept) einer bestehenden Karte?"
+        )
+
+        try:
+            response = get_llm_decision(header_context=None, prompt_body=prompt)
+            if isinstance(response, str):
+                # Strip markdown code fences before parsing
+                cleaned = re.sub(r'^```(?:json)?\s*\n?', '', response.strip(), flags=re.MULTILINE)
+                cleaned = re.sub(r'\n?```\s*$', '', cleaned.strip(), flags=re.MULTILINE)
+                result = json.loads(cleaned.strip())
+            else:
+                result = {}
+            dup_local_indices = set(result.get("duplicates", []))
+            return {candidates_to_check[li][0] for li in dup_local_indices if li < len(candidates_to_check)}
+        except Exception as e:
+            safe_print(f"⚠️  LLM-Duplikaterkennung fehlgeschlagen, fahre ohne fort: {e}", "WARNING")
+            return set()
+
     def _normalize_for_key(self, text: str) -> str:
         """
         Normalisiert Text für interne Schlüssel mit korrekter Umlaut-Ersetzung.
@@ -802,14 +886,21 @@ class DatabaseManager:
         safe_print(f"✅ LLM hat Karte erfolgreich zugeordnet: {collection_key} -> {category_key}", "SUCCESS")
         return collection_key, category_key
 
-    def integrate_new(self, new_cards_data: List[Dict[str, Any]]) -> int:
+    def integrate_new(self, new_cards_data: List[Dict[str, Any]], use_llm_dedup: bool = True) -> int:
         """
-        Integrates new cards from a list of dictionaries into the database,
-        handling duplicates and assigning them to a default new-card category.
+        Integrates new cards from a list of dictionaries into the database.
+
+        Duplicate detection runs in two stages:
+        1. Text-normalization dedup (fast, always active).
+        2. Semantic LLM dedup for remaining candidates with token-overlap to existing cards
+           (active when use_llm_dedup=True, default). Pass use_llm_dedup=False for
+           text-only (manual) mode.
+
+        Collection assignment: if a card carries a 'collection' key that matches a
+        configured collection in project_config, that collection is used directly.
+        Otherwise the card lands in a new collection_N_Neue_Karten.
         """
         safe_print(f"🚀 Integriere {len(new_cards_data)} neue Karten...")
-        # This check is important. If cards are set manually in a test
-        # but the file doesn't exist, load_database() would overwrite the test data.
         if not self.cards and os.path.exists(self.db_path):
             self.load_database()
 
@@ -817,7 +908,7 @@ class DatabaseManager:
         added_count = 0
         now = datetime.now()
 
-        # Finde die höchste Collection-Nummer, um eine neue zu erstellen
+        # Fallback-Collection für Karten ohne gültige Zuweisung
         max_coll_num = -1
         for card in self.cards:
             try:
@@ -826,11 +917,14 @@ class DatabaseManager:
                     max_coll_num = num
             except (IndexError, ValueError):
                 continue
-        
+
         new_coll_num = max_coll_num + 1
         new_collection_key = f"collection_{new_coll_num}_Neue_Karten"
         new_category_key = "a_Unsortiert"
+        valid_collections = self._config.collections if self._config else {}
 
+        # ── Stufe 1: Text-Dedup + Encoding-Guard, Kandidatenliste aufbauen ──
+        candidates = []  # (original_index, card_data, front, back, normalized_front)
         for i, card_data in enumerate(new_cards_data):
             front = card_data.get("front", "").strip()
             back = card_data.get("back", "").strip()
@@ -839,25 +933,62 @@ class DatabaseManager:
                 safe_print(f" überspringe Karte ohne Front oder Back: {card_data}")
                 continue
 
+            # Bug 2: Encoding-Guard
+            if self._has_mojibake(front) or self._has_mojibake(back):
+                safe_print(
+                    f"⚠️  Karte mit korruptem Encoding übersprungen: '{front[:60]}' "
+                    f"— JSON-Datei bitte mit encoding='utf-8' öffnen", "WARNING"
+                )
+                continue
+
             normalized_front = self._normalize_text(front)
             if normalized_front in existing_fronts:
                 safe_print(f" überspringe doppelte Karte: '{front}'")
                 continue
 
-            sort_key = f"{new_coll_num:02d}_A_{i+1:02d}"
+            # Intra-Batch-Dedup: sofort in existing_fronts eintragen
+            existing_fronts.add(normalized_front)
+            candidates.append((i, card_data, front, back, normalized_front))
+
+        # ── Stufe 2: Semantisches LLM-Dedup (optional) ──
+        llm_dup_indices: set = set()
+        if use_llm_dedup and candidates and self.cards:
+            llm_dup_indices = self._check_semantic_duplicates_llm(candidates, self.cards)
+
+        # ── Stufe 3: Nicht-Duplikate einfügen ──
+        for cand_idx, (i, card_data, front, back, normalized_front) in enumerate(candidates):
+            if cand_idx in llm_dup_indices:
+                safe_print(f" überspringe semantisch doppelte Karte (LLM): '{front}'")
+                continue
+
+            # Bug 1: collection/category aus LLM-Output respektieren
+            card_collection_input = card_data.get("collection")
+            if card_collection_input and card_collection_input in valid_collections:
+                use_collection_key = card_collection_input
+                try:
+                    use_coll_num = int(card_collection_input.split('_')[1])
+                except (IndexError, ValueError):
+                    use_coll_num = new_coll_num
+            else:
+                use_collection_key = new_collection_key
+                use_coll_num = new_coll_num
+
+            card_category_input = card_data.get("category")
+            use_category_key = card_category_input if card_category_input else new_category_key
+
+            sort_key = f"{use_coll_num:02d}_A_{i+1:02d}"
             new_card = AnkiCard(
                 guid=str(uuid.uuid4()),
                 front=front,
                 back=back,
-                collection=new_collection_key,
-                category=new_category_key,
+                collection=use_collection_key,
+                category=use_category_key,
                 sort_field=self._generate_sort_field(sort_key, front),
-                tags=self._generate_tags(new_collection_key, new_category_key),
+                tags=self._generate_tags(use_collection_key, use_category_key),
                 created_at=now,
                 updated_at=now
             )
             self.cards.append(new_card)
-            existing_fronts.add(normalized_front)
             added_count += 1
 
         if added_count > 0:
@@ -865,7 +996,7 @@ class DatabaseManager:
             safe_print(f"✅ {added_count} neue Karten erfolgreich integriert.")
         else:
             safe_print("ℹ️ Keine neuen Karten hinzugefügt.")
-        
+
         return added_count
 
     def distribute_to_derived_files(self, output_dir: str):
@@ -1930,7 +2061,8 @@ class DatabaseManager:
         
         # 2. Regeneriere abgeleitete Dateien aus der SSOT
         safe_print("  -> Regeneriere abgeleitete Dateien aus SSOT...")
-        if not self.distribute_to_derived_files('.'):
+        output_dir = os.path.dirname(os.path.abspath(self.db_path))
+        if not self.distribute_to_derived_files(output_dir):
             safe_print("❌ Fehler beim Regenerieren der abgeleiteten Dateien.")
             return False
         

@@ -172,6 +172,9 @@ class WorkflowManager:
         """
         safe_print("\n=== 🚀 Starting '--integrate' Workflow ===")
 
+        # Projektverzeichnis aus db_path ableiten (Bug 5: nicht CWD verwenden)
+        _project_output_dir = os.path.dirname(os.path.abspath(self.db_manager.db_path))
+
         # Load pending cards early for the integrity check
         pending_cards = []
         if os.path.exists(self.new_cards_file):
@@ -200,7 +203,7 @@ class WorkflowManager:
         if not skip_gate:
             safe_print("  -> Step 1 (GATE): Verifying pre-integration integrity...")
             safe_print(f"    (Accounting for {len(pending_cards)} pending card(s) from '{self.new_cards_file}')")
-            is_ok, message = self.db_manager.verify_integrity('.', pending_new_cards=pending_cards)
+            is_ok, message = self.db_manager.verify_integrity(_project_output_dir, pending_new_cards=pending_cards)
             if not is_ok:
                 safe_print("❌ ERROR: System is in an inconsistent state.")
                 safe_print("Please run 'python workflow_manager.py --extract' to repair and resynchronize the system.")
@@ -234,12 +237,12 @@ class WorkflowManager:
 
         # 3. Distribute
         safe_print("  -> Step 3: Distributing changes to derived files...")
-        self.db_manager.distribute_to_derived_files('.')
+        self.db_manager.distribute_to_derived_files(_project_output_dir)
         safe_print("  ✅ OK: Derived files were updated.")
 
         # 4. GATE: Verify
         safe_print("  -> Step 4 (GATE): Verifying post-integration integrity...")
-        is_ok, message = self.db_manager.verify_integrity('.')
+        is_ok, message = self.db_manager.verify_integrity(_project_output_dir)
         if not is_ok:
             safe_print(f"❌ CRITICAL ERROR: System is inconsistent after integration. This indicates a bug. Details: {message}")
             return False

@@ -1751,7 +1751,8 @@ class TestWorkflowManagerIntegration:
         assert result is True
         assert len(wm.db_manager.cards) > cards_before, \
             "new_cards key must now be recognized and cards integrated"
-        assert not new_cards_file.exists(), \
+        archived = list(project_dir.glob("new_cards_output.json.processed_*"))
+        assert len(archived) == 1, \
             "new_cards_output.json must be archived after successful integration"
 
     def test_integrate_workflow_succeeds_with_plain_list_format(self, tmp_path):
@@ -1789,7 +1790,8 @@ class TestWorkflowManagerIntegration:
         # With plain list format, cards ARE integrated and file IS archived
         assert len(wm.db_manager.cards) > cards_before, \
             "New card should be added when using plain list format"
-        assert not new_cards_file.exists(), \
+        archived = list(project_dir.glob("new_cards_output.json.processed_*"))
+        assert len(archived) == 1, \
             "new_cards_output.json must be archived after successful integration"
 
     def test_export_workflow_uses_relative_import(self, tmp_path):

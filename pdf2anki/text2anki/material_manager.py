@@ -18,8 +18,12 @@ from pathlib import Path
 from .console_utils import safe_print
 
 class MaterialManager:
-    def __init__(self, config_file="workflow_config.json"):
-        self.config_file = config_file
+    def __init__(self, config_file="workflow_config.json", project_dir=None):
+        if project_dir:
+            candidate = os.path.join(project_dir, config_file)
+            self.config_file = candidate if os.path.exists(candidate) else config_file
+        else:
+            self.config_file = config_file
         self.config = self.load_config()
         
     def load_config(self):

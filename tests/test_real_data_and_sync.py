@@ -791,14 +791,16 @@ class TestSyncWorkflow:
 
     def test_sync_from_ssot_generates_derived_files(self, tmp_path):
         """
-        sync_from_ssot() with cards in memory calls distribute_to_derived_files('.').
-        Derived files must be written to the current directory.
+        sync_from_ssot() calls distribute_to_derived_files with the directory of db_path,
+        not with '.'. Derived files land next to the database, not in CWD.
         """
+        import os
         db = self._make_db_with_cards(tmp_path)
+        expected_dir = os.path.dirname(os.path.abspath(db.db_path))
         with patch.object(db, 'distribute_to_derived_files', return_value=True) as mock_dist:
             result = db.sync_from_ssot()
         assert result is True
-        mock_dist.assert_called_once_with('.')
+        mock_dist.assert_called_once_with(expected_dir)
 
     def test_sync_from_ssot_loads_db_if_cards_empty(self, tmp_path):
         """
