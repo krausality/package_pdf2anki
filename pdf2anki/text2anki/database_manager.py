@@ -1263,9 +1263,14 @@ class DatabaseManager:
                             content2 = f2.read()
                             live_data_raw = json.loads(content2)
                             
+                            # If live file is in ingest format ({"new_cards": [...]}),
+                            # skip content comparison — it's valid pending state
+                            if 'new_cards' in live_data_raw:
+                                continue
+
                             # Reconstruct the live data as the workflow_manager would see it
                             reconstructed_live_data = self._reconstruct_live_data_with_metadata(live_data_raw)
-                            
+
                             # Compare the simulated data with the reconstructed live data
                             expected_json = json.dumps(expected_data, sort_keys=True)
                             live_json = json.dumps(reconstructed_live_data, sort_keys=True)
