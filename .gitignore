@@ -9,9 +9,9 @@
 !setup.py
 !test.py
 !README.md
-!LICENSE.txt
+!LICENSE
 !MANIFEST.in
-!NOTICE.txt
+!NOTICE
 !pyproject.toml
 !README.md
 !BUILD.md
