@@ -21,6 +21,8 @@ from .database_manager import DatabaseManager
 from .prompt_updater import TemplatePromptUpdater
 from .console_utils import safe_print
 from .project_config import ProjectConfig
+from .llm_discovery import LLMDiscoveryLoop
+from .guided_wizard import run_guided_wizard
 
 class WorkflowManager:
     """
@@ -350,6 +352,46 @@ class WorkflowManager:
             skip_export=skip_export,
         )
 
+def _run_init(project_dir: str, project_name: str, no_llm: bool, turns: int, reconfig: bool) -> None:
+    """
+    Initialise a project. Uses LLM discovery by default, guided wizard with --no-llm.
+    Falls back to create_template() when LLM is unavailable or discovery fails.
+    """
+    base = Path(project_dir)
+
+    if no_llm:
+        data = run_guided_wizard(base)
+        data["project_name"] = project_name
+        data["tag_prefix"] = data.get("tag_prefix") or project_name.replace(" ", "_").upper()
+        ProjectConfig.create_from_dict(project_dir, data, overwrite=reconfig)
+        safe_print(f"Projekt '{project_name}' initialisiert: {base / 'project.json'}")
+        safe_print("   Nächster Schritt: --ingest oder --extract")
+        return
+
+    # LLM discovery
+    safe_print(f"LLM Discovery für Projekt '{project_name}'...")
+    result = LLMDiscoveryLoop(base_dir=base, max_turns=turns).run()
+
+    if result is None:
+        safe_print("LLM Discovery fehlgeschlagen — nutze Standard-Template.", "WARNING")
+        ProjectConfig.create_template(project_dir, project_name)  # backward-compat fallback
+        safe_print("   -> Bitte project.json editieren: domain, collections anpassen.")
+        return
+
+    data = result.project_json
+    data["project_name"] = project_name
+    data["tag_prefix"] = data.get("tag_prefix") or project_name.replace(" ", "_").upper()
+
+    if not result.skip_confirm:
+        safe_print("\n--- Generierte project.json ---")
+        safe_print(json.dumps(data, indent=2, ensure_ascii=False))
+        safe_print("-------------------------------")
+
+    ProjectConfig.create_from_dict(project_dir, data, overwrite=reconfig)
+    safe_print(f"Projekt '{project_name}' initialisiert: {base / 'project.json'}")
+    safe_print("   Nächster Schritt: --ingest oder --extract")
+
+
 def main():
     """
     Main entry point for the script. Parses arguments and runs the selected workflow.
@@ -411,6 +453,14 @@ def main():
                         help="Use LLM to complete missing backs.")
     parser.add_argument("--llm-categorize-orphans", action="store_true",
                         help="Use LLM to categorize orphaned cards.")
+
+    # Discovery / init options
+    parser.add_argument("--no-llm", action="store_true",
+                        help="Use guided wizard instead of LLM for --init.")
+    parser.add_argument("--turns", type=int, default=5, metavar="N",
+                        help="Max LLM discovery turns for --init (default: 5).")
+    parser.add_argument("--reconfig", action="store_true",
+                        help="Re-run LLM discovery on existing project.json (overwrite).")
     args = parser.parse_args()
 
     # Handle --auto-all shortcut
@@ -427,10 +477,14 @@ def main():
 
     # --init doesn't require a project.json yet — handle separately
     if args.init:
-        from pathlib import Path
         project_dir = str(Path(args.project).resolve())
-        ProjectConfig.create_template(project_dir, args.init)
-        safe_print("   Nächster Schritt: project.json editieren, dann --ingest oder --extract")
+        _run_init(
+            project_dir=project_dir,
+            project_name=args.init,
+            no_llm=args.no_llm,
+            turns=args.turns,
+            reconfig=args.reconfig,
+        )
         return
 
     manager = WorkflowManager(project_dir=args.project)
