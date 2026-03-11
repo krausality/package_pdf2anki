@@ -763,6 +763,32 @@ def set_config_value(args: argparse.Namespace) -> None:
 
 
 def cli_invoke() -> None:
+    # Early intercept for '.' — lazy mode (pdf2anki .)
+    if len(sys.argv) > 1 and sys.argv[1] == '.':
+        import argparse as _ap
+        _parser = _ap.ArgumentParser(
+            prog="pdf2anki .",
+            description="Lazy mode: auto-detect pipeline state and run all pending steps.",
+        )
+        _parser.add_argument("--turns", type=int, default=5, metavar="N",
+                             help="Max LLM discovery turns (default: 5).")
+        _parser.add_argument("--no-llm", action="store_true",
+                             help="Use guided wizard instead of LLM discovery.")
+        _parser.add_argument("--reconfig", action="store_true",
+                             help="Re-run discovery even if project.json already exists.")
+        _parser.add_argument("--ocr-model", type=str, default=None, metavar="MODEL",
+                             help="OCR model for pending PDFs (default: google/gemini-2.5-flash).")
+        _args = _parser.parse_args(sys.argv[2:])
+        from .text2anki.lazy_runner import run_lazy_mode
+        run_lazy_mode(
+            base_dir=Path.cwd(),
+            turns=_args.turns,
+            no_llm=_args.no_llm,
+            reconfig=_args.reconfig,
+            ocr_model=_args.ocr_model,
+        )
+        return
+
     # Early intercept for 'workflow' subcommand — delegate directly to workflow_manager
     # before argparse tries to parse workflow-specific flags (--project, --extract, etc.)
     if len(sys.argv) > 1 and sys.argv[1] == 'workflow':
