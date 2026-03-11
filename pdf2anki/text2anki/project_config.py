@@ -146,6 +146,36 @@ class ProjectConfig:
         safe_print(f"   -> Bitte project.json editieren: domain, collections anpassen.")
         return cls.from_file(project_dir)
 
+    @classmethod
+    def create_from_dict(cls, project_dir: str, data: dict, overwrite: bool = False) -> 'ProjectConfig':
+        """
+        Validate data and write it as project.json into project_dir.
+
+        Args:
+            project_dir: Target directory (created if absent).
+            data:        Dict matching the project.json schema.
+            overwrite:   If False (default), raise FileExistsError when
+                         project.json already exists.
+
+        Returns:
+            ProjectConfig loaded from the newly written file.
+        """
+        os.makedirs(project_dir, exist_ok=True)
+        path = Path(project_dir) / 'project.json'
+
+        if path.exists() and not overwrite:
+            raise FileExistsError(
+                f"project.json existiert bereits in: {project_dir}\n"
+                f"Nutzen Sie overwrite=True oder --reconfig um es zu überschreiben."
+            )
+
+        cls._validate(data, str(path))
+
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+        return cls.from_file(project_dir)
+
     @staticmethod
     def _validate(data: dict, source_path: str = 'project.json'):
         """Prüft Pflichtfelder und Konsistenz. Wirft ValueError bei Problemen."""
