@@ -93,3 +93,58 @@ def get_llm_decision(header_context, prompt_body, model="google/gemini-2.5-flash
         safe_print(f"Unerwartete API-Antwortstruktur: {e}", "ERROR")
         _session_responses.append({"error": f"Invalid response structure: {e}"})
         return None
+
+
+def get_llm_conversation_turn(
+    conversation_history: list,
+    new_user_message: str,
+    model: str = "google/gemini-2.5-flash",
+) -> str | None:
+    """
+    Send one turn in a multi-turn conversation and return the assistant reply.
+
+    conversation_history is mutated in-place: the new user message and the
+    assistant reply are both appended so the caller can continue the loop.
+    Returns the reply text, or None on any failure.
+    """
+    if not API_KEY and not _initialize_api_key():
+        return None
+
+    conversation_history.append({"role": "user", "content": new_user_message})
+
+    try:
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
+            data=json.dumps({
+                "model": model,
+                "messages": conversation_history,
+                "temperature": 0.1,
+                "usage": {"include": True},
+            }),
+            timeout=60,
+        )
+        response.raise_for_status()
+        response_data = response.json()
+
+        _session_responses.append(response_data)
+
+        content = response_data["choices"][0]["message"]["content"].strip()
+        conversation_history.append({"role": "assistant", "content": content})
+
+        usage = response_data.get("usage", {})
+        cost = usage.get("cost", 0.0)
+        safe_print(f"LLM turn successful. Cost: ${cost:.8f}", "INFO")
+
+        return content
+
+    except requests.exceptions.RequestException as e:
+        safe_print(f"API-Anfrage fehlgeschlagen: {e}", "ERROR")
+        _session_responses.append({"error": str(e)})
+        conversation_history.pop()  # remove the user message we appended
+        return None
+    except (KeyError, IndexError) as e:
+        safe_print(f"Unerwartete API-Antwortstruktur: {e}", "ERROR")
+        _session_responses.append({"error": f"Invalid response structure: {e}"})
+        conversation_history.pop()
+        return None
