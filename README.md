@@ -8,25 +8,51 @@
 PDF  ──pdf2pic──►  Images  ──pic2text──►  Text  ──text2anki──►  Anki Deck (.apkg)
 ```
 
+For semester-long projects with multiple chapters, the **SSOT workflow** adds a structured card database layer:
+
+```
+PDFs  ──pdf2text──►  .txt  ──workflow --ingest──►  new_cards_output.json
+                                                           │
+                                              workflow --integrate
+                                                           │
+                                                   card_database.json (SSOT)
+                                                           │
+                                              workflow --export
+                                                           │
+                                                    deck.apkg (per collection)
+```
+
+Or let the tool figure everything out automatically:
+
+```
+pdf2anki .   ──►  scans directory, infers state, runs all pending steps
+```
+
 ## Quick Start
 
 ```bash
 # 1. Install (editable, inside a virtual environment)
 pip install --editable .
 
-# 2. Set a default OCR model and a default Anki-generation model
-pdf2anki config set default_model      google/gemini-2.0-flash-001
-pdf2anki config set default_anki_model google/gemini-2.0-flash-001
+# 2. Set a default OCR model
+pdf2anki config set default_model      google/gemini-2.5-flash
+pdf2anki config set default_anki_model google/gemini-2.5-flash
 
-# 3a. Full pipeline for a single PDF
+# 3a. Lazy mode — drop PDFs in a folder, run one command, get Anki cards
+#     The tool scans the directory, auto-configures the project via LLM, and
+#     runs every pending pipeline step automatically.
+cd my_lecture_folder/
+pdf2anki .
+
+# 3b. Full pipeline for a single PDF (manual)
 pdf2anki process lecture.pdf ./images/ lecture.apkg
 
-# 3b. Or step by step
+# 3c. Or step by step (manual)
 pdf2anki pdf2pic   lecture.pdf ./images/
 pdf2anki pic2text  ./images/   lecture.txt
 pdf2anki text2anki lecture.txt lecture.apkg
 
-# 3c. Already have cards as JSON? Convert offline, no API key needed
+# 3d. Already have cards as JSON? Convert offline, no API key needed
 pdf2anki json2anki cards.json
 ```
 
@@ -35,7 +61,7 @@ pdf2anki json2anki cards.json
 ## General Notes & License Summary
 
 - **License & Usage Restrictions**
-  This software is licensed under the terms specified in `LICENSE.txt`, authored by Martin Krause.
+  This software is licensed under the terms specified in `LICENSE`, authored by Martin Krause.
   **Usage is limited** to:
   1. Students enrolled at accredited institutions
   2. Individuals with an annual income below 15,000€
@@ -44,19 +70,20 @@ pdf2anki json2anki cards.json
   For commercial usage (including any server-based deployments), please contact the author at:
   martinkrausemediaATgmail.com
 
-  Refer to the `NOTICE.txt` file for details on dependencies and third-party libraries.
+  Refer to the `NOTICE` file for details on dependencies and third-party libraries.
 
 - **CLI Overview**
   The script is invoked through a single entry-point (e.g., `pdf2anki` or `python -m pdf2anki`), followed by a **command**. Each command has its own set of parameters and optional flags. A global `-v` or `--verbose` flag can be added before the command to enable detailed debug logging.
 
   The main commands are:
+  0.  **`pdf2anki .`**: **Lazy mode** — scans the current directory, uses LLM to auto-configure `project.json`, infers pipeline state per PDF, and runs all pending steps (OCR → ingest → integrate → export) automatically. The recommended starting point for new projects. See [Section 8](#8-lazy-mode-pdf2anki-).
   1.  **`pdf2pic`**: Convert PDF pages to images, with optional advanced cropping.
   2.  **`pic2text`**: Perform OCR on images using one or more models, with an optional judge model to select the best result.
   3.  **`pdf2text`**: A comprehensive pipeline to convert a PDF (or a directory of PDFs) directly to text, utilizing `pdf2pic` and `pic2text` functionalities internally. Supports batch processing with parallel execution.
   4.  **`text2anki`**: Convert a pre-existing text file into an Anki deck (simple, one-shot).
   5.  **`json2anki`**: Convert a JSON file (or all JSON files in a directory) containing flashcards to an Anki deck (no LLM). Supports optional fields for advanced organization: tags, guid, sort_field, due. The output file is optional and defaults to the same name as the input with `.apkg` extension. Supports bulk processing for directories. Includes `--show-format` to display expected JSON structure with examples.
   6.  **`process`**: The full end-to-end pipeline: PDF → images → text → Anki deck for a single PDF.
-  7.  **`workflow`**: **Project-based SSOT card management** — ingest text via LLM, integrate into a structured card database, sync derived files, export `.apkg`. This is the recommended entry point for semester-long learning projects. See [Section 7](#7-advanced-ssot-text2anki-workflow).
+  7.  **`workflow`**: **Project-based SSOT card management** — ingest text via LLM, integrate into a structured card database, sync derived files, export `.apkg`. This is the recommended entry point for semester-long learning projects when you want granular control. See [Section 7](#7-advanced-ssot-text2anki-workflow).
   8.  **`config`**: View or set persistent configuration options, such as default models and OCR presets.
 
 ---
@@ -685,11 +712,27 @@ my_project/
 ### Setup
 
 ```bash
-# Initialize a new project (creates project.json template)
+# Initialize a new project — LLM scans the project directory and auto-populates
+# project.json (collections, domain, filenames) based on what it finds there.
 pdf2anki workflow --init "MeinKurs" --project ./my_project/
 
-# Then edit project.json to define collections, language, domain, LLM model
+# Use --no-llm to skip LLM discovery and fill in all fields interactively instead
+pdf2anki workflow --init "MeinKurs" --project ./my_project/ --no-llm
+
+# Use --turns N to control how many PDF pages the LLM is allowed to read (default: 5)
+pdf2anki workflow --init "MeinKurs" --project ./my_project/ --turns 10
+
+# Use --reconfig to re-run LLM discovery on an existing project.json
+pdf2anki workflow --init "MeinKurs" --project ./my_project/ --reconfig
 ```
+
+**`--init` behavior:**
+- **With LLM (default):** The LLM inspects the directory tree, reads TOC pages from PDFs, and proposes a fully populated `project.json`. If confident, it writes and starts the pipeline immediately (`skip_confirm=true`). Otherwise it shows a preview for confirmation first.
+- **With `--no-llm`:** An interactive CLI wizard walks you through every field — including the mandatory `filename` per collection — with sane defaults pre-filled.
+- **Fallback:** If LLM discovery fails (API error, max turns exceeded), the tool automatically falls back to the blank template (same as before this feature).
+
+> **Hinweis:** `"filename"` ist ein Pflichtfeld pro Collection (muss auf `.json` enden).
+> Sowohl der LLM-Modus als auch der Wizard generieren es automatisch — bei manuellem `project.json` muss es selbst gesetzt werden.
 
 **`project.json` minimal example:**
 ```json
@@ -718,9 +761,6 @@ pdf2anki workflow --init "MeinKurs" --project ./my_project/
   "llm": { "model": "google/gemini-2.5-flash", "temperature": 0.1 }
 }
 ```
-
-> **Hinweis:** `"filename"` ist ein Pflichtfeld pro Collection (muss auf `.json` enden).
-> `--init` generiert es automatisch — bei manuellem `project.json` muss es selbst gesetzt werden.
 
 ### Workflow commands
 
@@ -791,6 +831,83 @@ This is by design: exercise-style application cards complement definition cards 
 
 ---
 
+## 8. Lazy Mode: `pdf2anki .`
+
+**Purpose**
+The maximum-convenience entry point. Run a single command in any folder containing PDF lecture materials and the tool handles everything: it scans the directory, uses an LLM to auto-configure the project, infers which pipeline steps are already done, and executes the rest.
+
+**Syntax**
+```bash
+pdf2anki . [OPTIONS...]
+```
+
+**Optional Arguments**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--turns N` | `5` | Max LLM discovery turns — how many pages/files the LLM can read before finalizing `project.json`. |
+| `--no-llm` | off | Skip LLM discovery; use the interactive wizard instead. |
+| `--reconfig` | off | Re-run discovery even if `project.json` already exists (overwrites it). |
+| `--ocr-model MODEL` | `google/gemini-2.5-flash` | OCR model for PDFs that have not been OCR'd yet. |
+
+**How it works — step by step**
+
+1. **Directory scan** — Recursively finds all `.pdf` and `.txt` files, ignoring `pdf2pic/` and `log_archive/`. Infers pipeline state per PDF:
+
+   | Signal | State |
+   |--------|-------|
+   | `.txt` exists, no `ocr_state.json` (archived) | OCR done |
+   | `ocr_state.json` present with `run_status=running` | OCR in progress |
+   | `ocr_state.json` present with `run_status=paused` | OCR paused |
+   | no `.txt` | OCR pending |
+
+2. **Project configuration** — If `project.json` is missing (or `--reconfig` is set):
+   - **LLM mode (default):** A multi-turn discovery loop sends the directory listing to an LLM. The LLM requests specific PDF pages and TXT excerpts until it has enough context, then outputs a complete `project.json` hypothesis.
+     - `skip_confirm=true` → written and executed immediately (high-confidence case).
+     - `skip_confirm=false` → preview shown, user confirms `[y/n]`.
+   - **Wizard mode (`--no-llm`):** Interactive prompts for every required field.
+   - **Fallback:** If LLM fails, automatically switches to wizard.
+
+3. **Plan display** — A pipeline plan is printed showing OCR/ingest/export status per PDF.
+
+4. **Execution:**
+   - PDFs with `ocr=pending` → `pdf2pic` + `pic2text` (using `--ocr-model`).
+   - OCR-complete `.txt` files → `workflow --ingest` → `workflow --integrate`.
+   - If the card database has content → `workflow --export`.
+
+**Examples**
+
+```bash
+# Maximum-lazy: enter a folder with PDFs and run
+cd gti_lectures/
+pdf2anki .
+
+# Use wizard instead of LLM (no API call for project setup)
+pdf2anki . --no-llm
+
+# Give the LLM more reading budget (reads more PDF pages for better collection inference)
+pdf2anki . --turns 10
+
+# Re-detect project structure even though project.json exists
+pdf2anki . --reconfig
+
+# Use a specific OCR model for pending PDFs
+pdf2anki . --ocr-model "google/gemini-2.0-flash-001"
+```
+
+**Two-mode design**
+
+| Use case | Command |
+|----------|---------|
+| Maximum automation, trust the LLM | `pdf2anki .` |
+| Control every detail | `pdf2anki workflow --init ... --ingest ... --integrate ... --export` |
+| Auto-run but fill config manually | `pdf2anki . --no-llm` |
+| Re-detect project structure | `pdf2anki . --reconfig` |
+
+> **Note:** `pdf2anki .` is designed for the common case where your working directory is the project root and all PDFs live there (possibly in subdirectories). For more complex layouts or when you need fine-grained control over OCR settings (judge models, repeat counts, cropping), use the individual commands directly.
+
+---
+
 ## Testing
 
 The test suite covers all modules with mocked external dependencies — no network, no real PDFs required.
@@ -812,6 +929,7 @@ python -m pytest tests/test_database_manager.py -v
 |-----------|----------------|
 | `test_card.py` | `AnkiCard` serialization, defaults, roundtrip |
 | `test_project_config.py` | `ProjectConfig` loading, validation, path helpers |
+| `test_project_config_create_from_dict.py` | `create_from_dict()`, overwrite guard, validation-before-write |
 | `test_database_manager.py` | SSOT load/save/find/integrate/bootstrap/distribute |
 | `test_text_ingester.py` | LLM prompt building, response parsing, file ingestion |
 | `test_apkg_exporter.py` | `.apkg` generation, stable IDs, collection grouping |
@@ -819,6 +937,12 @@ python -m pytest tests/test_database_manager.py -v
 | `test_pdf2pic.py` | DPI finding, full-page and crop-mode conversion |
 | `test_pic2text.py` | OCR state machine, resume/pause, API mocking |
 | `test_core_config.py` | `load_config`, `save_config`, `get_default_model` |
+| `test_pipeline_state.py` | OCR/ingest/export state inference, directory scan, ignore rules |
+| `test_llm_helper_conversation.py` | `get_llm_conversation_turn()`, history mutation, error rollback |
+| `test_llm_discovery.py` | `LLMDiscoveryLoop`: tool dispatch, JSON parsing, max-turns fallback |
+| `test_guided_wizard.py` | Wizard prompts, defaults, collection key/filename derivation |
+| `test_lazy_runner.py` | `run_lazy_mode()`: discovery flow, pipeline execution, abort on decline |
+| `test_workflow_manager_init.py` | `_run_init()`, `--no-llm`, CLI name override, LLM fallback, dot intercept |
 | `test_regression_e2e.py` | End-to-end workflow regression tests |
 | `test_real_data_and_sync.py` | SSOT sync, integrity verification |
 | `test_specification.py` | Behavioral specification tests |
@@ -829,22 +953,26 @@ python -m pytest tests/test_database_manager.py -v
 
 ```
 pdf2anki/
-  core.py               ← CLI entry point (pdf2anki / python -m pdf2anki)
+  core.py               ← CLI entry point; early intercepts for `pdf2anki .` and `workflow`
   pdf2pic.py            ← PDF → image conversion (pymupdf)
-  pic2text.py           ← OCR via OpenRouter (multi-model, resume/pause)
+  pic2text.py           ← OCR via OpenRouter (multi-model, resume/pause, atomic state)
   text2anki/
     __init__.py         ← convert_text_to_anki, convert_json_to_anki
     card.py             ← AnkiCard dataclass (SSOT data model)
-    project_config.py   ← ProjectConfig (loads project.json)
+    project_config.py   ← ProjectConfig (loads/validates project.json; create_from_dict)
     database_manager.py ← SSOT operations (bootstrap, integrate, distribute, dedup)
     text_ingester.py    ← TextFileIngestor (text → card candidates via LLM)
     apkg_exporter.py    ← ApkgExporter (cards → .apkg via genanki)
-    workflow_manager.py ← WorkflowManager (orchestrates SSOT workflows; entry point for `pdf2anki workflow`)
-    llm_helper.py       ← get_llm_decision() via OpenRouter (auto-loads .env)
+    workflow_manager.py ← WorkflowManager + _run_init() (SSOT workflows; `pdf2anki workflow`)
+    llm_helper.py       ← get_llm_decision() + get_llm_conversation_turn() via OpenRouter
     material_manager.py ← Course material loading (workflow_config.json)
     prompt_updater.py   ← LLM prompt template management
+    pipeline_state.py   ← Race-condition-free OCR/ingest/export state inference (new)
+    llm_discovery.py    ← LLMDiscoveryLoop: multi-turn LLM project.json generation (new)
+    guided_wizard.py    ← Interactive CLI wizard for --no-llm project setup (new)
+    lazy_runner.py      ← run_lazy_mode(): orchestrates `pdf2anki .` full pipeline (new)
 tests/
-  conftest.py + test_*.py   ← 364 tests; most fully offline, a few require OPENROUTER_API_KEY
+  conftest.py + test_*.py   ← 459 tests; most fully offline, a few require OPENROUTER_API_KEY
 ```
 
 ---
