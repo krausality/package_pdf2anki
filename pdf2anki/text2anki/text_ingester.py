@@ -141,24 +141,23 @@ class TextFileIngestor(IngestorBase):
         return templates.get(language, templates['en'])
 
     def _parse_response(self, response: str) -> dict:
-        """Extrahiert JSON aus LLM-Antwort (robust gegen Markdown-Code-Blöcke und Prose)."""
+        """Extrahiert JSON aus LLM-Antwort (robust gegen Markdown, Prose, LaTeX-Escaping, Trunkierung)."""
         text = response.strip()
+        if not text:
+            return {"new_cards": []}
 
-        # Strategy 1: direct parse (clean JSON)
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            pass
+        # Strategy 1: direct parse (with repair for LaTeX backslashes etc.)
+        result = self._try_parse_json(text)
+        if result is not None:
+            return self._normalize_result(result)
 
-        # Strategy 2: extract content from markdown fences (any language tag)
-        fence_match = re.search(r'```\w*\s*\n(.*?)\n\s*```', text, re.DOTALL)
-        if fence_match:
-            try:
-                return json.loads(fence_match.group(1).strip())
-            except json.JSONDecodeError:
-                pass
+        # Strategy 2: extract from markdown fences (try all matches)
+        for fence_match in re.finditer(r'```\w*\s*\n(.*?)\n\s*```', text, re.DOTALL):
+            result = self._try_parse_json(fence_match.group(1).strip())
+            if result is not None:
+                return self._normalize_result(result)
 
-        # Strategy 3: find outermost { ... } with brace matching
+        # Strategy 3: brace matching (first { to balanced })
         start = text.find('{')
         if start != -1:
             depth = 0
@@ -168,13 +167,148 @@ class TextFileIngestor(IngestorBase):
                 elif text[i] == '}':
                     depth -= 1
                     if depth == 0:
-                        try:
-                            return json.loads(text[start:i + 1])
-                        except json.JSONDecodeError:
-                            break
+                        result = self._try_parse_json(text[start:i + 1])
+                        if result is not None:
+                            return self._normalize_result(result)
+                        break
 
+        # Strategy 4: greedy — first { to last }
+        if start is not None and start != -1:
+            last_brace = text.rfind('}')
+            if last_brace > start:
+                result = self._try_parse_json(text[start:last_brace + 1])
+                if result is not None:
+                    return self._normalize_result(result)
+
+        # Strategy 5: truncated JSON recovery
+        if start is not None and start != -1:
+            result = self._try_parse_truncated(text[start:])
+            if result is not None:
+                n = len(result.get("new_cards", []))
+                safe_print(f"  -> ⚠️ JSON war abgeschnitten — {n} Karten aus unvollständiger Antwort gerettet.", "WARNING")
+                return self._normalize_result(result)
+
+        # All strategies failed — dump raw response for debugging
+        self._dump_debug_response(response)
         safe_print(f"  -> ⚠️ JSON-Parsing fehlgeschlagen. Antwort-Länge: {len(text)} Zeichen.", "WARNING")
         return {"new_cards": []}
+
+    # ── JSON repair helpers ───────────────────────────────────────────────────
+
+    def _try_parse_json(self, text: str):
+        """Parse JSON, falling back to repair for LLM issues (LaTeX escapes, trailing commas)."""
+        # Try direct parse first — preserves valid \b and \f if present
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+        # Fall back to repair (fixes \delta, \Sigma, \frac, trailing commas, etc.)
+        repaired = self._repair_json(text)
+        try:
+            return json.loads(repaired)
+        except json.JSONDecodeError:
+            return None
+
+    def _repair_json(self, text: str) -> str:
+        """Fix invalid backslash escapes and trailing commas in LLM-generated JSON.
+
+        LLMs generating STEM content (LaTeX formulas, regex, file paths) produce
+        invalid JSON escapes like \\delta, \\Sigma, \\frac, \\in, \\{, \\}.
+        Python's json.loads() strictly rejects these.  This method escapes them
+        as \\\\delta etc., preserving the original content in the parsed string.
+
+        Note: \\b (backspace) and \\f (form feed) are also escaped because they
+        never appear intentionally in Anki card content but ARE common LaTeX
+        prefixes (\\beta, \\begin, \\frac, \\forall).  This only runs as a
+        fallback after direct json.loads() has already failed.
+        """
+        # Step 1: Protect already-escaped backslashes (\\) with a placeholder
+        PLACEHOLDER = '\x00ESCAPED_BS\x00'
+        text = text.replace('\\\\', PLACEHOLDER)
+        # Step 2: Fix \uXXXX where XXXX is NOT 4 hex digits (e.g., \undefined)
+        text = re.sub(r'\\u(?![0-9a-fA-F]{4})', PLACEHOLDER + 'u', text)
+        # Step 3: Fix remaining single backslashes not followed by valid JSON escape chars
+        # Only preserve: " \ / n r t (and \uXXXX handled above)
+        # Intentionally escape \b (backspace) and \f (form feed) — these are
+        # virtually always LaTeX (\beta, \frac) in STEM card content.
+        text = re.sub(r'\\(?!["\\/nrtu])', PLACEHOLDER, text)
+        # Step 4: Restore all placeholders as properly escaped backslashes
+        text = text.replace(PLACEHOLDER, '\\\\')
+        # Step 5: Fix trailing commas in arrays/objects: ,] or ,}
+        text = re.sub(r',(\s*[\]}])', r'\1', text)
+        return text
+
+    def _try_parse_truncated(self, text: str):
+        """Attempt to recover cards from truncated JSON by backtracking to the last complete card.
+
+        Scans } positions from right to left, counting unclosed delimiters at each
+        candidate cut point.  The first candidate that produces valid JSON wins —
+        this preserves as many complete cards as possible.
+        """
+        repaired = self._repair_json(text)
+        # Find all } positions — potential cut points
+        brace_positions = [i for i, c in enumerate(repaired) if c == '}']
+        if not brace_positions:
+            return None
+        for pos in reversed(brace_positions):
+            candidate = repaired[:pos + 1]
+            # Count unclosed delimiters outside strings
+            depth_b = depth_k = 0
+            in_str = esc = False
+            for ch in candidate:
+                if esc:
+                    esc = False
+                    continue
+                if in_str:
+                    if ch == '\\':
+                        esc = True
+                    elif ch == '"':
+                        in_str = False
+                    continue
+                if ch == '"':
+                    in_str = True
+                elif ch == '{':
+                    depth_b += 1
+                elif ch == '}':
+                    depth_b -= 1
+                elif ch == '[':
+                    depth_k += 1
+                elif ch == ']':
+                    depth_k -= 1
+            if depth_b < 0 or depth_k < 0:
+                continue
+            # Try both possible closing orders
+            for closing in (']' * depth_k + '}' * depth_b,
+                            '}' * depth_b + ']' * depth_k):
+                try:
+                    result = json.loads(candidate + closing)
+                    if isinstance(result, dict):
+                        return result
+                except json.JSONDecodeError:
+                    continue
+        return None
+
+    def _normalize_result(self, result) -> dict:
+        """Ensure result is in the expected {"new_cards": [...]} format."""
+        if isinstance(result, list):
+            return {"new_cards": result}
+        if isinstance(result, dict) and "new_cards" not in result:
+            for key in ("cards", "flashcards", "anki_cards"):
+                if key in result and isinstance(result[key], list):
+                    return {"new_cards": result[key]}
+            if "front" in result and "back" in result:
+                return {"new_cards": [result]}
+        return result
+
+    def _dump_debug_response(self, response: str):
+        """Save raw LLM response to file for debugging when all parse strategies fail."""
+        debug_path = os.path.join(os.getcwd(), "llm_response_debug.txt")
+        try:
+            with open(debug_path, 'w', encoding='utf-8') as f:
+                f.write(response)
+            safe_print(f"  -> Raw-Antwort gespeichert: {debug_path}", "WARNING")
+        except Exception:
+            pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -308,6 +308,105 @@ class TestParseResponse:
         result = self.ingestor._parse_response(raw)
         assert result == {"new_cards": []}
 
+    # ── LaTeX backslash repair (THE critical bug for STEM content) ────────
+
+    def test_latex_backslashes_in_clean_json(self):
+        r"""Unescaped \delta, \Sigma, \frac in JSON values → repaired and parsed."""
+        raw = '{"new_cards": [{"front": "Was ist ein DFA?", "back": "M = (Q, \\Sigma, \\delta, q_0, F)"}]}'
+        result = self.ingestor._parse_response(raw)
+        assert len(result["new_cards"]) == 1
+        assert "\\Sigma" in result["new_cards"][0]["back"]
+        assert "\\delta" in result["new_cards"][0]["back"]
+
+    def test_latex_backslashes_in_fenced_json(self):
+        r"""LaTeX in code-fenced JSON → fence extracted, repaired, parsed."""
+        raw = '```json\n{"new_cards": [{"front": "Q", "back": "\\frac{1}{2} + \\epsilon"}]}\n```'
+        result = self.ingestor._parse_response(raw)
+        assert len(result["new_cards"]) == 1
+        assert "\\frac" in result["new_cards"][0]["back"]
+
+    def test_latex_set_notation_braces(self):
+        r"""LaTeX \{ and \} in JSON → repaired (these are invalid JSON escapes)."""
+        raw = '{"new_cards": [{"front": "Q", "back": "L = \\{a, b\\}"}]}'
+        result = self.ingestor._parse_response(raw)
+        assert len(result["new_cards"]) == 1
+        assert "\\{" in result["new_cards"][0]["back"]
+
+    def test_mixed_valid_and_latex_escapes(self):
+        r"""Valid JSON escapes (\n, \t) coexist with LaTeX escapes (\delta)."""
+        raw = '{"new_cards": [{"front": "Line1\\nLine2", "back": "\\delta-Funktion"}]}'
+        result = self.ingestor._parse_response(raw)
+        assert len(result["new_cards"]) == 1
+        assert "\n" in result["new_cards"][0]["front"]  # real newline
+        assert "\\delta" in result["new_cards"][0]["back"]
+
+    def test_already_escaped_backslashes_preserved(self):
+        r"""Already-doubled backslashes (\\delta) are not broken by repair."""
+        raw = '{"new_cards": [{"front": "Q", "back": "\\\\delta ist korrekt"}]}'
+        result = self.ingestor._parse_response(raw)
+        assert len(result["new_cards"]) == 1
+        assert "\\delta" in result["new_cards"][0]["back"]
+
+    def test_trailing_comma_fixed(self):
+        """Trailing comma in array → removed before parsing."""
+        raw = '{"new_cards": [{"front": "Q", "back": "A"},]}'
+        result = self.ingestor._parse_response(raw)
+        assert len(result["new_cards"]) == 1
+
+    def test_trailing_comma_in_object(self):
+        """Trailing comma in object → removed before parsing."""
+        raw = '{"new_cards": [{"front": "Q", "back": "A", "tags": [],}]}'
+        result = self.ingestor._parse_response(raw)
+        assert len(result["new_cards"]) == 1
+
+    # ── Truncated JSON recovery ──────────────────────────────────────────
+
+    def test_truncated_json_recovers_complete_cards(self):
+        """JSON cut off mid-card → complete cards before truncation are recovered."""
+        raw = '{"new_cards": [{"front": "Q1", "back": "A1"}, {"front": "Q2", "back": "A'
+        result = self.ingestor._parse_response(raw)
+        assert len(result["new_cards"]) >= 1
+        assert result["new_cards"][0]["front"] == "Q1"
+
+    def test_truncated_after_complete_card(self):
+        """JSON truncated after a comma following a complete card."""
+        raw = '{"new_cards": [{"front": "Q1", "back": "A1"},'
+        result = self.ingestor._parse_response(raw)
+        assert len(result["new_cards"]) == 1
+
+    # ── Result normalization ─────────────────────────────────────────────
+
+    def test_list_result_wrapped(self):
+        """LLM returns bare array instead of {"new_cards": [...]} → wrapped."""
+        raw = '[{"front": "Q", "back": "A"}]'
+        result = self.ingestor._parse_response(raw)
+        assert "new_cards" in result
+        assert len(result["new_cards"]) == 1
+
+    def test_alternative_key_cards(self):
+        """LLM uses 'cards' instead of 'new_cards' → normalized."""
+        raw = '{"cards": [{"front": "Q", "back": "A"}]}'
+        result = self.ingestor._parse_response(raw)
+        assert "new_cards" in result
+        assert len(result["new_cards"]) == 1
+
+    def test_alternative_key_flashcards(self):
+        """LLM uses 'flashcards' instead of 'new_cards' → normalized."""
+        raw = '{"flashcards": [{"front": "Q", "back": "A"}]}'
+        result = self.ingestor._parse_response(raw)
+        assert "new_cards" in result
+        assert len(result["new_cards"]) == 1
+
+    # ── Debug dump on failure ────────────────────────────────────────────
+
+    def test_debug_file_created_on_total_failure(self, tmp_path, monkeypatch):
+        """When all strategies fail, raw response is saved for debugging."""
+        monkeypatch.chdir(tmp_path)
+        self.ingestor._parse_response("totally unparseable garbage with no JSON at all")
+        debug_file = tmp_path / "llm_response_debug.txt"
+        assert debug_file.exists()
+        assert "totally unparseable" in debug_file.read_text(encoding="utf-8")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # _generate_tags — malformed collection/category keys
