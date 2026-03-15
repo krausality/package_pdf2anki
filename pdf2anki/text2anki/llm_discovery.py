@@ -113,6 +113,9 @@ class LLMDiscoveryLoop:
         self.max_turns = max_turns
         self.model = model
         self._pipeline_state = scan_directory(self.base_dir)
+        # Counters exposed for pipeline trace
+        self.turns_used: int = 0
+        self.tool_calls_made: list[str] = []
 
     def run(self) -> Optional[DiscoveryResult]:
         """
@@ -156,6 +159,8 @@ class LLMDiscoveryLoop:
                     model=self.model,
                 )
 
+            self.turns_used += 1
+
             if reply is None:
                 return None  # API failure
 
@@ -166,6 +171,7 @@ class LLMDiscoveryLoop:
 
             if kind == "tool_call":
                 tool_name = data.get("name", "")
+                self.tool_calls_made.append(tool_name)
                 args = data.get("args", {})
                 tool_result = self._dispatch(tool_name, args)
                 # Inject tool result as next user message

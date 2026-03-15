@@ -12,9 +12,11 @@ from pathlib import Path
 from typing import Optional
 
 from .pipeline_state import scan_directory, infer_ocr_status
+from .pipeline_trace import PipelineTrace
 from .project_config import ProjectConfig
 from .console_utils import safe_print
 from .llm_discovery import LLMDiscoveryLoop
+from .llm_helper import reset_llm_session, get_session_responses
 from .guided_wizard import run_guided_wizard
 from .workflow_manager import WorkflowManager
 
@@ -45,49 +47,101 @@ def run_lazy_mode(
     base_dir = base_dir.resolve()
     ocr_model = ocr_model or _DEFAULT_OCR_MODEL
 
+    trace = PipelineTrace(base_dir / "pipeline_trace.json")
+    trace.begin_run()
+
     safe_print(f"\n=== pdf2anki . (lazy mode) — {base_dir} ===\n")
 
-    # ── Step 1: Ensure project.json ──────────────────────────────────────────
-    project_json_path = base_dir / "project.json"
-    config = _ensure_project_config(
-        base_dir=base_dir,
-        project_json_path=project_json_path,
-        turns=turns,
-        no_llm=no_llm,
-        reconfig=reconfig,
-    )
-    if config is None:
-        safe_print("Aborted: project.json could not be created.", "ERROR")
-        return
+    try:
+        # ── Phase 1: Discovery ────────────────────────────────────────────
+        trace.begin_phase("discovery")
+        reset_llm_session()
 
-    # ── Step 2: Pipeline state + plan ────────────────────────────────────────
-    state_map = scan_directory(base_dir)
-    _print_plan(state_map)
+        project_json_path = base_dir / "project.json"
+        config, discovery_meta = _ensure_project_config(
+            base_dir=base_dir,
+            project_json_path=project_json_path,
+            turns=turns,
+            no_llm=no_llm,
+            reconfig=reconfig,
+        )
+        if config is None:
+            safe_print("Aborted: project.json could not be created.", "ERROR")
+            trace.end_phase("discovery", "failed",
+                            {"error": "project.json could not be created", **discovery_meta},
+                            get_session_responses())
+            trace.end_run("failed", "Discovery failed")
+            return
 
-    # ── Step 3: Execute pending steps ────────────────────────────────────────
-    manager = WorkflowManager(project_dir=str(base_dir))
+        discovery_meta["project_json_shape"] = {
+            "collections": len(config.collections),
+            "domain": config.domain,
+        }
+        trace.end_phase("discovery", "ok", discovery_meta, get_session_responses())
 
-    # OCR: process all PDFs that haven't been OCR'd yet
-    ocr_done_txts = _run_pending_ocr(base_dir, state_map, ocr_model)
+        # ── Phase 2: Pipeline state + OCR ─────────────────────────────────
+        state_map = scan_directory(base_dir)
+        _print_plan(state_map)
 
-    # Ingest: collect all OCR-complete .txt files
-    state_map = scan_directory(base_dir)  # re-scan after OCR
-    txt_files = _collect_ocr_txts(base_dir, state_map)
+        manager = WorkflowManager(project_dir=str(base_dir))
 
-    if txt_files:
-        safe_print(f"\n--- Ingest: {len(txt_files)} Datei(en) ---")
-        manager.run_ingest_workflow(txt_files)
+        trace.begin_phase("ocr")
+        pending_count = sum(1 for s in state_map.values() if s.ocr == "pending")
+        skipped_count = sum(1 for s in state_map.values() if s.ocr == "done")
+        ocr_done_txts = _run_pending_ocr(base_dir, state_map, ocr_model)
+        trace.end_phase("ocr", "ok", {
+            "note": "Detailed OCR logs in log_archive/",
+            "pdfs_processed": len(ocr_done_txts),
+            "pdfs_already_done": skipped_count,
+            "pdfs_pending_before": pending_count,
+        })
 
-        safe_print("\n--- Integrate ---")
-        manager.run_integrate_workflow(skip_gate=True)
+        # ── Phase 3: Ingest ───────────────────────────────────────────────
+        state_map = scan_directory(base_dir)  # re-scan after OCR
+        txt_files = _collect_ocr_txts(base_dir, state_map)
 
-    # Export: always attempt if we have a populated database
-    state_map = scan_directory(base_dir)
-    if any(s.ingest == "done" for s in state_map.values()) or _db_has_cards(base_dir):
-        safe_print("\n--- Export ---")
-        manager.run_export_workflow()
+        if txt_files:
+            trace.begin_phase("ingest")
+            reset_llm_session()
 
-    safe_print("\n=== pdf2anki . abgeschlossen ===\n")
+            safe_print(f"\n--- Ingest: {len(txt_files)} Datei(en) ---")
+            manager.run_ingest_workflow(txt_files)
+
+            ingest_meta = _read_ingest_results(base_dir, config, txt_files)
+            trace.end_phase("ingest", "ok", ingest_meta, get_session_responses())
+
+            # ── Phase 4: Integrate ────────────────────────────────────────
+            trace.begin_phase("integrate")
+            reset_llm_session()
+
+            safe_print("\n--- Integrate ---")
+            pre_count = len(manager.db_manager.cards)
+            manager.run_integrate_workflow(skip_gate=True)
+            post_count = len(manager.db_manager.cards)
+
+            trace.end_phase("integrate", "ok", {
+                "gate_check": "skipped",
+                "cards_submitted": ingest_meta.get("cards_generated", 0),
+                "cards_added": post_count - pre_count,
+            }, get_session_responses())
+
+        # ── Phase 5: Export ───────────────────────────────────────────────
+        state_map = scan_directory(base_dir)
+        if any(s.ingest == "done" for s in state_map.values()) or _db_has_cards(base_dir):
+            trace.begin_phase("export")
+
+            safe_print("\n--- Export ---")
+            manager.run_export_workflow()
+
+            export_meta = _read_export_results(config, manager.db_manager)
+            trace.end_phase("export", "ok", export_meta)
+
+        safe_print("\n=== pdf2anki . abgeschlossen ===\n")
+        trace.end_run("ok")
+
+    except Exception as exc:
+        trace.end_run("failed", str(exc))
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -100,53 +154,66 @@ def _ensure_project_config(
     turns: int,
     no_llm: bool,
     reconfig: bool,
-) -> Optional[ProjectConfig]:
+) -> tuple[Optional[ProjectConfig], dict]:
     """
-    Return a valid ProjectConfig. Creates project.json if needed.
-    Returns None if the user aborts or an error occurs.
+    Return a valid ProjectConfig and discovery metadata.
+    Returns (None, meta) if the user aborts or an error occurs.
     """
+    meta: dict = {}
+
     if project_json_path.exists() and not reconfig:
         safe_print("Bestehende project.json gefunden — überspringe Discovery.")
+        meta["method"] = "existing"
         try:
-            return ProjectConfig.from_file(str(base_dir))
+            return ProjectConfig.from_file(str(base_dir)), meta
         except (ValueError, json.JSONDecodeError) as exc:
             safe_print(f"project.json ist ungültig: {exc}", "ERROR")
-            return None
+            meta["error"] = str(exc)
+            return None, meta
 
     # Discovery required
-    data = _discover(base_dir, turns, no_llm)
+    data, discover_meta = _discover(base_dir, turns, no_llm)
+    meta.update(discover_meta)
     if data is None:
-        return None
+        return None, meta
 
     try:
-        return ProjectConfig.create_from_dict(str(base_dir), data, overwrite=reconfig)
+        return ProjectConfig.create_from_dict(str(base_dir), data, overwrite=reconfig), meta
     except (ValueError, OSError) as exc:
         safe_print(f"Fehler beim Schreiben der project.json: {exc}", "ERROR")
-        return None
+        meta["error"] = str(exc)
+        return None, meta
 
 
-def _discover(base_dir: Path, turns: int, no_llm: bool) -> Optional[dict]:
-    """Run LLM discovery or guided wizard. Returns a project.json dict or None."""
+def _discover(base_dir: Path, turns: int, no_llm: bool) -> tuple[Optional[dict], dict]:
+    """Run LLM discovery or guided wizard. Returns (project_json_dict, metadata)."""
+    meta: dict = {}
+
     if no_llm:
-        return run_guided_wizard(base_dir)
+        meta["method"] = "wizard"
+        return run_guided_wizard(base_dir), meta
 
     # LLM discovery with wizard fallback
     safe_print("LLM Discovery läuft...")
+    meta["method"] = "llm"
     loop = LLMDiscoveryLoop(base_dir=base_dir, max_turns=turns)
     result = loop.run()
+    meta["turns"] = loop.turns_used
+    meta["tool_calls"] = loop.tool_calls_made
 
     if result is None:
         safe_print("LLM Discovery fehlgeschlagen — Wizard-Fallback.", "WARNING")
-        return run_guided_wizard(base_dir)
+        meta["method"] = "llm_then_wizard"
+        return run_guided_wizard(base_dir), meta
 
     if not result.skip_confirm:
         _show_preview(result.project_json, result.pipeline_plan)
         response = input("project.json schreiben und Pipeline starten? [y/n]: ").strip().lower()
         if response != "y":
             safe_print("Abgebrochen.")
-            return None
+            return None, meta
 
-    return result.project_json
+    return result.project_json, meta
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +266,48 @@ def _run_pending_ocr(
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Trace helpers
+# ---------------------------------------------------------------------------
+
+def _read_ingest_results(base_dir: Path, config: ProjectConfig, txt_files: list) -> dict:
+    """Read new_cards_output.json to extract card counts for trace."""
+    meta: dict = {
+        "source_files": [Path(f).name for f in txt_files],
+        "model": config.get_llm_model(),
+        "cards_generated": 0,
+        "cards_per_collection": {},
+    }
+    try:
+        new_cards_path = config.get_new_cards_path()
+        with open(new_cards_path, encoding="utf-8") as f:
+            data = json.load(f)
+        cards = data.get("new_cards", data if isinstance(data, list) else [])
+        meta["cards_generated"] = len(cards)
+        for card in cards:
+            coll = card.get("collection", "unknown")
+            meta["cards_per_collection"][coll] = meta["cards_per_collection"].get(coll, 0) + 1
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    return meta
+
+
+def _read_export_results(config: ProjectConfig, db_manager) -> dict:
+    """Build export metadata from db_manager card state."""
+    collections: dict[str, int] = {}
+    for card in db_manager.cards:
+        collections[card.collection] = collections.get(card.collection, 0) + 1
+
+    files = []
+    for coll_key, count in sorted(collections.items()):
+        coll_cfg = config.collections.get(coll_key, {})
+        filename = coll_cfg.get("filename", f"{coll_key}.json").replace(".json", ".apkg")
+        files.append({"path": filename, "card_count": count})
+
+    return {"files_generated": files}
+
+
+# ---------------------------------------------------------------------------
+# General helpers
 # ---------------------------------------------------------------------------
 
 def _collect_ocr_txts(base_dir: Path, state_map: dict) -> list[str]:

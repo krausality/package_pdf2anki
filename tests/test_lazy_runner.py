@@ -55,6 +55,15 @@ def _patch_wm():
     )
 
 
+def _configure_mock_loop(mock_loop_cls, result=None):
+    """Set required attributes on a mocked LLMDiscoveryLoop instance."""
+    instance = mock_loop_cls.return_value
+    instance.run.return_value = result
+    instance.turns_used = 1
+    instance.tool_calls_made = []
+    return instance
+
+
 # ---------------------------------------------------------------------------
 # Tests: project.json already exists (no reconfig)
 # ---------------------------------------------------------------------------
@@ -79,7 +88,7 @@ class TestExistingProjectJson:
             with patch(
                 "pdf2anki.text2anki.lazy_runner.LLMDiscoveryLoop"
             ) as MockLoop:
-                MockLoop.return_value.run.return_value = DISCOVERY_RESULT
+                _configure_mock_loop(MockLoop, DISCOVERY_RESULT)
                 run_lazy_mode(tmp_path, reconfig=True)
                 MockLoop.assert_called_once()
 
@@ -97,7 +106,7 @@ class TestFirstRun:
             with patch(
                 "pdf2anki.text2anki.lazy_runner.LLMDiscoveryLoop"
             ) as MockLoop:
-                MockLoop.return_value.run.return_value = DISCOVERY_RESULT
+                _configure_mock_loop(MockLoop, DISCOVERY_RESULT)
                 run_lazy_mode(tmp_path)
                 MockLoop.assert_called_once()
 
@@ -121,7 +130,7 @@ class TestFirstRun:
             with patch(
                 "pdf2anki.text2anki.lazy_runner.LLMDiscoveryLoop"
             ) as MockLoop:
-                MockLoop.return_value.run.return_value = None
+                _configure_mock_loop(MockLoop, None)
                 with patch(
                     "pdf2anki.text2anki.lazy_runner.run_guided_wizard",
                     return_value=VALID_PROJECT_JSON,
@@ -139,7 +148,7 @@ class TestFirstRun:
         with patch(
             "pdf2anki.text2anki.lazy_runner.LLMDiscoveryLoop"
         ) as MockLoop:
-            MockLoop.return_value.run.return_value = non_confident
+            _configure_mock_loop(MockLoop, non_confident)
             with patch("builtins.input", return_value="n"):
                 run_lazy_mode(tmp_path)
         assert not (tmp_path / "project.json").exists()
@@ -161,6 +170,8 @@ class TestPipelineExecution:
             instance.run_ingest_workflow.return_value = True
             instance.run_integrate_workflow.return_value = True
             instance.run_export_workflow.return_value = True
+            instance.db_manager = MagicMock()
+            instance.db_manager.cards = []
             run_lazy_mode(tmp_path)
             instance.run_ingest_workflow.assert_called_once()
             instance.run_integrate_workflow.assert_called_once()
@@ -175,6 +186,8 @@ class TestPipelineExecution:
             instance.run_ingest_workflow.return_value = True
             instance.run_integrate_workflow.return_value = True
             instance.run_export_workflow.return_value = True
+            instance.db_manager = MagicMock()
+            instance.db_manager.cards = []
             run_lazy_mode(tmp_path)
             instance.run_export_workflow.assert_called_once()
 
@@ -198,6 +211,6 @@ class TestPipelineExecution:
             with patch(
                 "pdf2anki.text2anki.lazy_runner.LLMDiscoveryLoop"
             ) as MockLoop:
-                MockLoop.return_value.run.return_value = DISCOVERY_RESULT
+                _configure_mock_loop(MockLoop, DISCOVERY_RESULT)
                 run_lazy_mode(tmp_path, turns=7)
                 MockLoop.assert_called_once_with(base_dir=tmp_path.resolve(), max_turns=7)

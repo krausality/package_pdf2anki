@@ -222,6 +222,8 @@ class TestLazyModeSkipGate:
             instance.run_ingest_workflow.return_value = True
             instance.run_integrate_workflow.return_value = True
             instance.run_export_workflow.return_value = True
+            instance.db_manager = MagicMock()
+            instance.db_manager.cards = []
             run_lazy_mode(tmp_path)
             instance.run_integrate_workflow.assert_called_once_with(skip_gate=True)
 
