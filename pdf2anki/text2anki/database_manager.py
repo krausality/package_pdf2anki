@@ -25,11 +25,34 @@ from .material_manager import MaterialManager
 
 _NON_SSOT_FILES = frozenset({'project.json', 'card_database.json', 'workflow_config.json'})
 
+
+def _collection_sort_key(k: str) -> tuple:
+    """Sort key for collection keys. Handles both 'collection_N_name' and arbitrary keys."""
+    try:
+        return (0, int(k.split('_')[1]), k)
+    except (IndexError, ValueError):
+        return (1, 0, k)
+
 def _is_non_ssot_file(filename: str) -> bool:
     """True für Dateien die NICHT vom SSOT abgeleitet werden."""
     return (filename in _NON_SSOT_FILES or
             filename.startswith('new_cards_output.json') or
             filename.endswith('.apkg'))
+
+
+def _is_ssot_derived_file(filename: str, known_derived: frozenset[str] = frozenset()) -> bool:
+    """True für Dateien die VOM SSOT abgeleitet werden (Collection-JSONs, Markdown).
+
+    Args:
+        filename: The file name to check.
+        known_derived: Set of filenames known to be SSOT-derived (from project config).
+    """
+    if filename in known_derived:
+        return True
+    # Legacy markdown file names
+    if filename in ('All_collections_only_fronts.md', 'All_fronts.md'):
+        return True
+    return False
 
 
 class DatabaseManager:
@@ -660,11 +683,10 @@ class DatabaseManager:
             return None
 
         # 2. Lasse den Benutzer eine Collection wählen
-        sorted_collections = sorted(structure.keys(), key=lambda k: int(k.split('_')[1]))
+        sorted_collections = sorted(structure.keys(), key=_collection_sort_key)
         safe_print("\n--- Wählen Sie eine Sammlung ---")
         for i, coll_key in enumerate(sorted_collections):
-            coll_parts = coll_key.split('_')
-            coll_name = ' '.join([p.capitalize() for p in coll_parts[2:]])
+            coll_name = self._get_collection_display_name(coll_key)
             safe_print(f"  [{i+1}] {coll_name}")
         
         try:
@@ -806,6 +828,17 @@ class DatabaseManager:
 
         return normalized
 
+    def _get_known_derived_filenames(self) -> frozenset[str]:
+        """Returns the set of filenames that are known SSOT-derived outputs."""
+        names: set[str] = set()
+        for fname in self.collection_filename_mapping.values():
+            names.add(fname)
+        if self._config and hasattr(self._config, 'files'):
+            md_file = self._config.files.get('markdown_file', '')
+            if md_file:
+                names.add(md_file)
+        return frozenset(names)
+
     def _generate_sort_field(self, sort_key: str, front: str) -> str:
         """Generiert ein standardisiertes Sortierfeld."""
         normalized_front = self._normalize_for_key(front)
@@ -848,7 +881,7 @@ class DatabaseManager:
 
         # Baue den Collection-Teil des Prompts
         prompt_lines.append("--- WÄHLE EINE SAMMLUNG ---")
-        sorted_collections = sorted(structure_by_collection.keys(), key=lambda k: int(k.split('_')[1]))
+        sorted_collections = sorted(structure_by_collection.keys(), key=_collection_sort_key)
         for i, coll_key in enumerate(sorted_collections):
             coll_num = i + 1
             mapping["collections"][str(coll_num)] = coll_key
@@ -1115,22 +1148,20 @@ class DatabaseManager:
         # Baue den Markdown-Inhalt mit korrekter Marker-Struktur
         md_content = []
         # Extrahiere und sortiere die Collections-Schlüssel numerisch
-        sorted_collection_keys = sorted(structure.keys(), key=lambda k: int(k.split('_')[1]))
+        sorted_collection_keys = sorted(structure.keys(), key=_collection_sort_key)
 
-        for collection_key in sorted_collection_keys:
+        for coll_idx, collection_key in enumerate(sorted_collection_keys):
             collection_data = structure[collection_key]
-            # Extrahiere Nummer aus dem Schlüssel und verwende originalen Display-Namen
-            coll_parts = collection_key.split('_')
-            coll_num = coll_parts[1]
+            coll_num = str(coll_idx)
             coll_name = self._get_collection_display_name(collection_key)
-            
+
             # Collection Start Marker
             md_content.append(f"<!-- COLLECTION_{coll_num}_START -->")
             md_content.append(f"# Sammlung {coll_num}")
             md_content.append("")
             md_content.append(f"**{coll_name}**")
             md_content.append("")
-            
+
             # Cards Start Marker
             md_content.append("<!-- CARDS_START -->")
             md_content.append("***")
@@ -1204,7 +1235,8 @@ class DatabaseManager:
             if not self.distribute_to_derived_files(temp_dir):
                 # This can happen if the DB is empty. Check if the original is also empty.
                 dir_contents = os.listdir(derived_files_dir) if os.path.exists(derived_files_dir) else []
-                derived_files_present = [f for f in dir_contents if not _is_non_ssot_file(f)]
+                known_derived = self._get_known_derived_filenames()
+                derived_files_present = [f for f in dir_contents if _is_ssot_derived_file(f, known_derived)]
                 if not derived_files_present:
                     message = "Externe Prüfung erfolgreich. Quelldatenbank und Zielverzeichnis sind beide leer."
                     safe_print(f"✅ {message}")
@@ -1743,7 +1775,7 @@ class DatabaseManager:
             structure[card.collection].add(card.category)
         
         # Generate subcategories_reference and generated_cards structure
-        for collection_key in sorted(structure.keys(), key=lambda k: int(k.split('_')[1])):
+        for collection_key in sorted(structure.keys(), key=_collection_sort_key):
             categories = sorted(list(structure[collection_key]))
             
             # For subcategories_reference - create human-readable names

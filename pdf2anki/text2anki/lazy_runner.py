@@ -79,7 +79,7 @@ def run_lazy_mode(
         manager.run_ingest_workflow(txt_files)
 
         safe_print("\n--- Integrate ---")
-        manager.run_integrate_workflow()
+        manager.run_integrate_workflow(skip_gate=True)
 
     # Export: always attempt if we have a populated database
     state_map = scan_directory(base_dir)
