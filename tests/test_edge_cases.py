@@ -268,16 +268,33 @@ class TestParseResponse:
         result = self.ingestor._parse_response(raw)
         assert result == {"new_cards": []}
 
-    def test_prose_before_json_returns_empty(self):
-        """LLM prose before JSON returns graceful fallback instead of crashing."""
-        raw = 'Sure! Here is your JSON:\n{"new_cards": []}'
+    def test_prose_before_json_extracted(self):
+        """LLM prose before JSON — parser extracts the JSON object."""
+        raw = 'Sure! Here is your JSON:\n{"new_cards": [{"front": "Q", "back": "A"}]}'
         result = self.ingestor._parse_response(raw)
-        assert result == {"new_cards": []}
+        assert len(result["new_cards"]) == 1
 
-    def test_trailing_prose_returns_empty(self):
-        """Trailing prose after JSON returns graceful fallback."""
-        raw = '{"new_cards": []}\nHope this helps!'
+    def test_trailing_prose_extracted(self):
+        """Trailing prose after JSON — parser extracts the JSON object."""
+        raw = '{"new_cards": [{"front": "Q", "back": "A"}]}\nHope this helps!'
         result = self.ingestor._parse_response(raw)
+        assert len(result["new_cards"]) == 1
+
+    def test_prose_both_sides_fence_extracted(self):
+        """Prose before and after a code fence — parser extracts via fence regex."""
+        raw = 'Here you go:\n```json\n{"new_cards": [{"front": "Q", "back": "A"}]}\n```\nEnjoy!'
+        result = self.ingestor._parse_response(raw)
+        assert len(result["new_cards"]) == 1
+
+    def test_python_fence_extracted(self):
+        """```python fence (non-json language tag) — parser handles it."""
+        raw = '```python\n{"new_cards": [{"front": "Q", "back": "A"}]}\n```'
+        result = self.ingestor._parse_response(raw)
+        assert len(result["new_cards"]) == 1
+
+    def test_no_json_returns_empty(self):
+        """Pure prose without any JSON returns graceful fallback."""
+        result = self.ingestor._parse_response("I cannot generate cards for this content.")
         assert result == {"new_cards": []}
 
     def test_empty_response_returns_empty(self):

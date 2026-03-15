@@ -141,15 +141,40 @@ class TextFileIngestor(IngestorBase):
         return templates.get(language, templates['en'])
 
     def _parse_response(self, response: str) -> dict:
-        """Extrahiert JSON aus LLM-Antwort (robust gegen Markdown-Code-Blöcke)."""
-        cleaned = response.strip()
-        # Entferne ```json ... ``` oder ``` ... ``` Wrapper
-        cleaned = re.sub(r'^```(?:json)?\s*\n?', '', cleaned, flags=re.MULTILINE)
-        cleaned = re.sub(r'\n?```\s*$', '', cleaned.strip(), flags=re.MULTILINE)
+        """Extrahiert JSON aus LLM-Antwort (robust gegen Markdown-Code-Blöcke und Prose)."""
+        text = response.strip()
+
+        # Strategy 1: direct parse (clean JSON)
         try:
-            return json.loads(cleaned.strip())
+            return json.loads(text)
         except json.JSONDecodeError:
-            return {"new_cards": []}
+            pass
+
+        # Strategy 2: extract content from markdown fences (any language tag)
+        fence_match = re.search(r'```\w*\s*\n(.*?)\n\s*```', text, re.DOTALL)
+        if fence_match:
+            try:
+                return json.loads(fence_match.group(1).strip())
+            except json.JSONDecodeError:
+                pass
+
+        # Strategy 3: find outermost { ... } with brace matching
+        start = text.find('{')
+        if start != -1:
+            depth = 0
+            for i in range(start, len(text)):
+                if text[i] == '{':
+                    depth += 1
+                elif text[i] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            return json.loads(text[start:i + 1])
+                        except json.JSONDecodeError:
+                            break
+
+        safe_print(f"  -> ⚠️ JSON-Parsing fehlgeschlagen. Antwort-Länge: {len(text)} Zeichen.", "WARNING")
+        return {"new_cards": []}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
