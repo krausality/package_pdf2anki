@@ -29,7 +29,7 @@ _DEFAULT_OCR_MODEL = "google/gemini-2.5-flash"
 
 def run_lazy_mode(
     base_dir: Path,
-    turns: int = 5,
+    turns: int = 7,
     no_llm: bool = False,
     reconfig: bool = False,
     ocr_model: Optional[str] = None,

@@ -770,8 +770,8 @@ def cli_invoke() -> None:
             prog="pdf2anki .",
             description="Lazy mode: auto-detect pipeline state and run all pending steps.",
         )
-        _parser.add_argument("--turns", type=int, default=5, metavar="N",
-                             help="Max LLM discovery turns (default: 5).")
+        _parser.add_argument("--turns", type=int, default=7, metavar="N",
+                             help="Max LLM discovery turns (default: 7).")
         _parser.add_argument("--no-llm", action="store_true",
                              help="Use guided wizard instead of LLM discovery.")
         _parser.add_argument("--reconfig", action="store_true",
