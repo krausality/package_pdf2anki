@@ -1142,15 +1142,16 @@ class TestCollectionOrganization:
         tag = tags[0]
         assert "::" in tag  # hierarchical structure
 
-    def test_generate_tags_malformed_collection_key_falls_back(self, tmp_path):
+    def test_generate_tags_nonstandard_key_produces_valid_tag(self, tmp_path):
         """
-        A collection key without the '_N_' format (e.g., just 'badkey') causes
-        an IndexError in the tag generation logic.
-        The code catches IndexError and falls back to 'Unkategorisiert'.
+        A collection key without the '_N_' format (e.g., 'badkey') still produces
+        a valid hierarchical tag using all key parts capitalized.
         """
         db = make_db(tmp_path)
         tags = db._generate_tags("badkey", "a_cat")
-        assert any("Unkategorisiert" in t for t in tags)
+        assert len(tags) == 1
+        assert "::" in tags[0]
+        assert "Badkey" in tags[0]
 
 
 # ─────────────────────────────────────────────────────────────────────────────

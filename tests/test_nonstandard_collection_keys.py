@@ -349,3 +349,95 @@ class TestDistributeNonstandard:
         assert (tmp_path / "Uebung_Uebungsblaetter.json").exists()
         # Markdown should exist and be valid
         assert (tmp_path / "All_collections_only_fronts.md").exists()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P3: Sort-field uses collection index + category letter + per-category counter
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSortFieldPerCategory:
+    """Verify sort_field encodes collection index, category letter, and per-cat counter."""
+
+    def test_sort_field_encodes_collection_index(self, tmp_path):
+        db = _make_gti_db(tmp_path)
+        new_cards = [
+            {"front": "Q1", "back": "A1", "collection": "Skript_ws_25", "category": "a_grundlagen"},
+            {"front": "Q2", "back": "A2", "collection": "Uebung_Hausuebungen", "category": "a_grundlagen"},
+        ]
+        with patch("pdf2anki.text2anki.database_manager.get_llm_decision"):
+            db.integrate_new(new_cards)
+
+        # Skript_ws_25 is index 0 in project.json, Uebung_Hausuebungen is index 1
+        card_skript = [c for c in db.cards if c.collection == "Skript_ws_25"][0]
+        card_uebung = [c for c in db.cards if c.collection == "Uebung_Hausuebungen"][0]
+        assert card_skript.sort_field.startswith("00_A_01_")
+        assert card_uebung.sort_field.startswith("01_A_01_")
+
+    def test_sort_field_uses_category_letter(self, tmp_path):
+        db = _make_gti_db(tmp_path)
+        new_cards = [
+            {"front": "Q1", "back": "A1", "collection": "Skript_ws_25", "category": "a_grundlagen"},
+            {"front": "Q2", "back": "A2", "collection": "Skript_ws_25", "category": "b_chomsky"},
+        ]
+        with patch("pdf2anki.text2anki.database_manager.get_llm_decision"):
+            db.integrate_new(new_cards)
+
+        card_a = [c for c in db.cards if c.category == "a_grundlagen"][0]
+        card_b = [c for c in db.cards if c.category == "b_chomsky"][0]
+        assert "_A_" in card_a.sort_field
+        assert "_B_" in card_b.sort_field
+
+    def test_sort_field_per_category_counter(self, tmp_path):
+        db = _make_gti_db(tmp_path)
+        new_cards = [
+            {"front": "Q1", "back": "A1", "collection": "Skript_ws_25", "category": "a_grundlagen"},
+            {"front": "Q2", "back": "A2", "collection": "Skript_ws_25", "category": "a_grundlagen"},
+            {"front": "Q3", "back": "A3", "collection": "Skript_ws_25", "category": "b_chomsky"},
+        ]
+        with patch("pdf2anki.text2anki.database_manager.get_llm_decision"):
+            db.integrate_new(new_cards)
+
+        a_cards = sorted([c for c in db.cards if c.category == "a_grundlagen"],
+                         key=lambda c: c.sort_field)
+        assert a_cards[0].sort_field.startswith("00_A_01_")
+        assert a_cards[1].sort_field.startswith("00_A_02_")
+
+        b_cards = [c for c in db.cards if c.category == "b_chomsky"]
+        # b_chomsky counter resets to 01, not 03
+        assert b_cards[0].sort_field.startswith("00_B_01_")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P5: Tag generation uses full key parts instead of C{num}_ format
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestTagGeneration:
+    """Verify tags use full capitalized key parts for both standard and non-standard keys."""
+
+    def test_nonstandard_key_tag_format(self, tmp_path):
+        db = _make_gti_db(tmp_path)
+        tags = db._generate_tags("Skript_ws_25", "a_grundlagen")
+        assert tags == ["GTI::Skript_Ws_25::A_Grundlagen"]
+
+    def test_no_trailing_underscore(self, tmp_path):
+        db = _make_gti_db(tmp_path)
+        tags = db._generate_tags("Uebung_Hausuebungen", "a_grundlagen")
+        # Old format produced "CHausuebungen_" with trailing underscore
+        assert tags == ["GTI::Uebung_Hausuebungen::A_Grundlagen"]
+        assert not tags[0].endswith("_")
+
+    def test_legacy_key_tag_format(self, tmp_path):
+        db = _make_gti_db(tmp_path)
+        tags = db._generate_tags("collection_0_Kapitel1", "a_grundlagen")
+        assert tags == ["GTI::Collection_0_Kapitel1::A_Grundlagen"]
+
+    def test_integrated_cards_get_correct_tags(self, tmp_path):
+        db = _make_gti_db(tmp_path)
+        new_cards = [
+            {"front": "Q1", "back": "A1", "collection": "Skript_ws_25", "category": "a_grundlagen"},
+        ]
+        with patch("pdf2anki.text2anki.database_manager.get_llm_decision"):
+            db.integrate_new(new_cards)
+
+        card = db.cards[0]
+        assert card.tags == ["GTI::Skript_Ws_25::A_Grundlagen"]

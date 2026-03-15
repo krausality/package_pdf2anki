@@ -417,77 +417,70 @@ class TestRealOcrContentPatterns:
     def test_generate_tags_standard_gti_collection_and_category(self, tmp_path):
         """
         collection='collection_0_Sprachen', category='a_grundlagen'
-        → ['GTI::C0_Sprachen::A_Grundlagen'].
-        Parts after 'collection_N_' are capitalized and joined with '_'.
-        Category: letter part uppercased, rest capitalized.
-        Observed exact output with GTI tag_prefix.
+        → tag uses all key parts capitalized.
         """
         db = make_db(tmp_path)
         db._tag_prefix = "GTI"
         result = db._generate_tags("collection_0_Sprachen", "a_grundlagen")
-        assert result == ["GTI::C0_Sprachen::A_Grundlagen"]
+        assert result == ["GTI::Collection_0_Sprachen::A_Grundlagen"]
 
     def test_generate_tags_new_cards_collection_from_integrate_new(self, tmp_path):
         """
         After integrate_new() on an empty DB, collection='collection_0_Neue_Karten',
-        category='a_Unsortiert' → ['GTI::C0_Neue_Karten::A_Unsortiert'].
-        Multi-word collection names: each part capitalized separately, joined with '_'.
-        Observed: 'Neue_Karten' → 'Neue_Karten' (already-capitalized parts stay).
+        category='a_Unsortiert' → all key parts capitalized.
         """
         db = make_db(tmp_path)
         db._tag_prefix = "GTI"
         result = db._generate_tags("collection_0_Neue_Karten", "a_Unsortiert")
-        assert result == ["GTI::C0_Neue_Karten::A_Unsortiert"]
+        assert result == ["GTI::Collection_0_Neue_Karten::A_Unsortiert"]
 
     def test_generate_tags_multi_word_collection_and_category(self, tmp_path):
         """
         collection='collection_0_sprachen_und_grammatiken', category='c_normalformen'
-        → ['GTI::C0_Sprachen_Und_Grammatiken::C_Normalformen'].
-        All parts after the numeric index are capitalize()-d and joined with '_'.
-        Observed: lowercase parts become title-cased (e.g. 'und' → 'Und').
+        → all parts capitalized.
         """
         db = make_db(tmp_path)
         db._tag_prefix = "GTI"
         result = db._generate_tags("collection_0_sprachen_und_grammatiken", "c_normalformen")
-        assert result == ["GTI::C0_Sprachen_Und_Grammatiken::C_Normalformen"]
+        assert result == ["GTI::Collection_0_Sprachen_Und_Grammatiken::C_Normalformen"]
 
     def test_generate_tags_high_collection_number(self, tmp_path):
         """
         collection='collection_10_XYZ', category='z_last'
-        → ['GTI::C10_Xyz::Z_Last'].
-        Two-digit collection numbers are preserved as-is in the C-tag.
-        Collection name parts are capitalize()-d: 'XYZ' → 'Xyz'.
-        Observed: capitalize() lowercases all but first char — 'XYZ' → 'Xyz'.
+        → capitalize() lowercases all but first char — 'XYZ' → 'Xyz'.
         """
         db = make_db(tmp_path)
         db._tag_prefix = "GTI"
         result = db._generate_tags("collection_10_XYZ", "z_last")
-        assert result == ["GTI::C10_Xyz::Z_Last"]
+        assert result == ["GTI::Collection_10_Xyz::Z_Last"]
 
-    def test_generate_tags_invalid_format_falls_back_to_unkategorisiert(self, tmp_path):
+    def test_generate_tags_nonstandard_key_produces_valid_tag(self, tmp_path):
         """
-        collection='Sprachen' (no underscore-number pattern), category='grundlagen'
-        → ['GTI::Unkategorisiert'].
-        When collection.split('_')[1] raises IndexError (no numeric segment),
-        the except branch returns ['GTI::Unkategorisiert'].
-        Observed: the tag_prefix is used but 'Unkategorisiert' is the hardcoded fallback.
+        Non-standard keys like 'Skript_ws_25' produce valid hierarchical tags
+        instead of falling back to Unkategorisiert.
+        """
+        db = make_db(tmp_path)
+        db._tag_prefix = "GTI"
+        result = db._generate_tags("Skript_ws_25", "a_grundlagen")
+        assert result == ["GTI::Skript_Ws_25::A_Grundlagen"]
+
+    def test_generate_tags_single_part_key_produces_valid_tag(self, tmp_path):
+        """
+        Single-part key 'Sprachen' produces a valid tag, not Unkategorisiert.
         """
         db = make_db(tmp_path)
         db._tag_prefix = "GTI"
         result = db._generate_tags("Sprachen", "grundlagen")
-        assert result == ["GTI::Unkategorisiert"]
+        assert result == ["GTI::Sprachen::Grundlagen"]
 
     def test_generate_tags_anki_prefix_when_no_project_config(self, tmp_path):
         """
         Without a ProjectConfig, tag_prefix defaults to 'ANKI'.
-        collection='collection_0_Neue_Karten', category='a_Unsortiert'
-        → ['ANKI::C0_Neue_Karten::A_Unsortiert'].
-        Observed: make_db() without config produces ANKI-prefixed tags.
         """
         db = make_db(tmp_path)
         # make_db creates DB without project_config → _tag_prefix = 'ANKI'
         result = db._generate_tags("collection_0_Neue_Karten", "a_Unsortiert")
-        assert result == ["ANKI::C0_Neue_Karten::A_Unsortiert"]
+        assert result == ["ANKI::Collection_0_Neue_Karten::A_Unsortiert"]
 
     # ─── integrate_new — collection assignment and numbering ─────────────────
 

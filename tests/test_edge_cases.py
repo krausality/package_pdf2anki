@@ -303,14 +303,16 @@ class TestGenerateTags:
         assert len(tags) == 1
         assert "::" in tags[0]
 
-    def test_malformed_collection_key_falls_back(self, tmp_path):
+    def test_malformed_collection_key_produces_valid_tag(self, tmp_path):
         """
-        collection key without '_N_' format causes IndexError in split/int(),
-        which is caught and falls back to 'Unkategorisiert'.
+        collection key without '_N_' format should still produce a valid
+        hierarchical tag using the key parts directly.
         """
         db = make_db(tmp_path)
         tags = db._generate_tags("badkey", "a_cat")
-        assert any("Unkategorisiert" in t for t in tags)
+        assert len(tags) == 1
+        assert "::" in tags[0]
+        assert "Badkey" in tags[0]
 
     def test_category_without_prefix_falls_back(self, tmp_path):
         """Category key with no '_' causes IndexError → Unkategorisiert fallback."""

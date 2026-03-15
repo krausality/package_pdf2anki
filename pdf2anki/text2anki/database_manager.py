@@ -847,15 +847,13 @@ class DatabaseManager:
     def _generate_tags(self, collection: str, category: str) -> List[str]:
         """Generiert hierarchische Tags."""
         try:
-            # collection_0_coll_a -> C0_Coll_A
+            # Build collection tag from key parts
             coll_parts = collection.split('_')
-            coll_name = '_'.join([p.capitalize() for p in coll_parts[2:]])
-            coll_tag = f"C{coll_parts[1]}_{coll_name}"
-            
-            # a_cat_x -> A_Cat_X
+            coll_tag = '_'.join(p.capitalize() for p in coll_parts)
+
+            # Build category tag from key parts (a_grundlagen -> A_Grundlagen)
             cat_parts = category.split('_')
-            cat_name = '_'.join([p.capitalize() for p in cat_parts[1:]])
-            cat_tag = f"{cat_parts[0].upper()}_{cat_name}"
+            cat_tag = '_'.join(p.capitalize() for p in cat_parts)
 
             return [f"{self._tag_prefix}::{coll_tag}::{cat_tag}"]
         except IndexError:
@@ -998,6 +996,17 @@ class DatabaseManager:
             llm_dup_indices = self._check_semantic_duplicates_llm(candidates, self.cards)
 
         # ── Stufe 3: Nicht-Duplikate einfügen ──
+        # Build collection index from config order for stable sort keys
+        config_coll_keys = list(valid_collections.keys()) if valid_collections else []
+        def _coll_index(coll_key: str) -> int:
+            try:
+                return config_coll_keys.index(coll_key)
+            except ValueError:
+                return len(config_coll_keys)
+
+        # Per-(collection, category) counter for sort_field
+        cat_counters: Dict[tuple, int] = {}
+
         for cand_idx, (i, card_data, front, back, normalized_front) in enumerate(candidates):
             if cand_idx in llm_dup_indices:
                 safe_print(f" überspringe semantisch doppelte Karte (LLM): '{front}'")
@@ -1007,18 +1016,18 @@ class DatabaseManager:
             card_collection_input = card_data.get("collection")
             if card_collection_input and card_collection_input in valid_collections:
                 use_collection_key = card_collection_input
-                try:
-                    use_coll_num = int(card_collection_input.split('_')[1])
-                except (IndexError, ValueError):
-                    use_coll_num = new_coll_num
             else:
                 use_collection_key = new_collection_key
-                use_coll_num = new_coll_num
 
             card_category_input = card_data.get("category")
             use_category_key = card_category_input if card_category_input else new_category_key
 
-            sort_key = f"{use_coll_num:02d}_A_{i+1:02d}"
+            # Sort key: collection index, category letter, per-category counter
+            coll_idx = _coll_index(use_collection_key)
+            cat_letter = use_category_key.split('_')[0].upper() if use_category_key else 'A'
+            cat_key = (use_collection_key, use_category_key)
+            cat_counters[cat_key] = cat_counters.get(cat_key, 0) + 1
+            sort_key = f"{coll_idx:02d}_{cat_letter}_{cat_counters[cat_key]:02d}"
             new_card = AnkiCard(
                 guid=str(uuid.uuid4()),
                 front=front,
