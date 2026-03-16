@@ -25,7 +25,8 @@ PDFs  ──pdf2text──►  .txt  ──workflow --ingest──►  new_cards
 Or let the tool figure everything out automatically:
 
 ```
-pdf2anki .   ──►  scans directory, infers state, runs all pending steps
+pdf2anki . -y   ──►  scans folder tree, auto-configures, runs all pending steps
+                     (run in the TOP-LEVEL course folder — finds PDFs in all subfolders)
 ```
 
 ## Quick Start

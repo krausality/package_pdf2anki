@@ -8,6 +8,7 @@ infers pipeline state, generates an ordered execution plan, and runs pending ste
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -139,7 +140,9 @@ def run_lazy_mode(
             export_meta = _read_export_results(config, manager.db_manager)
             trace.end_phase("export", "ok", export_meta)
 
-        safe_print("\n=== pdf2anki . abgeschlossen ===\n")
+        safe_print("\n=== pdf2anki . abgeschlossen ===")
+        _print_cost_summary(trace)
+        safe_print("")
         trace.end_run("ok")
 
     except Exception as exc:
@@ -197,6 +200,15 @@ def _discover(base_dir: Path, turns: int, no_llm: bool,
     if no_llm:
         meta["method"] = "wizard"
         return run_guided_wizard(base_dir), meta
+
+    # Fail fast: detect non-interactive stdin BEFORE expensive LLM calls
+    if not auto_confirm and not sys.stdin.isatty():
+        safe_print(
+            "Kein interaktiver Input möglich. Nutze --yes / -y für automatische Bestätigung.",
+            "ERROR",
+        )
+        safe_print("Tipp: pdf2anki . -y")
+        return None, meta
 
     # LLM discovery with wizard fallback
     safe_print("LLM Discovery läuft...")
@@ -359,6 +371,24 @@ def _print_plan(state_map: dict) -> None:
         exp_sym = "✅" if state.export == "done" else "⏳"
         safe_print(f"  {rel_path}: OCR{ocr_sym} Ingest{ing_sym} Export{exp_sym}")
     safe_print("")
+
+
+def _print_cost_summary(trace: PipelineTrace) -> None:
+    """Print a one-line cost summary from the current run's accumulated LLM data."""
+    try:
+        run = trace._runs[-1] if trace._runs else None
+        if run is None:
+            return
+        total_cost = 0.0
+        total_calls = 0
+        for phase in run.get("phases", {}).values():
+            for call in phase.get("llm_calls", []):
+                total_cost += call.get("cost", 0)
+                total_calls += 1
+        if total_calls > 0:
+            safe_print(f"  Kosten: ~${total_cost:.3f} ({total_calls} LLM-Calls)")
+    except Exception:
+        pass
 
 
 def _show_preview(project_json: dict, pipeline_plan: list) -> None:

@@ -89,7 +89,7 @@ class TestExistingProjectJson:
                 "pdf2anki.text2anki.lazy_runner.LLMDiscoveryLoop"
             ) as MockLoop:
                 _configure_mock_loop(MockLoop, DISCOVERY_RESULT)
-                run_lazy_mode(tmp_path, reconfig=True)
+                run_lazy_mode(tmp_path, reconfig=True, auto_confirm=True)
                 MockLoop.assert_called_once()
 
 
@@ -107,7 +107,7 @@ class TestFirstRun:
                 "pdf2anki.text2anki.lazy_runner.LLMDiscoveryLoop"
             ) as MockLoop:
                 _configure_mock_loop(MockLoop, DISCOVERY_RESULT)
-                run_lazy_mode(tmp_path)
+                run_lazy_mode(tmp_path, auto_confirm=True)
                 MockLoop.assert_called_once()
 
     def test_wizard_called_when_no_llm(self, tmp_path):
@@ -135,7 +135,7 @@ class TestFirstRun:
                     "pdf2anki.text2anki.lazy_runner.run_guided_wizard",
                     return_value=VALID_PROJECT_JSON,
                 ) as mock_wiz:
-                    run_lazy_mode(tmp_path)
+                    run_lazy_mode(tmp_path, auto_confirm=True)
                     mock_wiz.assert_called_once()
 
     def test_aborts_cleanly_when_user_declines_preview(self, tmp_path):
@@ -149,9 +149,20 @@ class TestFirstRun:
             "pdf2anki.text2anki.lazy_runner.LLMDiscoveryLoop"
         ) as MockLoop:
             _configure_mock_loop(MockLoop, non_confident)
-            with patch("builtins.input", return_value="n"):
+            with patch("builtins.input", return_value="n"), \
+                 patch("pdf2anki.text2anki.lazy_runner.sys") as mock_sys:
+                mock_sys.stdin.isatty.return_value = True
                 run_lazy_mode(tmp_path)
         assert not (tmp_path / "project.json").exists()
+
+    def test_aborts_early_in_non_interactive_shell(self, tmp_path):
+        """Non-interactive stdin without -y should abort BEFORE LLM calls."""
+        with patch(
+            "pdf2anki.text2anki.lazy_runner.LLMDiscoveryLoop"
+        ) as MockLoop:
+            _configure_mock_loop(MockLoop, DISCOVERY_RESULT)
+            run_lazy_mode(tmp_path)  # auto_confirm=False, stdin not a TTY
+            MockLoop.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -212,5 +223,5 @@ class TestPipelineExecution:
                 "pdf2anki.text2anki.lazy_runner.LLMDiscoveryLoop"
             ) as MockLoop:
                 _configure_mock_loop(MockLoop, DISCOVERY_RESULT)
-                run_lazy_mode(tmp_path, turns=7)
+                run_lazy_mode(tmp_path, turns=7, auto_confirm=True)
                 MockLoop.assert_called_once_with(base_dir=tmp_path.resolve(), max_turns=7)
