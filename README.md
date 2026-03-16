@@ -42,10 +42,19 @@ export OPENROUTER_API_KEY=sk-or-...
 pdf2anki config set default_model      google/gemini-2.5-flash
 pdf2anki config set default_anki_model google/gemini-2.5-flash
 
-# 4a. Lazy mode — drop PDFs in a folder, run one command, get Anki cards
-#     Scans the directory, auto-configures via LLM, runs all pending steps.
-cd my_lecture_folder/
-pdf2anki . -y          # -y skips the confirmation prompt
+# 4a. Lazy mode — point it at the ROOT of your course material
+#     Scans ALL subdirectories, finds every PDF, auto-configures via LLM.
+#
+#     Example folder structure (run pdf2anki . in Kursmaterial/):
+#       Kursmaterial/
+#       ├── Skript/          ← PDFs here are found automatically
+#       │   └── chapter1.pdf
+#       ├── Uebung/          ← these too
+#       │   └── blatt1.pdf
+#       └── ... any nesting depth works
+#
+cd Kursmaterial/           # the TOP-LEVEL folder, not a subfolder
+pdf2anki . -y              # -y skips the confirmation prompt
 
 # 4b. Full pipeline for a single PDF (manual)
 pdf2anki process lecture.pdf ./images/ lecture.apkg
