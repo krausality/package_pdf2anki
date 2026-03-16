@@ -45,28 +45,36 @@ def _initialize_api_key():
         safe_print(f"Fehler bei der Eingabe des API-Keys: {e}", "ERROR")
         return False
 
-def get_llm_decision(header_context, prompt_body, model="google/gemini-2.5-flash"):
+def get_llm_decision(header_context, prompt_body, model="google/gemini-2.5-flash",
+                     json_mode=False):
     """
     Führt einen API-Aufruf an OpenRouter durch, sammelt die volle Antwort und gibt die Entscheidung zurück.
+
+    Args:
+        json_mode: If True, sets response_format=json_object so the model is
+                   forced to produce valid JSON (proper escaping of backslashes etc.).
     """
     if not API_KEY and not _initialize_api_key():
         return None
 
     full_prompt = f"{header_context}\n\n---\n\n{prompt_body}"
 
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": full_prompt}],
+        "temperature": 0.1,
+        "usage": {
+            "include": True
+        },
+    }
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
+
     try:
         response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
             headers={ "Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json" },
-            data=json.dumps({
-                "model": model,
-                "messages": [{"role": "user", "content": full_prompt}],
-                "temperature": 0.1,
-                # --- KORREKTUR: Sende das `usage`-Objekt genau wie von der API gefordert ---
-                "usage": {
-                    "include": True
-                }
-            }),
+            data=json.dumps(payload),
             timeout=60
         )
         response.raise_for_status()

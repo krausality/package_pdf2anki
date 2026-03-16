@@ -698,7 +698,7 @@ class TestRealOcrContentPatterns:
         ocr_file.write_text(REAL_SKRIPT_SNIPPET, encoding="utf-8")
 
         captured = {}
-        def capture_llm(header_context, prompt_body, model=None):
+        def capture_llm(header_context, prompt_body, model=None, **kwargs):
             captured["prompt"] = prompt_body
             return json.dumps({"new_cards": []})
 

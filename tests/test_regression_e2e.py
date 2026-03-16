@@ -422,7 +422,7 @@ class TestCardIngestion:
 
         captured = {}
 
-        def fake_llm(header_context, prompt_body, model=None):
+        def fake_llm(header_context, prompt_body, model=None, **kwargs):
             captured["prompt"] = prompt_body
             return json.dumps({"new_cards": []})
 
@@ -479,7 +479,7 @@ class TestCardIngestion:
         """
         captured = {}
 
-        def fake_llm(header_context, prompt_body, model=None):
+        def fake_llm(header_context, prompt_body, model=None, **kwargs):
             captured["prompt"] = prompt_body
             return json.dumps({"new_cards": []})
 
@@ -498,7 +498,7 @@ class TestCardIngestion:
         """
         captured = {}
 
-        def fake_llm(header_context, prompt_body, model=None):
+        def fake_llm(header_context, prompt_body, model=None, **kwargs):
             captured["prompt"] = prompt_body
             return json.dumps({"new_cards": []})
 

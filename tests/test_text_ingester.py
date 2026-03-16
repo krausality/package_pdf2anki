@@ -76,7 +76,7 @@ class TestTextFileIngestorIngest:
 
         captured_prompt = {}
 
-        def fake_llm(header_context, prompt_body, model=None):
+        def fake_llm(header_context, prompt_body, model=None, **kwargs):
             captured_prompt["body"] = prompt_body
             return json.dumps({"new_cards": []})
 

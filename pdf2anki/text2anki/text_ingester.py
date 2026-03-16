@@ -79,6 +79,7 @@ class TextFileIngestor(IngestorBase):
             header_context="",
             prompt_body=prompt,
             model=config.get_llm_model(),
+            json_mode=True,
         )
 
         if not response:
