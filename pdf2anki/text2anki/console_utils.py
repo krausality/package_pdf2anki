@@ -100,6 +100,30 @@ def configure_windows_console():
         except Exception:
             pass
 
+# ---------------------------------------------------------------------------
+# Verbose mode
+# ---------------------------------------------------------------------------
+
+_verbose: bool = False
+
+
+def set_verbose(v: bool) -> None:
+    """Enable or disable verbose console output (Layer 1 summaries)."""
+    global _verbose
+    _verbose = v
+
+
+def is_verbose() -> bool:
+    """Return True if verbose mode is active."""
+    return _verbose
+
+
+def verbose_print(text: str, level: str = None, **kwargs):
+    """Print only when verbose mode is active. Same signature as safe_print."""
+    if _verbose:
+        safe_print(text, level, **kwargs)
+
+
 # Initialisiere Windows-Konsole beim Import
 if sys.platform == 'win32':
     configure_windows_console()
