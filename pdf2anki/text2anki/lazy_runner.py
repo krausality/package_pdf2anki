@@ -33,6 +33,7 @@ def run_lazy_mode(
     no_llm: bool = False,
     reconfig: bool = False,
     ocr_model: Optional[str] = None,
+    auto_confirm: bool = False,
 ) -> None:
     """
     Full lazy-mode pipeline for `pdf2anki .`.
@@ -43,6 +44,7 @@ def run_lazy_mode(
         no_llm:    If True, use the guided CLI wizard instead of LLM discovery.
         reconfig:  If True, re-run discovery even if project.json already exists.
         ocr_model: OCR model to use for pending PDFs. Defaults to gemini-2.5-flash.
+        auto_confirm: If True, skip interactive y/n confirmation prompts.
     """
     base_dir = base_dir.resolve()
     ocr_model = ocr_model or _DEFAULT_OCR_MODEL
@@ -64,6 +66,7 @@ def run_lazy_mode(
             turns=turns,
             no_llm=no_llm,
             reconfig=reconfig,
+            auto_confirm=auto_confirm,
         )
         if config is None:
             safe_print("Aborted: project.json could not be created.", "ERROR")
@@ -154,6 +157,7 @@ def _ensure_project_config(
     turns: int,
     no_llm: bool,
     reconfig: bool,
+    auto_confirm: bool = False,
 ) -> tuple[Optional[ProjectConfig], dict]:
     """
     Return a valid ProjectConfig and discovery metadata.
@@ -172,7 +176,7 @@ def _ensure_project_config(
             return None, meta
 
     # Discovery required
-    data, discover_meta = _discover(base_dir, turns, no_llm)
+    data, discover_meta = _discover(base_dir, turns, no_llm, auto_confirm)
     meta.update(discover_meta)
     if data is None:
         return None, meta
@@ -185,7 +189,8 @@ def _ensure_project_config(
         return None, meta
 
 
-def _discover(base_dir: Path, turns: int, no_llm: bool) -> tuple[Optional[dict], dict]:
+def _discover(base_dir: Path, turns: int, no_llm: bool,
+              auto_confirm: bool = False) -> tuple[Optional[dict], dict]:
     """Run LLM discovery or guided wizard. Returns (project_json_dict, metadata)."""
     meta: dict = {}
 
@@ -206,12 +211,19 @@ def _discover(base_dir: Path, turns: int, no_llm: bool) -> tuple[Optional[dict],
         meta["method"] = "llm_then_wizard"
         return run_guided_wizard(base_dir), meta
 
-    if not result.skip_confirm:
+    if not result.skip_confirm and not auto_confirm:
         _show_preview(result.project_json, result.pipeline_plan)
-        response = input("project.json schreiben und Pipeline starten? [y/n]: ").strip().lower()
+        try:
+            response = input("project.json schreiben und Pipeline starten? [y/n]: ").strip().lower()
+        except EOFError:
+            safe_print("Kein interaktiver Input möglich. Nutze --yes / -y für automatische Bestätigung.", "ERROR")
+            return None, meta
         if response != "y":
             safe_print("Abgebrochen.")
             return None, meta
+    elif auto_confirm and not result.skip_confirm:
+        _show_preview(result.project_json, result.pipeline_plan)
+        safe_print("  (--yes: automatisch bestätigt)")
 
     return result.project_json, meta
 
@@ -328,7 +340,10 @@ def _db_has_cards(base_dir: Path) -> bool:
         return False
     try:
         data = json.loads(db.read_text(encoding="utf-8"))
-        return bool(data.get("cards"))
+        # card_database.json is a flat array of card objects, not {"cards": [...]}
+        if isinstance(data, list):
+            return len(data) > 0
+        return bool(data.get("cards") if isinstance(data, dict) else False)
     except (json.JSONDecodeError, OSError):
         return False
 

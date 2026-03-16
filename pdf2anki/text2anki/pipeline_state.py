@@ -69,8 +69,10 @@ def infer_project_state(project_dir: Path) -> tuple[IngestStatus, ExportStatus]:
     if db_path.exists():
         try:
             data = json.loads(db_path.read_text(encoding="utf-8"))
-            # A populated database has at least one card entry
-            if isinstance(data, dict) and data.get("cards"):
+            # card_database.json is a flat array of card objects
+            if isinstance(data, list) and len(data) > 0:
+                ingest = "done"
+            elif isinstance(data, dict) and data.get("cards"):
                 ingest = "done"
         except (json.JSONDecodeError, OSError):
             pass

@@ -778,6 +778,8 @@ def cli_invoke() -> None:
                              help="Re-run discovery even if project.json already exists.")
         _parser.add_argument("--ocr-model", type=str, default=None, metavar="MODEL",
                              help="OCR model for pending PDFs (default: google/gemini-2.5-flash).")
+        _parser.add_argument("-y", "--yes", action="store_true",
+                             help="Skip interactive confirmation prompts (auto-accept).")
         _args = _parser.parse_args(sys.argv[2:])
         from .text2anki.lazy_runner import run_lazy_mode
         run_lazy_mode(
@@ -786,6 +788,7 @@ def cli_invoke() -> None:
             no_llm=_args.no_llm,
             reconfig=_args.reconfig,
             ocr_model=_args.ocr_model,
+            auto_confirm=_args.yes,
         )
         return
 
