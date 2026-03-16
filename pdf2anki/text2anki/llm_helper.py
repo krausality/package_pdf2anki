@@ -3,7 +3,8 @@ import requests
 import json
 import getpass
 from dotenv import load_dotenv
-from .console_utils import safe_print
+from .console_utils import safe_print, is_verbose, verbose_print
+from .forensic_logger import log_event
 
 load_dotenv()
 
@@ -70,6 +71,14 @@ def get_llm_decision(header_context, prompt_body, model="google/gemini-2.5-flash
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
 
+    log_event("llm_request", {
+        "caller": "get_llm_decision",
+        "model": model,
+        "json_mode": json_mode,
+        "prompt_length": len(full_prompt),
+        "prompt": full_prompt,
+    })
+
     try:
         response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
@@ -79,27 +88,35 @@ def get_llm_decision(header_context, prompt_body, model="google/gemini-2.5-flash
         )
         response.raise_for_status()
         response_data = response.json()
-        
+
         _session_responses.append(response_data)
-        
-        safe_print("--- Full OpenRouter API Response ---", "INFO")
-        safe_print(json.dumps(response_data, indent=2, ensure_ascii=False))
-        safe_print("------------------------------------", "INFO")
-        
+        log_event("llm_response", {
+            "caller": "get_llm_decision",
+            "response": response_data,
+        })
+
+        if is_verbose():
+            safe_print("--- Full OpenRouter API Response ---", "INFO")
+            safe_print(json.dumps(response_data, indent=2, ensure_ascii=False))
+            safe_print("------------------------------------", "INFO")
+
         usage = response_data.get('usage', {})
-        cost = usage.get('cost', 0.0) # Dieses Feld wird jetzt vorhanden sein
-        cached_tokens = usage.get('prompt_tokens_details', {}).get('cached_tokens', 0) # Dieses Feld auch
+        cost = usage.get('cost', 0.0)
+        cached_tokens = usage.get('prompt_tokens_details', {}).get('cached_tokens', 0)
         safe_print(f"LLM call successful. Cost: ${cost:.8f} (Cached: {cached_tokens} tokens)", "INFO")
-        
+        verbose_print(f"  Prompt: {len(full_prompt)} chars, model={model}, json_mode={json_mode}")
+
         return response_data['choices'][0]['message']['content'].strip()
 
     except requests.exceptions.RequestException as e:
         safe_print(f"API-Anfrage fehlgeschlagen: {e}", "ERROR")
         _session_responses.append({"error": str(e)})
+        log_event("llm_error", {"caller": "get_llm_decision", "error": str(e)})
         return None
     except (KeyError, IndexError) as e:
         safe_print(f"Unerwartete API-Antwortstruktur: {e}", "ERROR")
         _session_responses.append({"error": f"Invalid response structure: {e}"})
+        log_event("llm_error", {"caller": "get_llm_decision", "error": str(e)})
         return None
 
 
@@ -120,6 +137,14 @@ def get_llm_conversation_turn(
 
     conversation_history.append({"role": "user", "content": new_user_message})
 
+    log_event("llm_request", {
+        "caller": "get_llm_conversation_turn",
+        "model": model,
+        "turn": len(conversation_history),
+        "message_length": len(new_user_message),
+        "message": new_user_message,
+    })
+
     try:
         response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
@@ -136,6 +161,10 @@ def get_llm_conversation_turn(
         response_data = response.json()
 
         _session_responses.append(response_data)
+        log_event("llm_response", {
+            "caller": "get_llm_conversation_turn",
+            "response": response_data,
+        })
 
         content = response_data["choices"][0]["message"]["content"].strip()
         conversation_history.append({"role": "assistant", "content": content})
@@ -143,16 +172,19 @@ def get_llm_conversation_turn(
         usage = response_data.get("usage", {})
         cost = usage.get("cost", 0.0)
         safe_print(f"LLM turn successful. Cost: ${cost:.8f}", "INFO")
+        verbose_print(f"  Turn {len(conversation_history)}, model={model}")
 
         return content
 
     except requests.exceptions.RequestException as e:
         safe_print(f"API-Anfrage fehlgeschlagen: {e}", "ERROR")
         _session_responses.append({"error": str(e)})
+        log_event("llm_error", {"caller": "get_llm_conversation_turn", "error": str(e)})
         conversation_history.pop()  # remove the user message we appended
         return None
     except (KeyError, IndexError) as e:
         safe_print(f"Unerwartete API-Antwortstruktur: {e}", "ERROR")
         _session_responses.append({"error": f"Invalid response structure: {e}"})
+        log_event("llm_error", {"caller": "get_llm_conversation_turn", "error": str(e)})
         conversation_history.pop()
         return None
