@@ -20,6 +20,7 @@ import re
 from pathlib import Path
 from typing import NamedTuple, Optional
 
+from .forensic_logger import log_event
 from .llm_helper import get_llm_conversation_turn
 from .pipeline_state import scan_directory, infer_ocr_status
 from .project_config import PROJECT_JSON_TEMPLATE
@@ -165,6 +166,10 @@ class LLMDiscoveryLoop:
                 "\n\n--- CONTENT SAMPLES (one representative file per subdirectory) ---\n\n"
                 + content_samples
             )
+            log_event("content_sample", {
+                "sample_length": len(content_samples),
+                "sample": content_samples,
+            })
         first_message += (
             "\n\nUse the content samples above to identify thematic topics for collections. "
             "If you need more detail, call read_excerpts with additional files. "
@@ -201,9 +206,16 @@ class LLMDiscoveryLoop:
             self.turns_used += 1
 
             if reply is None:
+                log_event("discovery_turn", {"turn": turn_idx, "kind": "api_failure"})
                 return None  # API failure
 
             kind, data = self._parse_response(reply)
+            log_event("discovery_turn", {
+                "turn": turn_idx,
+                "kind": kind,
+                "data": data,
+                "reply_length": len(reply),
+            })
 
             if kind == "final":
                 return self._build_result(data)
@@ -212,17 +224,22 @@ class LLMDiscoveryLoop:
                 tool_name = data.get("name", "")
                 self.tool_calls_made.append(tool_name)
                 args = data.get("args", {})
+                log_event("discovery_tool_call", {
+                    "tool": tool_name,
+                    "args": args,
+                })
                 tool_result = self._dispatch(tool_name, args)
+                log_event("discovery_tool_result", {
+                    "tool": tool_name,
+                    "result_length": len(tool_result),
+                    "result": tool_result,
+                })
                 # Inject tool result as next user message
                 get_llm_conversation_turn(
                     history,
                     f"Tool '{tool_name}' result:\n\n{tool_result}",
                     model=self.model,
                 )
-                # The loop will now continue; decrement remaining turns by 1
-                # (the tool-result injection consumed a turn slot implicitly)
-                # We do NOT decrement here — the outer for loop handles it.
-                # But we need to be aware that injecting adds 2 messages.
                 continue
 
             # Unparseable response — treat as last-chance fallback on next iteration

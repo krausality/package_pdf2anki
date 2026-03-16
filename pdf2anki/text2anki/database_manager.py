@@ -17,6 +17,7 @@ from typing import List, Dict, Any, Tuple
 
 from .card import AnkiCard
 from .console_utils import safe_print
+from .forensic_logger import log_event
 
 # LLM Integration Imports
 from .llm_helper import get_llm_decision, reset_llm_session
@@ -785,6 +786,13 @@ class DatabaseManager:
             "Welche neuen Karten (Nummer) sind inhaltliche Duplikate (gleiches Konzept) einer bestehenden Karte?"
         )
 
+        log_event("integrate_dedup_llm", {
+            "candidates_count": len(candidates_to_check),
+            "existing_fronts_count": len(all_existing_fronts),
+            "prompt_length": len(prompt),
+            "prompt": prompt,
+        })
+
         try:
             response = get_llm_decision(header_context=None, prompt_body=prompt)
             if isinstance(response, str):
@@ -795,9 +803,15 @@ class DatabaseManager:
             else:
                 result = {}
             dup_local_indices = set(result.get("duplicates", []))
-            return {candidates_to_check[li][0] for li in dup_local_indices if li < len(candidates_to_check)}
+            dup_set = {candidates_to_check[li][0] for li in dup_local_indices if li < len(candidates_to_check)}
+            log_event("integrate_dedup_result", {
+                "duplicates_found": len(dup_set),
+                "duplicate_indices": sorted(dup_set),
+            })
+            return dup_set
         except Exception as e:
             safe_print(f"⚠️  LLM-Duplikaterkennung fehlgeschlagen, fahre ohne fort: {e}", "WARNING")
+            log_event("integrate_dedup_error", {"error": str(e)})
             return set()
 
     def _normalize_for_key(self, text: str) -> str:
@@ -1041,6 +1055,13 @@ class DatabaseManager:
             )
             self.cards.append(new_card)
             added_count += 1
+
+        log_event("integrate_result", {
+            "total_input": len(new_cards_data),
+            "candidates_after_text_dedup": len(candidates),
+            "llm_duplicates_removed": len(llm_dup_indices),
+            "cards_added": added_count,
+        })
 
         if added_count > 0:
             self.save_database()

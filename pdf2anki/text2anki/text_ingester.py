@@ -13,7 +13,8 @@ import os
 import re
 from typing import List
 
-from .console_utils import safe_print
+from .console_utils import safe_print, verbose_print
+from .forensic_logger import log_event
 from .llm_helper import get_llm_decision
 from .project_config import ProjectConfig
 
@@ -74,6 +75,17 @@ class TextFileIngestor(IngestorBase):
             schema_example=schema_example,
         )
 
+        log_event("ingest_prompt", {
+            "sources": sources,
+            "source_count": len(sources),
+            "material_length": len(material),
+            "domain": config.domain,
+            "language": config.language,
+            "model": config.get_llm_model(),
+            "prompt_length": len(prompt),
+            "prompt": prompt,
+        })
+
         safe_print(f"  -> 🤖 Rufe LLM auf ({config.get_llm_model()}) für Ingestion von {len(sources)} Datei(en)...")
         response = get_llm_decision(
             header_context="",
@@ -84,7 +96,13 @@ class TextFileIngestor(IngestorBase):
 
         if not response:
             safe_print("  -> ❌ LLM hat keine Antwort zurückgegeben.", "ERROR")
+            log_event("ingest_response_raw", {"response": None})
             return {"new_cards": []}
+
+        log_event("ingest_response_raw", {
+            "response_length": len(response),
+            "response": response,
+        })
 
         result = self._parse_response(response)
         n = len(result.get("new_cards", []))
@@ -150,13 +168,17 @@ class TextFileIngestor(IngestorBase):
         # Strategy 1: direct parse (with repair for LaTeX backslashes etc.)
         result = self._try_parse_json(text)
         if result is not None:
-            return self._normalize_result(result)
+            normalized = self._normalize_result(result)
+            log_event("ingest_parse", {"strategy": "direct", "success": True, "card_count": len(normalized.get("new_cards", []))})
+            return normalized
 
         # Strategy 2: extract from markdown fences (try all matches)
         for fence_match in re.finditer(r'```\w*\s*\n(.*?)\n\s*```', text, re.DOTALL):
             result = self._try_parse_json(fence_match.group(1).strip())
             if result is not None:
-                return self._normalize_result(result)
+                normalized = self._normalize_result(result)
+                log_event("ingest_parse", {"strategy": "markdown_fence", "success": True, "card_count": len(normalized.get("new_cards", []))})
+                return normalized
 
         # Strategy 3: brace matching (first { to balanced })
         start = text.find('{')
@@ -170,7 +192,9 @@ class TextFileIngestor(IngestorBase):
                     if depth == 0:
                         result = self._try_parse_json(text[start:i + 1])
                         if result is not None:
-                            return self._normalize_result(result)
+                            normalized = self._normalize_result(result)
+                            log_event("ingest_parse", {"strategy": "brace_match", "success": True, "card_count": len(normalized.get("new_cards", []))})
+                            return normalized
                         break
 
         # Strategy 4: greedy — first { to last }
@@ -179,7 +203,9 @@ class TextFileIngestor(IngestorBase):
             if last_brace > start:
                 result = self._try_parse_json(text[start:last_brace + 1])
                 if result is not None:
-                    return self._normalize_result(result)
+                    normalized = self._normalize_result(result)
+                    log_event("ingest_parse", {"strategy": "greedy", "success": True, "card_count": len(normalized.get("new_cards", []))})
+                    return normalized
 
         # Strategy 5: truncated JSON recovery
         if start is not None and start != -1:
@@ -187,10 +213,13 @@ class TextFileIngestor(IngestorBase):
             if result is not None:
                 n = len(result.get("new_cards", []))
                 safe_print(f"  -> ⚠️ JSON war abgeschnitten — {n} Karten aus unvollständiger Antwort gerettet.", "WARNING")
-                return self._normalize_result(result)
+                normalized = self._normalize_result(result)
+                log_event("ingest_parse", {"strategy": "truncated_recovery", "success": True, "card_count": len(normalized.get("new_cards", []))})
+                return normalized
 
         # All strategies failed — dump raw response for debugging
         self._dump_debug_response(response)
+        log_event("ingest_parse", {"strategy": "all_failed", "success": False, "response_length": len(text)})
         safe_print(f"  -> ⚠️ JSON-Parsing fehlgeschlagen. Antwort-Länge: {len(text)} Zeichen.", "WARNING")
         return {"new_cards": []}
 
