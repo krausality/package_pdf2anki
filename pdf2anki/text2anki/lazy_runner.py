@@ -16,6 +16,9 @@ from .pipeline_state import scan_directory, infer_ocr_status
 from .pipeline_trace import PipelineTrace
 from .project_config import ProjectConfig
 from .console_utils import safe_print
+from .forensic_logger import (
+    init_forensic_log, close_forensic_log, set_phase, get_forensic_log_path,
+)
 from .llm_discovery import LLMDiscoveryLoop
 from .llm_helper import reset_llm_session, get_session_responses
 from .guided_wizard import run_guided_wizard
@@ -53,11 +56,17 @@ def run_lazy_mode(
     trace = PipelineTrace(base_dir / "pipeline_trace.json")
     trace.begin_run()
 
+    # Initialize forensic log for this run
+    log_archive = base_dir / "log_archive"
+    run_id = (trace._current_run or {}).get("run_id", "run")
+    init_forensic_log(log_archive, run_id)
+
     safe_print(f"\n=== pdf2anki . (lazy mode) — {base_dir} ===\n")
 
     try:
         # ── Phase 1: Discovery ────────────────────────────────────────────
         trace.begin_phase("discovery")
+        set_phase("discovery")
         reset_llm_session()
 
         project_json_path = base_dir / "project.json"
@@ -90,6 +99,7 @@ def run_lazy_mode(
         manager = WorkflowManager(project_dir=str(base_dir))
 
         trace.begin_phase("ocr")
+        set_phase("ocr")
         pending_count = sum(1 for s in state_map.values() if s.ocr == "pending")
         skipped_count = sum(1 for s in state_map.values() if s.ocr == "done")
         ocr_done_txts = _run_pending_ocr(base_dir, state_map, ocr_model)
@@ -106,6 +116,7 @@ def run_lazy_mode(
 
         if txt_files:
             trace.begin_phase("ingest")
+            set_phase("ingest")
             reset_llm_session()
 
             safe_print(f"\n--- Ingest: {len(txt_files)} Datei(en) ---")
@@ -116,6 +127,7 @@ def run_lazy_mode(
 
             # ── Phase 4: Integrate ────────────────────────────────────────
             trace.begin_phase("integrate")
+            set_phase("integrate")
             reset_llm_session()
 
             safe_print("\n--- Integrate ---")
@@ -133,6 +145,7 @@ def run_lazy_mode(
         state_map = scan_directory(base_dir)
         if any(s.ingest == "done" for s in state_map.values()) or _db_has_cards(base_dir):
             trace.begin_phase("export")
+            set_phase("export")
 
             safe_print("\n--- Export ---")
             manager.run_export_workflow()
@@ -142,10 +155,15 @@ def run_lazy_mode(
 
         safe_print("\n=== pdf2anki . abgeschlossen ===")
         _print_cost_summary(trace)
+        forensic_path = get_forensic_log_path()
+        if forensic_path:
+            safe_print(f"  Forensic log: {forensic_path}")
         safe_print("")
+        close_forensic_log()
         trace.end_run("ok")
 
     except Exception as exc:
+        close_forensic_log()
         trace.end_run("failed", str(exc))
         raise
 

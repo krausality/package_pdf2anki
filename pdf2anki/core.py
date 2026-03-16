@@ -780,7 +780,12 @@ def cli_invoke() -> None:
                              help="OCR model for pending PDFs (default: google/gemini-2.5-flash).")
         _parser.add_argument("-y", "--yes", action="store_true",
                              help="Skip interactive confirmation prompts (auto-accept).")
+        _parser.add_argument("-v", "--verbose", action="store_true",
+                             help="Enable verbose output (L1 summaries on console).")
         _args = _parser.parse_args(sys.argv[2:])
+        if _args.verbose:
+            from .text2anki.console_utils import set_verbose
+            set_verbose(True)
         from .text2anki.lazy_runner import run_lazy_mode
         run_lazy_mode(
             base_dir=Path.cwd(),
