@@ -34,27 +34,32 @@ pdf2anki .   ──►  scans directory, infers state, runs all pending steps
 # 1. Install (editable, inside a virtual environment)
 pip install --editable .
 
-# 2. Set a default OCR model
+# 2. API key (get one at https://openrouter.ai)
+#    Put it in a .env file in the project folder, or export it:
+export OPENROUTER_API_KEY=sk-or-...
+
+# 3. Set a default OCR model
 pdf2anki config set default_model      google/gemini-2.5-flash
 pdf2anki config set default_anki_model google/gemini-2.5-flash
 
-# 3a. Lazy mode — drop PDFs in a folder, run one command, get Anki cards
-#     The tool scans the directory, auto-configures the project via LLM, and
-#     runs every pending pipeline step automatically.
+# 4a. Lazy mode — drop PDFs in a folder, run one command, get Anki cards
+#     Scans the directory, auto-configures via LLM, runs all pending steps.
 cd my_lecture_folder/
-pdf2anki .
+pdf2anki . -y          # -y skips the confirmation prompt
 
-# 3b. Full pipeline for a single PDF (manual)
+# 4b. Full pipeline for a single PDF (manual)
 pdf2anki process lecture.pdf ./images/ lecture.apkg
 
-# 3c. Or step by step (manual)
+# 4c. Or step by step (manual)
 pdf2anki pdf2pic   lecture.pdf ./images/
 pdf2anki pic2text  ./images/   lecture.txt
 pdf2anki text2anki lecture.txt lecture.apkg
 
-# 3d. Already have cards as JSON? Convert offline, no API key needed
+# 4d. Already have cards as JSON? Convert offline, no API key needed
 pdf2anki json2anki cards.json
 ```
+
+**Re-running is safe.** `pdf2anki .` detects what's already done (OCR, cards, exports) and only runs pending steps. Duplicate cards are filtered automatically.
 
 ---
 
