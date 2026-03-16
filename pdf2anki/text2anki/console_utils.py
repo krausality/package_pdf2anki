@@ -6,6 +6,7 @@ Console Utilities für Windows-Unicode-Kompatibilität
 Stellt Windows-sichere Ausgabefunktionen zur Verfügung, die Emojis fallback-fähig ausgeben.
 """
 
+import os
 import sys
 import codecs
 
