@@ -26,11 +26,26 @@ from .project_config import ProjectConfig
 NEW_CARDS_SCHEMA_EXAMPLE = {
     "new_cards": [
         {
-            "front": "Was ist X?",
-            "back": "X ist ...",
-            "collection": "collection_0_Kapitel1",
-            "category": "a_grundlagen"
-        }
+            "front": "What is X?",
+            "back": "X is ...",
+            "collection": "collection_0_TopicA",
+            "category": "a_key_concepts",
+            "source": "chapter_01.txt"
+        },
+        {
+            "front": "Explain the difference between A and B.",
+            "back": "A differs from B in that ...",
+            "collection": "collection_0_TopicA",
+            "category": "b_comparisons",
+            "source": "chapter_01.txt"
+        },
+        {
+            "front": "Name three characteristics of C.",
+            "back": "1. ... 2. ... 3. ...",
+            "collection": "collection_1_TopicB",
+            "category": "c_application",
+            "source": "worksheet_02.txt"
+        },
     ]
 }
 
@@ -66,14 +81,16 @@ class TextFileIngestor(IngestorBase):
         material = self._load_texts(sources)
         collection_context = self._build_collection_context(config)
         schema_example = json.dumps(NEW_CARDS_SCHEMA_EXAMPLE, ensure_ascii=False, indent=2)
+        subcategory_guidance = self._build_subcategory_guidance(config.language)
 
-        prompt = self._build_prompt(
+        system_prompt = self._build_system_prompt(
             domain=config.domain,
             language=config.language,
             collection_context=collection_context,
-            material=material,
             schema_example=schema_example,
+            subcategory_guidance=subcategory_guidance,
         )
+        user_prompt = self._build_user_prompt(material=material, language=config.language)
 
         log_event("ingest_prompt", {
             "sources": sources,
@@ -82,16 +99,17 @@ class TextFileIngestor(IngestorBase):
             "domain": config.domain,
             "language": config.language,
             "model": config.get_llm_model(),
-            "prompt_length": len(prompt),
-            "prompt": prompt,
+            "prompt_length": len(system_prompt) + len(user_prompt),
+            "prompt": system_prompt + "\n\n---\n\n" + user_prompt,
         })
 
         safe_print(f"  -> 🤖 Rufe LLM auf ({config.get_llm_model()}) für Ingestion von {len(sources)} Datei(en)...")
         response = get_llm_decision(
             header_context="",
-            prompt_body=prompt,
+            prompt_body=user_prompt,
             model=config.get_llm_model(),
             json_mode=True,
+            system_message=system_prompt,
         )
 
         if not response:
@@ -112,14 +130,16 @@ class TextFileIngestor(IngestorBase):
     # ── Hilfsmethoden ────────────────────────────────────────────────────────
 
     def _load_texts(self, sources: List[str]) -> str:
-        """Liest alle Quelldateien und konkateniert ihren Inhalt."""
+        """Liest alle Quelldateien und konkateniert ihren Inhalt mit Source-Markern."""
         parts = []
         for path in sources:
             if not os.path.exists(path):
                 safe_print(f"  -> ⚠️ Datei nicht gefunden, überspringe: {path}", "WARNING")
                 continue
+            filename = os.path.basename(path)
             with open(path, encoding='utf-8') as f:
-                parts.append(f.read())
+                content = f.read()
+            parts.append(f"[SOURCE: {filename}]\n{content}\n[/SOURCE: {filename}]")
         return "\n\n---\n\n".join(parts)
 
     def _build_collection_context(self, config: ProjectConfig) -> str:
@@ -134,9 +154,80 @@ class TextFileIngestor(IngestorBase):
             lines.append(cat_line)
         return "\n".join(lines)
 
+    def _build_subcategory_guidance(self, language: str) -> str:
+        """Build instructions for the LLM on how to create diverse subcategories."""
+        templates = {
+            'de': (
+                "Kategorisiere jede Karte mit einer passenden Subkategorie im Feld 'category'. "
+                "Verwende das Format {buchstabe}_{beschreibender_name} (Kleinbuchstaben, Unterstriche). "
+                "Erstelle pro Kollektion 3-8 Kategorien basierend auf der natuerlichen Themenstruktur "
+                "des Materials. Beispiele:\n"
+                "  - a_kernkonzepte — Zentrale Begriffe und Definitionen\n"
+                "  - b_zusammenhaenge — Beziehungen, Vergleiche, Abgrenzungen\n"
+                "  - c_verfahren — Methoden, Prozesse, Vorgehensweisen\n"
+                "  - d_beispiele — Konkrete Beispiele und Anwendungsfaelle\n"
+                "  - e_uebung — Aufgaben und Loesungsstrategien\n\n"
+                "Passe die Kategorien an das Material an. Nicht jede Kollektion braucht alle Typen. "
+                "Verwende NICHT nur eine einzige Kategorie fuer alle Karten."
+            ),
+            'en': (
+                "Categorize each card with an appropriate subcategory in the 'category' field. "
+                "Use the format {letter}_{descriptive_name} (lowercase, underscores). "
+                "Create 3-8 categories per collection based on the material's natural topic "
+                "divisions. Examples:\n"
+                "  - a_key_concepts — Central terms and definitions\n"
+                "  - b_relationships — Connections, comparisons, distinctions\n"
+                "  - c_methods — Methods, processes, procedures\n"
+                "  - d_examples — Concrete examples and use cases\n"
+                "  - e_practice — Problems and solution strategies\n\n"
+                "Adapt the categories to the material. Not every collection needs all types. "
+                "Do NOT use only a single category for all cards."
+            ),
+        }
+        return templates.get(language, templates['en'])
+
+    def _build_system_prompt(self, domain: str, language: str, collection_context: str,
+                             schema_example: str, subcategory_guidance: str = "") -> str:
+        """Build the stable system prompt (cacheable across re-runs with same config)."""
+        templates = {
+            'de': (
+                f"Du bist ein Experte für {domain}. Erstelle hochwertige Anki-Lernkarten "
+                f"aus dem bereitgestellten Material.\n\n"
+                f"KOLLEKTIONSSTRUKTUR (nutze exakt diese Keys für 'collection'):\n{collection_context}\n\n"
+                f"SUBKATEGORIEN-REGELN:\n{subcategory_guidance}\n\n"
+                f"QUELLZUORDNUNG:\n"
+                f"Gib für jede Karte im Feld 'source' den Dateinamen der Quelle an "
+                f"(den Wert aus dem [SOURCE: ...]-Marker im Material).\n\n"
+                f"AUSGABEFORMAT (JSON, exakt dieses Schema):\n{schema_example}\n\n"
+                f"Antworte NUR mit dem JSON-Objekt. Kein Prosatext davor oder danach. "
+                f"Verwende ausschließlich die oben aufgeführten collection-Keys."
+            ),
+            'en': (
+                f"You are an expert in {domain}. Create high-quality Anki flashcards "
+                f"from the provided material.\n\n"
+                f"COLLECTION STRUCTURE (use exactly these keys for 'collection'):\n{collection_context}\n\n"
+                f"SUBCATEGORY RULES:\n{subcategory_guidance}\n\n"
+                f"SOURCE ATTRIBUTION:\n"
+                f"For each card, set the 'source' field to the filename from the "
+                f"[SOURCE: ...] marker in the material.\n\n"
+                f"OUTPUT FORMAT (JSON, exactly this schema):\n{schema_example}\n\n"
+                f"Reply ONLY with the JSON object. No prose before or after. "
+                f"Use only the collection keys listed above."
+            ),
+        }
+        return templates.get(language, templates['en'])
+
+    def _build_user_prompt(self, material: str, language: str) -> str:
+        """Build the variable user prompt (changes with each material set)."""
+        templates = {
+            'de': f"MATERIAL:\n{material}",
+            'en': f"MATERIAL:\n{material}",
+        }
+        return templates.get(language, templates['en'])
+
     def _build_prompt(self, domain: str, language: str, collection_context: str,
                       material: str, schema_example: str) -> str:
-        """Baut den LLM-Prompt für die Kartengeneration."""
+        """Baut den LLM-Prompt für die Kartengeneration (legacy single-prompt path)."""
         templates = {
             'de': (
                 f"Du bist ein Experte für {domain}. Erstelle hochwertige Anki-Lernkarten "

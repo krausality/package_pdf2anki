@@ -481,15 +481,17 @@ class TestCardIngestion:
 
         def fake_llm(header_context, prompt_body, model=None, **kwargs):
             captured["prompt"] = prompt_body
+            captured["system_message"] = kwargs.get("system_message", "")
             return json.dumps({"new_cards": []})
 
         with patch("pdf2anki.text2anki.text_ingester.get_llm_decision", side_effect=fake_llm):
             ingest_text([dfa_lecture_file], gti_config, str(tmp_path / "out.json"))
 
+        full = (captured.get("system_message") or "") + "\n" + captured["prompt"]
         # German prompt uses 'Experte'
-        assert "Experte" in captured["prompt"]
+        assert "Experte" in full
         # Domain appears in prompt
-        assert "Automatentheorie" in captured["prompt"]
+        assert "Automatentheorie" in full
 
     def test_ingest_prompt_contains_all_collection_keys(self, tmp_path, gti_config, dfa_lecture_file):
         """
@@ -500,13 +502,15 @@ class TestCardIngestion:
 
         def fake_llm(header_context, prompt_body, model=None, **kwargs):
             captured["prompt"] = prompt_body
+            captured["system_message"] = kwargs.get("system_message", "")
             return json.dumps({"new_cards": []})
 
         with patch("pdf2anki.text2anki.text_ingester.get_llm_decision", side_effect=fake_llm):
             ingest_text([dfa_lecture_file], gti_config, str(tmp_path / "out.json"))
 
+        full = (captured.get("system_message") or "") + "\n" + captured["prompt"]
         for key in ["collection_0_DFA_NFA", "collection_1_RegEx", "collection_2_Turing"]:
-            assert key in captured["prompt"], f"Collection key '{key}' missing from prompt"
+            assert key in full, f"Collection key '{key}' missing from prompt"
 
     def test_ingest_empty_text_file_is_allowed(self, tmp_path, gti_config):
         """

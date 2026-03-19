@@ -1050,6 +1050,7 @@ class DatabaseManager:
                 category=use_category_key,
                 sort_field=self._generate_sort_field(sort_key, front),
                 tags=self._generate_tags(use_collection_key, use_category_key),
+                source=card_data.get("source"),
                 created_at=now,
                 updated_at=now
             )
