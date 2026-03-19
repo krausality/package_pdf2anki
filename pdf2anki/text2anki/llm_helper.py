@@ -47,22 +47,29 @@ def _initialize_api_key():
         return False
 
 def get_llm_decision(header_context, prompt_body, model="google/gemini-2.5-flash",
-                     json_mode=False):
+                     json_mode=False, system_message=None):
     """
     Führt einen API-Aufruf an OpenRouter durch, sammelt die volle Antwort und gibt die Entscheidung zurück.
 
     Args:
         json_mode: If True, sets response_format=json_object so the model is
                    forced to produce valid JSON (proper escaping of backslashes etc.).
+        system_message: Optional stable system message (enables provider-side prompt caching
+                        when the same prefix is reused across calls).
     """
     if not API_KEY and not _initialize_api_key():
         return None
 
-    full_prompt = f"{header_context}\n\n---\n\n{prompt_body}"
+    full_prompt = f"{header_context}\n\n---\n\n{prompt_body}" if header_context else prompt_body
+
+    messages = []
+    if system_message:
+        messages.append({"role": "system", "content": system_message})
+    messages.append({"role": "user", "content": full_prompt})
 
     payload = {
         "model": model,
-        "messages": [{"role": "user", "content": full_prompt}],
+        "messages": messages,
         "temperature": 0.1,
         "usage": {
             "include": True
