@@ -1072,6 +1072,50 @@ class DatabaseManager:
 
         return added_count
 
+    def check_distribution_balance(self) -> list[str]:
+        """Check for suspiciously imbalanced collection sizes. Returns warning strings."""
+        if not self.cards:
+            return []
+
+        # Count cards per collection
+        coll_counts: dict[str, int] = {}
+        for card in self.cards:
+            coll_counts[card.collection] = coll_counts.get(card.collection, 0) + 1
+
+        if len(coll_counts) < 2:
+            return []
+
+        total = sum(coll_counts.values())
+        if total <= 20:
+            return []
+
+        counts = sorted(coll_counts.values())
+        median = counts[len(counts) // 2]
+        threshold = max(3, int(median * 0.15))
+
+        warnings: list[str] = []
+        for coll_key, count in sorted(coll_counts.items(), key=_collection_sort_key):
+            if count < threshold:
+                warnings.append(
+                    f"Collection '{coll_key}' hat nur {count} Karten "
+                    f"(Median: {median}) — moeglicherweise unterrepresentiert"
+                )
+
+        # Check for subcategory collapse within collections
+        coll_cats: dict[str, set[str]] = {}
+        for card in self.cards:
+            coll_cats.setdefault(card.collection, set()).add(card.category or "")
+        for coll_key, cats in sorted(coll_cats.items(), key=lambda x: _collection_sort_key(x[0])):
+            count = coll_counts.get(coll_key, 0)
+            if count >= 5 and len(cats) == 1:
+                cat = next(iter(cats))
+                warnings.append(
+                    f"Collection '{coll_key}' hat alle {count} Karten in "
+                    f"einer einzigen Kategorie '{cat}' — Subcategory-Kollaps?"
+                )
+
+        return warnings
+
     def distribute_to_derived_files(self, output_dir: str):
         """
         Generates all derived files (collection_*.json, All_collections_only_fronts.md)

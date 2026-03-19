@@ -141,6 +141,12 @@ def run_lazy_mode(
                 "cards_added": post_count - pre_count,
             }, get_session_responses())
 
+            # Balance check after integration
+            balance_warnings = manager.db_manager.check_distribution_balance()
+            for w in balance_warnings:
+                safe_print(f"  -> {w}", "WARNING")
+                log_event("distribution_balance_warning", {"warning": w})
+
         # ── Phase 5: Export ───────────────────────────────────────────────
         state_map = scan_directory(base_dir)
         if any(s.ingest == "done" for s in state_map.values()) or _db_has_cards(base_dir):
