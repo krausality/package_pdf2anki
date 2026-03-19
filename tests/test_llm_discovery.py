@@ -205,7 +205,8 @@ class TestRun:
         assert result.skip_confirm is True
 
     def test_tool_call_then_final(self, tmp_path):
-        responses = [TOOL_CALL_RESPONSE, "directory listing here", FINAL_RESPONSE]
+        # After fix: tool result is deferred, not sent via API — only 2 calls needed
+        responses = [TOOL_CALL_RESPONSE, FINAL_RESPONSE]
         loop = _loop(tmp_path, max_turns=5)
         with patch(
             "pdf2anki.text2anki.llm_discovery.get_llm_conversation_turn",
@@ -214,6 +215,18 @@ class TestRun:
             result = loop.run()
         assert result is not None
         assert result.project_json["project_name"] == "TestProjekt"
+
+    def test_tool_call_saves_one_api_call(self, tmp_path):
+        """Tool result deferral eliminates the redundant API call."""
+        responses = [TOOL_CALL_RESPONSE, FINAL_RESPONSE]
+        loop = _loop(tmp_path, max_turns=5)
+        with patch(
+            "pdf2anki.text2anki.llm_discovery.get_llm_conversation_turn",
+            side_effect=responses,
+        ) as mock_turn:
+            loop.run()
+        # Exactly 2 API calls: initial turn + tool-result turn
+        assert mock_turn.call_count == 2
 
     def test_returns_none_when_api_fails(self, tmp_path):
         loop = _loop(tmp_path)

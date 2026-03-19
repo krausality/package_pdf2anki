@@ -176,17 +176,24 @@ class LLMDiscoveryLoop:
             "Then produce the final project.json."
         )
 
+        pending_tool_result: str | None = None
+
         for turn_idx in range(self.max_turns):
             is_last_turn = (turn_idx == self.max_turns - 1)
 
-            user_message = first_message if turn_idx == 0 else None
+            # If a tool result is pending from the previous iteration, use it
+            if pending_tool_result is not None:
+                user_message = pending_tool_result
+                pending_tool_result = None
+            else:
+                user_message = first_message if turn_idx == 0 else None
 
             if is_last_turn and user_message is None:
                 user_message = (
                     "This is your LAST turn. Output your final answer now as JSON "
                     "with the 'final' key. No more tool calls."
                 )
-            elif is_last_turn:
+            elif is_last_turn and user_message is not None and turn_idx != 0:
                 user_message += (
                     "\n\nNote: This is also your LAST turn. "
                     "Output the final JSON directly if you have enough information."
@@ -234,12 +241,8 @@ class LLMDiscoveryLoop:
                     "result_length": len(tool_result),
                     "result": tool_result,
                 })
-                # Inject tool result as next user message
-                get_llm_conversation_turn(
-                    history,
-                    f"Tool '{tool_name}' result:\n\n{tool_result}",
-                    model=self.model,
-                )
+                # Defer tool result to the next iteration (avoids a redundant API call)
+                pending_tool_result = f"Tool '{tool_name}' result:\n\n{tool_result}"
                 continue
 
             # Unparseable response — treat as last-chance fallback on next iteration
