@@ -16,6 +16,7 @@ class AnkiCard:
     category: Optional[str] = None
     sort_field: Optional[str] = None
     tags: List[str] = field(default_factory=list)
+    source: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
 
@@ -29,6 +30,7 @@ class AnkiCard:
             "category": self.category,
             "sort_field": self.sort_field,
             "tags": self.tags,
+            "source": self.source,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat()
         }
