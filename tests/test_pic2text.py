@@ -3,6 +3,7 @@ import json
 import os
 import base64
 import io
+import threading
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch, call
@@ -437,3 +438,702 @@ class TestConvertImagesToText:
 
         # Should have been called since we forced a fresh start
         assert call_count["n"] >= 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Extended test helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _create_page_images(tmp_path, count):
+    """Create page_1.png .. page_{count}.png, return sorted name list."""
+    for i in range(1, count + 1):
+        make_png_image(tmp_path, f"page_{i}.png")
+    return [f"page_{i}.png" for i in range(1, count + 1)]
+
+
+def _sequential_side_effect(responses):
+    """requests.post side_effect: pop responses in call order.
+
+    Each entry is a str (success text) or an Exception (raised).
+    Extra calls beyond the list return a generic success.
+    """
+    idx = {"i": 0}
+
+    def _handler(*_args, **_kwargs):
+        i = idx["i"]
+        idx["i"] += 1
+        if i < len(responses):
+            item = responses[i]
+            if isinstance(item, BaseException):
+                raise item
+            return make_mock_ocr_response(item)
+        return make_mock_ocr_response(f"<extra call {i}>")
+
+    return _handler
+
+
+def _threadsafe_side_effect(responses):
+    """Thread-safe variant of _sequential_side_effect."""
+    lock = threading.Lock()
+    count = [0]
+
+    def _handler(*_args, **_kwargs):
+        with lock:
+            i = count[0]
+            count[0] += 1
+        if i < len(responses):
+            item = responses[i]
+            if isinstance(item, BaseException):
+                raise item
+            return make_mock_ocr_response(item)
+        return make_mock_ocr_response(f"<extra call {i}>")
+
+    return _handler
+
+
+def _model_aware_side_effect(*, ocr_fn, judge_fn):
+    """requests.post side_effect that distinguishes OCR from judge calls
+    via the X-Title header.
+
+    ocr_fn(call_index) -> str   for OCR calls  (X-Title: pdf2anki-ocr)
+    judge_fn(call_index) -> str for judge calls (X-Title: pdf2anki-judge)
+    """
+    lock = threading.Lock()
+    ocr_idx = [0]
+    judge_idx = [0]
+
+    def _handler(*_args, **kwargs):
+        headers = kwargs.get("headers", {})
+        title = headers.get("X-Title", "")
+
+        if title == "pdf2anki-judge":
+            with lock:
+                i = judge_idx[0]
+                judge_idx[0] += 1
+            return make_mock_ocr_response(judge_fn(i))
+
+        with lock:
+            i = ocr_idx[0]
+            ocr_idx[0] += 1
+        return make_mock_ocr_response(ocr_fn(i))
+
+    return _handler
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PHASE 1 — Regression baseline: pin current sequential behaviour
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSequentialRegressionBaseline:
+    """Pin the sequential page-processing contract.
+
+    Every test MUST pass on the unmodified codebase.  If any test breaks
+    after a refactor the change violated an existing behavioural guarantee.
+    """
+
+    def test_output_ordering_5_pages(self, tmp_path):
+        """5 pages → output sections appear in page_1 .. page_5 order."""
+        _create_page_images(tmp_path, 5)
+        out = str(tmp_path / "output.txt")
+        responses = [f"OCR for page {i}" for i in range(1, 6)]
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text.requests.post",
+                   side_effect=_sequential_side_effect(responses)), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            convert_images_to_text(
+                images_dir=str(tmp_path), output_file=out,
+                model_repeats=[("m", 1)], max_page_attempts=3,
+            )
+
+        content = Path(out).read_text(encoding="utf-8")
+        positions = [content.index(f"Image: page_{i}.png") for i in range(1, 6)]
+        assert positions == sorted(positions), f"Sections out of order: {positions}"
+
+    def test_output_text_matches_per_page(self, tmp_path):
+        """Each page's OCR text lands under its correct section header."""
+        _create_page_images(tmp_path, 3)
+        out = str(tmp_path / "output.txt")
+        texts = ["Alpha", "Beta", "Gamma"]
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text.requests.post",
+                   side_effect=_sequential_side_effect(texts)), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            convert_images_to_text(
+                images_dir=str(tmp_path), output_file=out,
+                model_repeats=[("m", 1)], max_page_attempts=3,
+            )
+
+        sections = _parse_output_sections(Path(out))
+        assert sections["page_1.png"] == "Alpha"
+        assert sections["page_2.png"] == "Beta"
+        assert sections["page_3.png"] == "Gamma"
+
+    def test_state_completed_after_full_success(self, tmp_path):
+        """After all pages succeed the archived state shows run_status=completed
+        and every page as done."""
+        _create_page_images(tmp_path, 3)
+        out = str(tmp_path / "output.txt")
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text.requests.post",
+                   side_effect=_sequential_side_effect(["t1", "t2", "t3"])), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            convert_images_to_text(
+                images_dir=str(tmp_path), output_file=out,
+                model_repeats=[("m", 1)], max_page_attempts=3,
+            )
+
+        archive = tmp_path / "log_archive"
+        assert archive.exists(), "log_archive should exist after successful run"
+        candidates = list(archive.glob("output.txt.ocr_state*.json"))
+        assert candidates, "Archived state file expected"
+        state = json.loads(candidates[0].read_text(encoding="utf-8"))
+        assert state["run_status"] == "completed"
+        for i in range(1, 4):
+            assert state["pages"][f"page_{i}.png"]["status"] == "done"
+
+    def test_state_after_pause(self, tmp_path):
+        """Page 1 succeeds, page 2 exhausts attempts → pause.
+        State: page_1=done, page_2=paused, page_3=pending."""
+        import requests as req_lib
+
+        _create_page_images(tmp_path, 3)
+        out = str(tmp_path / "output.txt")
+        responses = [
+            "Good page 1",
+            req_lib.exceptions.Timeout("t"),   # page2 att1
+            req_lib.exceptions.Timeout("t"),   # page2 att2 → pause
+        ]
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text.requests.post",
+                   side_effect=_sequential_side_effect(responses)), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            with pytest.raises(OCRPauseException):
+                convert_images_to_text(
+                    images_dir=str(tmp_path), output_file=out,
+                    model_repeats=[("m", 1)], max_page_attempts=2,
+                )
+
+        sf = Path(out + ".ocr_state.json")
+        assert sf.exists()
+        state = json.loads(sf.read_text(encoding="utf-8"))
+        assert state["run_status"] == "paused"
+        assert state["pages"]["page_1.png"]["status"] == "done"
+        assert state["pages"]["page_2.png"]["status"] == "paused"
+        assert state["pages"]["page_3.png"]["status"] == "pending"
+
+    def test_pause_blocks_subsequent_pages(self, tmp_path):
+        """When page 1 pauses, pages 2-3 never see an API call."""
+        import requests as req_lib
+
+        _create_page_images(tmp_path, 3)
+        out = str(tmp_path / "output.txt")
+        call_count = {"n": 0}
+
+        def tracking(*_a, **_k):
+            call_count["n"] += 1
+            raise req_lib.exceptions.Timeout("t")
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text.requests.post", side_effect=tracking), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            with pytest.raises(OCRPauseException):
+                convert_images_to_text(
+                    images_dir=str(tmp_path), output_file=out,
+                    model_repeats=[("m", 1)], max_page_attempts=2,
+                )
+
+        # Page 1 × 2 attempts = 2 calls; pages 2-3 never attempted.
+        assert call_count["n"] == 2
+
+    def test_resume_skips_done_processes_pending(self, tmp_path):
+        """Pages 1-2 done in state → only pages 3-5 trigger API calls."""
+        names = _create_page_images(tmp_path, 5)
+        out = tmp_path / "output.txt"
+        out.write_text(
+            "Image: page_1.png\nOld1\n\nImage: page_2.png\nOld2",
+            encoding="utf-8",
+        )
+
+        fp = _compute_images_fingerprint(str(tmp_path), names)
+        state = {
+            "schema_version": STATE_SCHEMA_VERSION,
+            "images_fingerprint": fp,
+            "max_page_attempts": 40,
+            "run_status": "running",
+            "pause_reason": None,
+            "updated_at": "2026-01-01T00:00:00",
+            "pages": {
+                n: {
+                    "status": "done" if i < 2 else "pending",
+                    "attempts_used": 1 if i < 2 else 0,
+                    "last_error": None,
+                    "updated_at": "2026-01-01T00:00:00",
+                }
+                for i, n in enumerate(names)
+            },
+        }
+        (tmp_path / f"{out.name}.ocr_state.json").write_text(
+            json.dumps(state), encoding="utf-8",
+        )
+
+        call_count = {"n": 0}
+
+        def counter(*_a, **_k):
+            call_count["n"] += 1
+            return make_mock_ocr_response(f"New {call_count['n']}")
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text.requests.post", side_effect=counter), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            convert_images_to_text(
+                images_dir=str(tmp_path), output_file=str(out),
+                model_repeats=[("m", 1)], max_page_attempts=5,
+            )
+
+        assert call_count["n"] == 3  # pages 3, 4, 5
+        content = out.read_text(encoding="utf-8")
+        for i in range(1, 6):
+            assert f"page_{i}.png" in content
+
+    def test_retry_then_succeed(self, tmp_path):
+        """One failed attempt followed by success → page is done."""
+        import requests as req_lib
+
+        _create_page_images(tmp_path, 1)
+        out = str(tmp_path / "output.txt")
+        responses = [
+            req_lib.exceptions.Timeout("t"),
+            "Success on retry",
+        ]
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text.requests.post",
+                   side_effect=_sequential_side_effect(responses)), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            convert_images_to_text(
+                images_dir=str(tmp_path), output_file=out,
+                model_repeats=[("m", 1)], max_page_attempts=5,
+            )
+
+        assert "Success on retry" in Path(out).read_text(encoding="utf-8")
+
+    def test_failed_page_absent_from_output(self, tmp_path):
+        """A page that never succeeds does NOT appear in the output."""
+        import requests as req_lib
+
+        _create_page_images(tmp_path, 2)
+        out = str(tmp_path / "output.txt")
+        responses = [
+            "Good page 1",
+            req_lib.exceptions.Timeout("t"),   # page2 att1
+            req_lib.exceptions.Timeout("t"),   # page2 att2 → pause
+        ]
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text.requests.post",
+                   side_effect=_sequential_side_effect(responses)), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            with pytest.raises(OCRPauseException):
+                convert_images_to_text(
+                    images_dir=str(tmp_path), output_file=out,
+                    model_repeats=[("m", 1)], max_page_attempts=2,
+                )
+
+        sections = _parse_output_sections(Path(out))
+        assert "page_1.png" in sections
+        assert _is_successful_ocr_text(sections["page_1.png"])
+        assert "page_2.png" not in sections
+
+    def test_judge_selects_from_repeats(self, tmp_path):
+        """2 repeats + judge → output is the judge's selection."""
+        _create_page_images(tmp_path, 1)
+        out = str(tmp_path / "output.txt")
+
+        responder = _model_aware_side_effect(
+            ocr_fn=lambda i: f"OCR attempt {i}",
+            judge_fn=lambda _: "Judge selected text",
+        )
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text.requests.post", side_effect=responder), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            convert_images_to_text(
+                images_dir=str(tmp_path), output_file=out,
+                model_repeats=[("m", 2)],
+                judge_model="judge/m",
+                max_page_attempts=3,
+            )
+
+        content = Path(out).read_text(encoding="utf-8")
+        assert "Judge selected text" in content
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PHASE 2 — Concurrency specification: define future parallel behaviour
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PARALLEL_XFAIL = pytest.mark.xfail(
+    reason="max_concurrent_pages not yet implemented in convert_images_to_text",
+    strict=False,
+)
+
+
+class TestPageLevelParallelismSpec:
+    """Specification tests for page-level concurrent processing.
+
+    All tests are marked xfail because ``max_concurrent_pages``
+    does not exist yet.  When the implementation lands:
+
+    1. Tests that pass  → remove xfail, they become regression tests.
+    2. Tests that fail  → the implementation has a bug.
+
+    Naming convention
+    -----------------
+    ``test_par_*``        happy-path parallel behaviour
+    ``test_par_pause_*``  pause / error propagation under concurrency
+    ``test_par_resume_*`` resume after partial parallel run
+    ``test_par_diag_*``   diagnostic: pinpoint specific concurrency bugs
+    """
+
+    # ── happy path ──────────────────────────────────────────────────────────
+
+    @_PARALLEL_XFAIL
+    def test_par_all_pages_complete(self, tmp_path):
+        """All 10 pages complete with max_concurrent_pages=4."""
+        _create_page_images(tmp_path, 10)
+        out = str(tmp_path / "output.txt")
+        responses = [f"Text {i}" for i in range(1, 11)]
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text.requests.post",
+                   side_effect=_threadsafe_side_effect(responses)), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            result = convert_images_to_text(
+                images_dir=str(tmp_path), output_file=out,
+                model_repeats=[("m", 1)], max_page_attempts=3,
+                max_concurrent_pages=4,
+            )
+
+        assert result == out
+        sections = _parse_output_sections(Path(out))
+        assert len(sections) == 10
+
+    @_PARALLEL_XFAIL
+    def test_par_output_ordering(self, tmp_path):
+        """Concurrent processing preserves page_1..page_10 order in output."""
+        _create_page_images(tmp_path, 10)
+        out = str(tmp_path / "output.txt")
+        responses = [f"Text {i}" for i in range(1, 11)]
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text.requests.post",
+                   side_effect=_threadsafe_side_effect(responses)), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            convert_images_to_text(
+                images_dir=str(tmp_path), output_file=out,
+                model_repeats=[("m", 1)], max_page_attempts=3,
+                max_concurrent_pages=4,
+            )
+
+        content = Path(out).read_text(encoding="utf-8")
+        positions = [content.index(f"Image: page_{i}.png") for i in range(1, 11)]
+        assert positions == sorted(positions), \
+            "Output sections must stay in page order under concurrency"
+
+    @_PARALLEL_XFAIL
+    def test_par_state_all_done(self, tmp_path):
+        """After parallel success, archived state has every page as done."""
+        _create_page_images(tmp_path, 5)
+        out = str(tmp_path / "output.txt")
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text.requests.post",
+                   side_effect=_threadsafe_side_effect(
+                       [f"T{i}" for i in range(1, 6)])), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            convert_images_to_text(
+                images_dir=str(tmp_path), output_file=out,
+                model_repeats=[("m", 1)], max_page_attempts=3,
+                max_concurrent_pages=3,
+            )
+
+        archive = tmp_path / "log_archive"
+        candidates = list(archive.glob("output.txt.ocr_state*.json"))
+        assert candidates
+        state = json.loads(candidates[0].read_text(encoding="utf-8"))
+        assert state["run_status"] == "completed"
+        for i in range(1, 6):
+            assert state["pages"][f"page_{i}.png"]["status"] == "done"
+
+    @_PARALLEL_XFAIL
+    def test_par_sequential_fallback(self, tmp_path):
+        """max_concurrent_pages=1 produces identical output to sequential."""
+        _create_page_images(tmp_path, 3)
+        out = str(tmp_path / "output.txt")
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text.requests.post",
+                   side_effect=_sequential_side_effect(["A", "B", "C"])), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            convert_images_to_text(
+                images_dir=str(tmp_path), output_file=out,
+                model_repeats=[("m", 1)], max_page_attempts=3,
+                max_concurrent_pages=1,
+            )
+
+        sections = _parse_output_sections(Path(out))
+        assert sections == {
+            "page_1.png": "A",
+            "page_2.png": "B",
+            "page_3.png": "C",
+        }
+
+    # ── pause under concurrency ─────────────────────────────────────────────
+
+    @_PARALLEL_XFAIL
+    def test_par_pause_raises_exception(self, tmp_path):
+        """At least one page exhausting attempts raises OCRPauseException
+        even when other pages were processed concurrently."""
+        import requests as req_lib
+
+        _create_page_images(tmp_path, 5)
+        out = str(tmp_path / "output.txt")
+        lock = threading.Lock()
+        counter = [0]
+
+        def _mixed(*_a, **_k):
+            with lock:
+                i = counter[0]
+                counter[0] += 1
+            if i < 3:
+                return make_mock_ocr_response(f"OK {i}")
+            raise req_lib.exceptions.Timeout("t")
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text.requests.post", side_effect=_mixed), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            with pytest.raises(OCRPauseException):
+                convert_images_to_text(
+                    images_dir=str(tmp_path), output_file=out,
+                    model_repeats=[("m", 1)], max_page_attempts=2,
+                    max_concurrent_pages=4,
+                )
+
+    @_PARALLEL_XFAIL
+    def test_par_pause_state_not_overridden(self, tmp_path):
+        """After a parallel pause, run_status is 'paused' — a concurrent
+        success must NOT reset it to 'running'.
+
+        Diagnostic: if this fails, the state-mutation path has no lock or
+        the pause flag is checked too late.
+        """
+        import requests as req_lib
+
+        _create_page_images(tmp_path, 6)
+        out = str(tmp_path / "output.txt")
+        lock = threading.Lock()
+        counter = [0]
+
+        def _mixed(*_a, **_k):
+            with lock:
+                i = counter[0]
+                counter[0] += 1
+            if i < 3:
+                return make_mock_ocr_response(f"OK {i}")
+            raise req_lib.exceptions.Timeout("t")
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text.requests.post", side_effect=_mixed), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            with pytest.raises(OCRPauseException):
+                convert_images_to_text(
+                    images_dir=str(tmp_path), output_file=out,
+                    model_repeats=[("m", 1)], max_page_attempts=2,
+                    max_concurrent_pages=3,
+                )
+
+        sf = Path(out + ".ocr_state.json")
+        assert sf.exists()
+        state = json.loads(sf.read_text(encoding="utf-8"))
+        assert state["run_status"] == "paused", \
+            "Concurrent success must NOT reset run_status from paused to running"
+
+    @_PARALLEL_XFAIL
+    def test_par_pause_successful_pages_in_output(self, tmp_path):
+        """Pages that completed before the pause appear in the output."""
+        import requests as req_lib
+
+        _create_page_images(tmp_path, 4)
+        out = str(tmp_path / "output.txt")
+        lock = threading.Lock()
+        counter = [0]
+
+        def _mixed(*_a, **_k):
+            with lock:
+                i = counter[0]
+                counter[0] += 1
+            if i < 2:
+                return make_mock_ocr_response(f"Good {i}")
+            raise req_lib.exceptions.Timeout("t")
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text.requests.post", side_effect=_mixed), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            with pytest.raises(OCRPauseException):
+                convert_images_to_text(
+                    images_dir=str(tmp_path), output_file=out,
+                    model_repeats=[("m", 1)], max_page_attempts=2,
+                    max_concurrent_pages=3,
+                )
+
+        sections = _parse_output_sections(Path(out))
+        successful = sum(
+            1 for v in sections.values() if _is_successful_ocr_text(v)
+        )
+        assert successful >= 1, \
+            "At least one successfully OCR'd page must survive in output"
+
+    # ── resume after parallel partial run ────────────────────────────────────
+
+    @_PARALLEL_XFAIL
+    def test_par_resume_after_partial(self, tmp_path):
+        """Resume with pages 1-3 done → only pages 4-6 trigger API calls."""
+        names = _create_page_images(tmp_path, 6)
+        out = tmp_path / "output.txt"
+        out.write_text(
+            "\n\n".join(f"Image: page_{i}.png\nOld {i}" for i in range(1, 4)),
+            encoding="utf-8",
+        )
+
+        fp = _compute_images_fingerprint(str(tmp_path), names)
+        state = {
+            "schema_version": STATE_SCHEMA_VERSION,
+            "images_fingerprint": fp,
+            "max_page_attempts": 40,
+            "run_status": "running",
+            "pause_reason": None,
+            "updated_at": "2026-01-01T00:00:00",
+            "pages": {
+                n: {
+                    "status": "done" if i < 3 else "pending",
+                    "attempts_used": 1 if i < 3 else 0,
+                    "last_error": None,
+                    "updated_at": "2026-01-01T00:00:00",
+                }
+                for i, n in enumerate(names)
+            },
+        }
+        (tmp_path / f"{out.name}.ocr_state.json").write_text(
+            json.dumps(state), encoding="utf-8",
+        )
+
+        lock = threading.Lock()
+        api_calls = [0]
+
+        def counting(*_a, **_k):
+            with lock:
+                api_calls[0] += 1
+            return make_mock_ocr_response(f"New {api_calls[0]}")
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text.requests.post", side_effect=counting), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            convert_images_to_text(
+                images_dir=str(tmp_path), output_file=str(out),
+                model_repeats=[("m", 1)], max_page_attempts=5,
+                max_concurrent_pages=3,
+            )
+
+        assert api_calls[0] == 3  # only pages 4, 5, 6
+        sections = _parse_output_sections(out)
+        assert len(sections) == 6
+
+    # ── diagnostics: pinpoint specific concurrency bugs ──────────────────────
+
+    @_PARALLEL_XFAIL
+    def test_par_diag_no_missing_pages(self, tmp_path):
+        """No pages silently lost during concurrent output writes.
+
+        Diagnostic: if this fails but test_par_all_pages_complete passes,
+        _write_output_sections_atomic or page_texts has a race condition.
+        """
+        _create_page_images(tmp_path, 20)
+        out = str(tmp_path / "output.txt")
+        responses = [f"Page {i}" for i in range(1, 21)]
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text.requests.post",
+                   side_effect=_threadsafe_side_effect(responses)), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            convert_images_to_text(
+                images_dir=str(tmp_path), output_file=out,
+                model_repeats=[("m", 1)], max_page_attempts=3,
+                max_concurrent_pages=5,
+            )
+
+        sections = _parse_output_sections(Path(out))
+        for i in range(1, 21):
+            assert f"page_{i}.png" in sections, \
+                f"page_{i}.png missing — likely lost during concurrent write"
+
+    @_PARALLEL_XFAIL
+    def test_par_diag_state_valid_json(self, tmp_path):
+        """State file is valid JSON after concurrent processing.
+
+        Diagnostic: if this fails, _write_json_atomic has a temp-file
+        collision or dict mutation during serialisation.
+        """
+        _create_page_images(tmp_path, 8)
+        out = str(tmp_path / "output.txt")
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text.requests.post",
+                   side_effect=_threadsafe_side_effect(
+                       [f"T{i}" for i in range(1, 9)])), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            convert_images_to_text(
+                images_dir=str(tmp_path), output_file=out,
+                model_repeats=[("m", 1)], max_page_attempts=3,
+                max_concurrent_pages=4,
+            )
+
+        for jf in tmp_path.rglob("*.json"):
+            raw = jf.read_text(encoding="utf-8")
+            try:
+                json.loads(raw)
+            except json.JSONDecodeError:
+                pytest.fail(f"Corrupt JSON in {jf}")
+
+    @_PARALLEL_XFAIL
+    def test_par_diag_no_deadlock(self, tmp_path):
+        """20 pages × 2 repeats + judge with 4 concurrent completes
+        within pytest timeout — no thread-pool starvation.
+
+        Diagnostic: if this hangs, the API executor is too small for
+        the combined page × repeat load, or a lock ordering bug exists.
+        """
+        _create_page_images(tmp_path, 20)
+        out = str(tmp_path / "output.txt")
+
+        responder = _model_aware_side_effect(
+            ocr_fn=lambda i: f"OCR {i}",
+            judge_fn=lambda _: "Judged",
+        )
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text.requests.post", side_effect=responder), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            convert_images_to_text(
+                images_dir=str(tmp_path), output_file=out,
+                model_repeats=[("m", 2)],
+                judge_model="judge/m",
+                max_page_attempts=3,
+                max_concurrent_pages=4,
+            )
+
+        sections = _parse_output_sections(Path(out))
+        assert len(sections) == 20
