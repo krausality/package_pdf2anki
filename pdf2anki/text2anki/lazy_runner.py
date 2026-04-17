@@ -38,6 +38,7 @@ def run_lazy_mode(
     reconfig: bool = False,
     ocr_model: Optional[str] = None,
     auto_confirm: bool = False,
+    max_concurrent_pages: int = 1,
 ) -> None:
     """
     Full lazy-mode pipeline for `pdf2anki .`.
@@ -49,6 +50,7 @@ def run_lazy_mode(
         reconfig:  If True, re-run discovery even if project.json already exists.
         ocr_model: OCR model to use for pending PDFs. Defaults to gemini-2.5-flash.
         auto_confirm: If True, skip interactive y/n confirmation prompts.
+        max_concurrent_pages: Pages processed in parallel within one PDF (1 = sequential).
     """
     base_dir = base_dir.resolve()
     ocr_model = ocr_model or _DEFAULT_OCR_MODEL
@@ -102,7 +104,7 @@ def run_lazy_mode(
         set_phase("ocr")
         pending_count = sum(1 for s in state_map.values() if s.ocr == "pending")
         skipped_count = sum(1 for s in state_map.values() if s.ocr == "done")
-        ocr_done_txts = _run_pending_ocr(base_dir, state_map, ocr_model)
+        ocr_done_txts = _run_pending_ocr(base_dir, state_map, ocr_model, max_concurrent_pages)
         trace.end_phase("ocr", "ok", {
             "note": "Detailed OCR logs in log_archive/",
             "pdfs_processed": len(ocr_done_txts),
@@ -272,6 +274,7 @@ def _run_pending_ocr(
     base_dir: Path,
     state_map: dict,
     ocr_model: str,
+    max_concurrent_pages: int = 1,
 ) -> list[Path]:
     """Run OCR for all PDFs with status 'pending'. Returns list of produced .txt paths."""
     pending = [
@@ -305,6 +308,7 @@ def _run_pending_ocr(
                 images_dir=str(images_dir),
                 output_file=str(txt_path),
                 model_repeats=[(ocr_model, 1)],
+                max_concurrent_pages=max_concurrent_pages,
             )
             produced.append(txt_path)
         except Exception as exc:

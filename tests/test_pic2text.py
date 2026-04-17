@@ -773,23 +773,12 @@ class TestSequentialRegressionBaseline:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PHASE 2 — Concurrency specification: define future parallel behaviour
+# Concurrency regression tests: pin page-level parallel behaviour
 # ─────────────────────────────────────────────────────────────────────────────
-
-_PARALLEL_XFAIL = pytest.mark.xfail(
-    reason="max_concurrent_pages not yet implemented in convert_images_to_text",
-    strict=False,
-)
 
 
 class TestPageLevelParallelismSpec:
-    """Specification tests for page-level concurrent processing.
-
-    All tests are marked xfail because ``max_concurrent_pages``
-    does not exist yet.  When the implementation lands:
-
-    1. Tests that pass  → remove xfail, they become regression tests.
-    2. Tests that fail  → the implementation has a bug.
+    """Regression tests for page-level concurrent processing via max_concurrent_pages.
 
     Naming convention
     -----------------
@@ -801,7 +790,6 @@ class TestPageLevelParallelismSpec:
 
     # ── happy path ──────────────────────────────────────────────────────────
 
-    @_PARALLEL_XFAIL
     def test_par_all_pages_complete(self, tmp_path):
         """All 10 pages complete with max_concurrent_pages=4."""
         _create_page_images(tmp_path, 10)
@@ -822,7 +810,6 @@ class TestPageLevelParallelismSpec:
         sections = _parse_output_sections(Path(out))
         assert len(sections) == 10
 
-    @_PARALLEL_XFAIL
     def test_par_output_ordering(self, tmp_path):
         """Concurrent processing preserves page_1..page_10 order in output."""
         _create_page_images(tmp_path, 10)
@@ -844,7 +831,6 @@ class TestPageLevelParallelismSpec:
         assert positions == sorted(positions), \
             "Output sections must stay in page order under concurrency"
 
-    @_PARALLEL_XFAIL
     def test_par_state_all_done(self, tmp_path):
         """After parallel success, archived state has every page as done."""
         _create_page_images(tmp_path, 5)
@@ -869,7 +855,6 @@ class TestPageLevelParallelismSpec:
         for i in range(1, 6):
             assert state["pages"][f"page_{i}.png"]["status"] == "done"
 
-    @_PARALLEL_XFAIL
     def test_par_sequential_fallback(self, tmp_path):
         """max_concurrent_pages=1 produces identical output to sequential."""
         _create_page_images(tmp_path, 3)
@@ -894,7 +879,6 @@ class TestPageLevelParallelismSpec:
 
     # ── pause under concurrency ─────────────────────────────────────────────
 
-    @_PARALLEL_XFAIL
     def test_par_pause_raises_exception(self, tmp_path):
         """At least one page exhausting attempts raises OCRPauseException
         even when other pages were processed concurrently."""
@@ -923,7 +907,6 @@ class TestPageLevelParallelismSpec:
                     max_concurrent_pages=4,
                 )
 
-    @_PARALLEL_XFAIL
     def test_par_pause_state_not_overridden(self, tmp_path):
         """After a parallel pause, run_status is 'paused' — a concurrent
         success must NOT reset it to 'running'.
@@ -962,7 +945,6 @@ class TestPageLevelParallelismSpec:
         assert state["run_status"] == "paused", \
             "Concurrent success must NOT reset run_status from paused to running"
 
-    @_PARALLEL_XFAIL
     def test_par_pause_successful_pages_in_output(self, tmp_path):
         """Pages that completed before the pause appear in the output."""
         import requests as req_lib
@@ -999,7 +981,6 @@ class TestPageLevelParallelismSpec:
 
     # ── resume after parallel partial run ────────────────────────────────────
 
-    @_PARALLEL_XFAIL
     def test_par_resume_after_partial(self, tmp_path):
         """Resume with pages 1-3 done → only pages 4-6 trigger API calls."""
         names = _create_page_images(tmp_path, 6)
@@ -1054,7 +1035,6 @@ class TestPageLevelParallelismSpec:
 
     # ── diagnostics: pinpoint specific concurrency bugs ──────────────────────
 
-    @_PARALLEL_XFAIL
     def test_par_diag_no_missing_pages(self, tmp_path):
         """No pages silently lost during concurrent output writes.
 
@@ -1080,7 +1060,6 @@ class TestPageLevelParallelismSpec:
             assert f"page_{i}.png" in sections, \
                 f"page_{i}.png missing — likely lost during concurrent write"
 
-    @_PARALLEL_XFAIL
     def test_par_diag_state_valid_json(self, tmp_path):
         """State file is valid JSON after concurrent processing.
 
@@ -1108,7 +1087,6 @@ class TestPageLevelParallelismSpec:
             except json.JSONDecodeError:
                 pytest.fail(f"Corrupt JSON in {jf}")
 
-    @_PARALLEL_XFAIL
     def test_par_diag_no_deadlock(self, tmp_path):
         """20 pages × 2 repeats + judge with 4 concurrent completes
         within pytest timeout — no thread-pool starvation.

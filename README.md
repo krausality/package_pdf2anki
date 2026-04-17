@@ -254,6 +254,7 @@ pdf2anki . [OPTIONS...]
 | `--no-llm` | off | Skip LLM discovery; use the interactive wizard instead. |
 | `--reconfig` | off | Re-run discovery even if `project.json` already exists (overwrites it). |
 | `--ocr-model MODEL` | `google/gemini-2.5-flash` | OCR model for PDFs that have not been OCR'd yet. |
+| `--max-concurrent-pages N` | `1` | Pages processed in parallel within a single PDF. `1` = sequential. Values >1 fan out page OCR to `N` threads (speeds up big PDFs, bounded by upstream API rate limits). |
 
 **How it works — step by step**
 
@@ -530,6 +531,7 @@ pdf2anki pic2text <images_dir> [output_file] [OPTIONS...]
 | `--trust-score <W>`       | (Placeholder) Intended for future model weighting. Currently ignored.                                                                                                   |
 | `--no-resume`             | Disable OCR resume for this run. Starts from scratch instead of reusing previous progress.                                                                             |
 | `--max-page-attempts <N>` | Maximum full OCR attempts per page before pausing the run. Default: `40`.                                                                                               |
+| `--max-concurrent-pages <N>` | Pages processed in parallel within a single PDF. Default: `1` (sequential). Values > 1 fan out page-level OCR to `N` threads; each page still runs its own model repeats + judge as before. |
 
 **Behavior**
 *   Processes images sorted by page number (if `page_X` in filename).

@@ -231,7 +231,8 @@ def images_to_text(args: argparse.Namespace) -> None:
         judge_with_image=args.judge_with_image,
         no_resume=getattr(args, 'no_resume', False),
         max_page_attempts=getattr(args, 'max_page_attempts', 40),
-        verbose=getattr(args, 'verbose', False) # Pass verbose down
+        verbose=getattr(args, 'verbose', False), # Pass verbose down
+        max_concurrent_pages=getattr(args, 'max_concurrent_pages', 1),
     )
     if getattr(args, 'verbose', False):
         print(f"{pid_str} images_to_text (core wrapper) completed for dir: {args.images_dir}")
@@ -292,6 +293,7 @@ def _process_pdf_worker(pdf_file_path_str: str, common_args_dict: dict) -> str:
             judge_with_image=worker_args.judge_with_image,
             no_resume=getattr(worker_args, 'no_resume', False),
             max_page_attempts=getattr(worker_args, 'max_page_attempts', 40),
+            max_concurrent_pages=getattr(worker_args, 'max_concurrent_pages', 1),
             verbose=getattr(worker_args, 'verbose', False)
         )
 
@@ -778,6 +780,8 @@ def cli_invoke() -> None:
                              help="Re-run discovery even if project.json already exists.")
         _parser.add_argument("--ocr-model", type=str, default=None, metavar="MODEL",
                              help="OCR model for pending PDFs (default: google/gemini-2.5-flash).")
+        _parser.add_argument("--max-concurrent-pages", type=int, default=1, metavar="N",
+                             help="Pages processed in parallel within one PDF (1 = sequential).")
         _parser.add_argument("-y", "--yes", action="store_true",
                              help="Skip interactive confirmation prompts (auto-accept).")
         _parser.add_argument("-v", "--verbose", action="store_true",
@@ -793,6 +797,7 @@ def cli_invoke() -> None:
             no_llm=_args.no_llm,
             reconfig=_args.reconfig,
             ocr_model=_args.ocr_model,
+            max_concurrent_pages=_args.max_concurrent_pages,
             auto_confirm=_args.yes,
         )
         return
@@ -835,6 +840,7 @@ def cli_invoke() -> None:
     parser_pic2text.add_argument("--judge-with-image", action="store_true", default=False, help="Judge sees image (overrides presets).")
     parser_pic2text.add_argument("--no-resume", action="store_true", default=False, help="Disable OCR resume and start this OCR run from scratch.")
     parser_pic2text.add_argument("--max-page-attempts", type=int, default=40, help="Maximum full OCR attempts per page before pausing the run.")
+    parser_pic2text.add_argument("--max-concurrent-pages", type=int, default=1, help="Pages processed in parallel within one PDF (1 = sequential).")
     parser_pic2text.set_defaults(func=images_to_text)
 
     # --- PDF to Text Command ---
@@ -852,6 +858,7 @@ def cli_invoke() -> None:
     parser_pdf2text.add_argument("--judge-with-image", action="store_true", default=False, help="Judge sees image (overrides presets).")
     parser_pdf2text.add_argument("--no-resume", action="store_true", default=False, help="Disable OCR resume and start this OCR run from scratch.")
     parser_pdf2text.add_argument("--max-page-attempts", type=int, default=40, help="Maximum full OCR attempts per page before pausing the run.")
+    parser_pdf2text.add_argument("--max-concurrent-pages", type=int, default=1, help="Pages processed in parallel within one PDF (1 = sequential).")
     parser_pdf2text.set_defaults(func=pdf_to_text)
     
     # --- Text to Anki Command ---

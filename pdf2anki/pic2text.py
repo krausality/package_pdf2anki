@@ -98,15 +98,22 @@ def _archive_dir_for_output(output_file_path: Path) -> Path:
     return output_file_path.parent / "log_archive"
 
 
+def _unique_temp_path(path: Path) -> Path:
+    # Unique per (pid, thread, monotonic-ns) so concurrent writers never collide
+    # on the same .tmp file. os.replace is atomic on the final path.
+    suffix = f".{os.getpid()}.{threading.get_ident()}.{time.monotonic_ns()}.tmp"
+    return path.with_name(f"{path.name}{suffix}")
+
+
 def _write_text_atomic(path: Path, content: str) -> None:
-    temp_path = path.with_name(f"{path.name}.tmp")
+    temp_path = _unique_temp_path(path)
     with open(temp_path, "w", encoding="utf-8") as tf:
         tf.write(content)
     _replace_with_retry(temp_path, path)
 
 
 def _write_json_atomic(path: Path, payload: Dict[str, Any]) -> None:
-    temp_path = path.with_name(f"{path.name}.tmp")
+    temp_path = _unique_temp_path(path)
     with open(temp_path, "w", encoding="utf-8") as jf:
         json.dump(payload, jf, indent=2, ensure_ascii=False)
     _replace_with_retry(temp_path, path)
@@ -812,6 +819,183 @@ def _archive_old_logs(output_file_path_str: str, log_files_to_archive: List[str]
         pid = os.getpid() if hasattr(os, 'getpid') else 'main'
         print(f"[{pid}] Warning: Failed to archive log files for {output_file_path_str}: {e}")
 
+
+def _process_single_page(
+    *,
+    image_name: str,
+    image_path: str,
+    image_idx: int,
+    state: Dict[str, Any],
+    page_texts: Dict[str, str],
+    image_files: List[str],
+    output_file_path: Path,
+    state_file_path: Path,
+    model_repeats: List[Tuple[str, int]],
+    total_api_calls_per_image: int,
+    judge_model: Optional[str],
+    judge_with_image: bool,
+    ocr_log_file_path: str,
+    judge_decision_log_file_path: str,
+    executor: concurrent.futures.ThreadPoolExecutor,
+    max_page_attempts: int,
+    pid: Any,
+    verbose: bool,
+    no_resume: bool,
+    total_pages: int,
+    resumed_pages_count: int,
+    started_monotonic: float,
+    counters: Dict[str, int],
+    state_lock: threading.RLock,
+    pause_event: threading.Event,
+) -> bool:
+    """Process a single page with retries. Mutates state, page_texts, and counters.
+
+    counters keys: processed, attempt_cycles, failed_cycles, newly_done.
+    state_lock guards state/page_texts/counters/file-writes; OCR API calls run outside the lock.
+    pause_event is set by the first page that hits max_page_attempts — other in-flight
+    pages short-circuit before their next retry so the pool drains quickly.
+
+    Returns True if the page ended up done; raises OCRPauseException if max
+    attempts were hit or the logic-invariant check fails.
+    """
+    with state_lock:
+        page_state = state["pages"][image_name]
+        already_done = page_state.get("status") == "done" and not no_resume
+
+    if already_done:
+        if verbose:
+            print(f"[{pid}] Skipping already completed image {image_idx + 1}/{len(image_files)}: {image_name}")
+        return True
+
+    if verbose:
+        print(f"[{pid}] Processing image {image_idx + 1}/{len(image_files)}: {image_name}")
+
+    with state_lock:
+        attempts_used = int(page_state.get("attempts_used", 0))
+    page_completed = False
+
+    for attempt_idx in range(attempts_used + 1, max_page_attempts + 1):
+        if pause_event.is_set():
+            # Another page triggered a pause; stop retrying so the pool drains.
+            if verbose:
+                print(f"[{pid}] Pause signalled; aborting retries for {image_name}.")
+            break
+
+        with state_lock:
+            counters["attempt_cycles"] += 1
+            _print_progress(
+                pid=pid,
+                total_pages=total_pages,
+                done_pages=counters["processed"],
+                resumed_pages=resumed_pages_count,
+                attempt_cycles=counters["attempt_cycles"],
+                current_image=image_name,
+                attempt_idx=attempt_idx,
+                max_page_attempts=max_page_attempts,
+                status="attempting",
+                started_monotonic=started_monotonic,
+                force_print=True
+            )
+
+        is_success, final_text, error_text = _run_ocr_cycle_for_image(
+            image_path=image_path,
+            image_name=image_name,
+            model_repeats=model_repeats,
+            total_api_calls_per_image=total_api_calls_per_image,
+            judge_model=judge_model,
+            judge_with_image=judge_with_image,
+            ocr_log_file_path=ocr_log_file_path,
+            judge_decision_log_file_path=judge_decision_log_file_path,
+            executor=executor,
+            pid=pid,
+            verbose=verbose
+        )
+
+        with state_lock:
+            page_state["attempts_used"] = attempt_idx
+            page_state["updated_at"] = _utcnow_iso()
+
+            if is_success and final_text is not None:
+                page_state["status"] = "done"
+                page_state["last_error"] = None
+                # Only promote run_status to "running" if we're not already paused —
+                # otherwise a late-success could overwrite a paused sibling's state.
+                if state.get("run_status") != "paused":
+                    state["run_status"] = "running"
+                    state["pause_reason"] = None
+                state["updated_at"] = _utcnow_iso()
+                page_texts[image_name] = final_text
+
+                _write_output_sections_atomic(output_file_path, image_files, page_texts)
+                _write_json_atomic(state_file_path, state)
+                counters["processed"] += 1
+                counters["newly_done"] += 1
+                page_completed = True
+
+                _print_progress(
+                    pid=pid,
+                    total_pages=total_pages,
+                    done_pages=counters["processed"],
+                    resumed_pages=resumed_pages_count,
+                    attempt_cycles=counters["attempt_cycles"],
+                    current_image=image_name,
+                    attempt_idx=attempt_idx,
+                    max_page_attempts=max_page_attempts,
+                    status="completed",
+                    started_monotonic=started_monotonic,
+                    force_print=True
+                )
+                break
+
+            counters["failed_cycles"] += 1
+            page_state["status"] = "pending"
+            page_state["last_error"] = (error_text or "[ERROR: OCR cycle failed without a concrete error message.]")[:1000]
+            state["updated_at"] = _utcnow_iso()
+            _write_json_atomic(state_file_path, state)
+
+            if attempt_idx >= max_page_attempts:
+                page_state["status"] = "paused"
+                state["run_status"] = "paused"
+                state["pause_reason"] = (
+                    f"Reached max_page_attempts={max_page_attempts} for '{image_name}'. "
+                    "Fix external issue and rerun to resume."
+                )
+                state["updated_at"] = _utcnow_iso()
+                _write_json_atomic(state_file_path, state)
+                _print_progress(
+                    pid=pid,
+                    total_pages=total_pages,
+                    done_pages=counters["processed"],
+                    resumed_pages=resumed_pages_count,
+                    attempt_cycles=counters["attempt_cycles"],
+                    current_image=image_name,
+                    attempt_idx=attempt_idx,
+                    max_page_attempts=max_page_attempts,
+                    status="paused",
+                    started_monotonic=started_monotonic,
+                    force_print=True
+                )
+                pause_reason = state["pause_reason"]
+                pause_event.set()
+                raise OCRPauseException(pause_reason)
+
+        # Bounded backoff before retrying this page (outside the lock).
+        backoff_seconds = min(5.0, 0.5 * attempt_idx)
+        if verbose:
+            print(f"[{pid}] Retry backoff for {image_name}: sleeping {backoff_seconds:.1f}s")
+        time.sleep(backoff_seconds)
+
+    with state_lock:
+        current_status = page_state.get("status")
+    if not page_completed and current_status != "paused" and not pause_event.is_set():
+        raise OCRPauseException(
+            f"Page '{image_name}' did not complete and was not marked paused. "
+            "Stopping to avoid ambiguous state."
+        )
+
+    return page_completed
+
+
 def convert_images_to_text(
     images_dir: str,
     output_file: str,
@@ -823,7 +1007,8 @@ def convert_images_to_text(
     judge_with_image: bool = False,
     no_resume: bool = False,
     max_page_attempts: int = DEFAULT_MAX_PAGE_ATTEMPTS,
-    verbose: bool = False
+    verbose: bool = False,
+    max_concurrent_pages: int = 1,
 ) -> str:
     pid = os.getpid() if hasattr(os, 'getpid') else 'main'
     if verbose:
@@ -838,6 +1023,9 @@ def convert_images_to_text(
 
     if max_page_attempts < 1:
         raise ValueError(f"[{pid}] max_page_attempts must be >= 1, got {max_page_attempts}.")
+
+    if max_concurrent_pages < 1:
+        raise ValueError(f"[{pid}] max_concurrent_pages must be >= 1, got {max_concurrent_pages}.")
 
     if judge_mode != "authoritative" and verbose:
         print(f"[{pid}] WARN: Unsupported judge_mode '{judge_mode}'. Falling back to authoritative behavior.")
@@ -926,45 +1114,41 @@ def convert_images_to_text(
         started_monotonic=started_monotonic
     )
 
+    counters: Dict[str, int] = {
+        "processed": processed_images_count,
+        "attempt_cycles": attempt_cycles,
+        "failed_cycles": failed_attempt_cycles,
+        "newly_done": newly_done_pages_count,
+    }
+    state_lock = threading.RLock()
+    pause_event = threading.Event()
+
+    # Size the API-call pool so concurrent pages don't starve each other.
+    # Each page may fan out up to total_api_calls_per_image requests; cap at 20
+    # to stay polite to the upstream API.
+    api_pool_size = max(
+        MAX_API_CALL_THREADS,
+        max_concurrent_pages * max(1, total_api_calls_per_image),
+    )
+    api_pool_size = min(api_pool_size, 20)
+
     try:
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=MAX_API_CALL_THREADS,
+            max_workers=api_pool_size,
             thread_name_prefix=f"OCR_API_Thread_PID{pid}"
         ) as executor:
-            for image_idx, image_name in enumerate(image_files):
-                image_path = os.path.join(images_dir, image_name)
-                page_state = state["pages"][image_name]
-
-                if page_state.get("status") == "done" and not no_resume:
-                    if verbose:
-                        print(f"[{pid}] Skipping already completed image {image_idx + 1}/{len(image_files)}: {image_name}")
-                    continue
-
-                if verbose:
-                    print(f"[{pid}] Processing image {image_idx + 1}/{len(image_files)}: {image_name}")
-
-                attempts_used = int(page_state.get("attempts_used", 0))
-                page_completed = False
-
-                for attempt_idx in range(attempts_used + 1, max_page_attempts + 1):
-                    attempt_cycles += 1
-                    _print_progress(
-                        pid=pid,
-                        total_pages=total_pages,
-                        done_pages=processed_images_count,
-                        resumed_pages=resumed_pages_count,
-                        attempt_cycles=attempt_cycles,
-                        current_image=image_name,
-                        attempt_idx=attempt_idx,
-                        max_page_attempts=max_page_attempts,
-                        status="attempting",
-                        started_monotonic=started_monotonic,
-                        force_print=True
-                    )
-
-                    is_success, final_text, error_text = _run_ocr_cycle_for_image(
-                        image_path=image_path,
+            if max_concurrent_pages == 1:
+                for image_idx, image_name in enumerate(image_files):
+                    image_path = os.path.join(images_dir, image_name)
+                    _process_single_page(
                         image_name=image_name,
+                        image_path=image_path,
+                        image_idx=image_idx,
+                        state=state,
+                        page_texts=page_texts,
+                        image_files=image_files,
+                        output_file_path=output_file_path,
+                        state_file_path=state_file_path,
                         model_repeats=model_repeats,
                         total_api_calls_per_image=total_api_calls_per_image,
                         judge_model=judge_model,
@@ -972,83 +1156,73 @@ def convert_images_to_text(
                         ocr_log_file_path=ocr_log_file_path,
                         judge_decision_log_file_path=judge_decision_log_file_path,
                         executor=executor,
+                        max_page_attempts=max_page_attempts,
                         pid=pid,
-                        verbose=verbose
+                        verbose=verbose,
+                        no_resume=no_resume,
+                        total_pages=total_pages,
+                        resumed_pages_count=resumed_pages_count,
+                        started_monotonic=started_monotonic,
+                        counters=counters,
+                        state_lock=state_lock,
+                        pause_event=pause_event,
                     )
-
-                    page_state["attempts_used"] = attempt_idx
-                    page_state["updated_at"] = _utcnow_iso()
-
-                    if is_success and final_text is not None:
-                        page_state["status"] = "done"
-                        page_state["last_error"] = None
-                        state["run_status"] = "running"
-                        state["pause_reason"] = None
-                        state["updated_at"] = _utcnow_iso()
-                        page_texts[image_name] = final_text
-
-                        _write_output_sections_atomic(output_file_path, image_files, page_texts)
-                        _write_json_atomic(state_file_path, state)
-                        processed_images_count += 1
-                        newly_done_pages_count += 1
-                        page_completed = True
-
-                        _print_progress(
-                            pid=pid,
-                            total_pages=total_pages,
-                            done_pages=processed_images_count,
-                            resumed_pages=resumed_pages_count,
-                            attempt_cycles=attempt_cycles,
-                            current_image=image_name,
-                            attempt_idx=attempt_idx,
+            else:
+                with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=max_concurrent_pages,
+                    thread_name_prefix=f"OCR_Page_Thread_PID{pid}",
+                ) as page_executor:
+                    futures = []
+                    for image_idx, image_name in enumerate(image_files):
+                        image_path = os.path.join(images_dir, image_name)
+                        fut = page_executor.submit(
+                            _process_single_page,
+                            image_name=image_name,
+                            image_path=image_path,
+                            image_idx=image_idx,
+                            state=state,
+                            page_texts=page_texts,
+                            image_files=image_files,
+                            output_file_path=output_file_path,
+                            state_file_path=state_file_path,
+                            model_repeats=model_repeats,
+                            total_api_calls_per_image=total_api_calls_per_image,
+                            judge_model=judge_model,
+                            judge_with_image=judge_with_image,
+                            ocr_log_file_path=ocr_log_file_path,
+                            judge_decision_log_file_path=judge_decision_log_file_path,
+                            executor=executor,
                             max_page_attempts=max_page_attempts,
-                            status="completed",
-                            started_monotonic=started_monotonic,
-                            force_print=True
-                        )
-                        break
-
-                    failed_attempt_cycles += 1
-                    page_state["status"] = "pending"
-                    page_state["last_error"] = (error_text or "[ERROR: OCR cycle failed without a concrete error message.]")[:1000]
-                    state["updated_at"] = _utcnow_iso()
-                    _write_json_atomic(state_file_path, state)
-
-                    if attempt_idx >= max_page_attempts:
-                        page_state["status"] = "paused"
-                        state["run_status"] = "paused"
-                        state["pause_reason"] = (
-                            f"Reached max_page_attempts={max_page_attempts} for '{image_name}'. "
-                            "Fix external issue and rerun to resume."
-                        )
-                        state["updated_at"] = _utcnow_iso()
-                        _write_json_atomic(state_file_path, state)
-                        _print_progress(
                             pid=pid,
+                            verbose=verbose,
+                            no_resume=no_resume,
                             total_pages=total_pages,
-                            done_pages=processed_images_count,
-                            resumed_pages=resumed_pages_count,
-                            attempt_cycles=attempt_cycles,
-                            current_image=image_name,
-                            attempt_idx=attempt_idx,
-                            max_page_attempts=max_page_attempts,
-                            status="paused",
+                            resumed_pages_count=resumed_pages_count,
                             started_monotonic=started_monotonic,
-                            force_print=True
+                            counters=counters,
+                            state_lock=state_lock,
+                            pause_event=pause_event,
                         )
-                        raise OCRPauseException(state["pause_reason"])
+                        futures.append(fut)
 
-                    # Bounded backoff before retrying this page.
-                    backoff_seconds = min(5.0, 0.5 * attempt_idx)
-                    if verbose:
-                        print(f"[{pid}] Retry backoff for {image_name}: sleeping {backoff_seconds:.1f}s")
-                    time.sleep(backoff_seconds)
+                    # Drain all futures. Remember the first pause but let the
+                    # rest finish so in-flight pages record their progress.
+                    first_pause: Optional[OCRPauseException] = None
+                    for fut in concurrent.futures.as_completed(futures):
+                        try:
+                            fut.result()
+                        except OCRPauseException as pause_exc:
+                            if first_pause is None:
+                                first_pause = pause_exc
+                            # pause_event is already set by the raising page;
+                            # other pages will short-circuit on their next retry.
+                    if first_pause is not None:
+                        raise first_pause
 
-                if not page_completed and page_state.get("status") != "paused":
-                    raise OCRPauseException(
-                        f"Page '{image_name}' did not complete and was not marked paused. "
-                        "Stopping to avoid ambiguous state."
-                    )
+        processed_images_count = counters["processed"]
+        newly_done_pages_count = counters["newly_done"]
+        attempt_cycles = counters["attempt_cycles"]
+        failed_attempt_cycles = counters["failed_cycles"]
 
         state["run_status"] = "completed"
         state["pause_reason"] = None
@@ -1073,6 +1247,10 @@ def convert_images_to_text(
             print(f"[{pid}] All images processed successfully for this document worker. Total: {processed_images_count}")
         return output_file
     except OCRPauseException:
+        processed_images_count = counters["processed"]
+        newly_done_pages_count = counters["newly_done"]
+        attempt_cycles = counters["attempt_cycles"]
+        failed_attempt_cycles = counters["failed_cycles"]
         elapsed_seconds = time.monotonic() - started_monotonic
         print(
             f"[{pid}] [SUMMARY] run_status=paused total_pages={total_pages} "
