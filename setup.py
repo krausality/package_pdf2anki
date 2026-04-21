@@ -25,7 +25,7 @@ setup(
     python_requires=">=3.11, <3.14",
     install_requires=[
         "pdf2image~=1.16.3",
-        "Pillow~=9.1.0",
+        "Pillow~=12.2.0",
         "genanki~=0.13.1",
         "PyMuPDF~=1.24.13",
         "requests~=2.32.0",
