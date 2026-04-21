@@ -149,76 +149,78 @@ def pdf_to_images(args: argparse.Namespace) -> None:
         print(f"{pid_str} pdf_to_images completed for: {args.pdf_path}")
 
 
-def images_to_text(args: argparse.Namespace) -> None:
-    """
-    Perform OCR on a directory of images, extracting text and saving it to a file.
-    This is a wrapper for pic2text.convert_images_to_text.
-    It resolves the model to use and the output file if not explicitly provided.
-    """
-    pid_str = f"[{os.getpid() if hasattr(os, 'getpid') else 'main'}]"
-    if getattr(args, 'verbose', False):
-        print(f"{pid_str} images_to_text (core wrapper) called for dir: {args.images_dir}")
+_IMAGE_EXTS = ('.png', '.jpg', '.jpeg')
+_PARSER_OCR_DEFAULTS = {
+    'model': [], 'repeat': [], 'judge_model': None,
+    'judge_mode': 'authoritative', 'judge_with_image': False,
+    'no_resume': False, 'max_page_attempts': 40,
+    'max_image_kb': pic2text.DEFAULT_MAX_IMAGE_KB,
+}
 
-    # --- Output File Resolution ---
-    if not args.output_file:
-        input_path = Path(args.images_dir)
-        if input_path.is_dir():
-            args.output_file = str(Path.cwd() / f"{input_path.name}.txt")
-        else: # Should be a directory, but as a fallback
-            args.output_file = str(Path.cwd() / f"{input_path.stem}.txt")
-        print(f"[INFO] No output file specified. Defaulting to: {args.output_file}")
 
-    config = load_config()
-    # --- Model Resolution ---
-    # Priority: 1. CLI args -> 2. Preset defaults -> 3. Global default_model -> 4. Prompt
+def _apply_ocr_presets_and_resolve_model(args: argparse.Namespace, config: Dict[str, Any]) -> None:
+    """Apply preset defaults onto args in-place, then ensure args.model is set.
+
+    Priority: CLI args > Presets (defaults.*) > Global default_model > Prompt.
+    Must run on the main thread (may prompt stdin).
+    """
     preset_defaults = get_preset_defaults(config)
-    parser_ocr_defaults = {
-        'model': [], 'repeat': [], 'judge_model': None,
-        'judge_mode': 'authoritative', 'judge_with_image': False,
-        'no_resume': False, 'max_page_attempts': 40
-    }
-
-    # Create a temporary namespace with parser defaults to check against
     temp_parser = argparse.ArgumentParser()
-    for key, val in parser_ocr_defaults.items():
-        temp_parser.add_argument(f"--{key.replace('_', '-')}", default=val, action='append' if isinstance(val, list) else 'store')
+    for key, val in _PARSER_OCR_DEFAULTS.items():
+        temp_parser.add_argument(
+            f"--{key.replace('_', '-')}",
+            default=val,
+            action='append' if isinstance(val, list) else 'store',
+        )
     parser_defaults_ns = temp_parser.parse_args([])
 
-    # Apply presets first, then allow CLI args to override them.
     print("[INFO] Applying settings. Priority: CLI > Presets > Global Default > Prompt.")
     for key, preset_val in preset_defaults.items():
-        if key in parser_ocr_defaults:
-            # Check if the user provided a value on the CLI.
-            # If not, apply the preset.
-            cli_value = getattr(args, key)
+        if key in _PARSER_OCR_DEFAULTS:
+            cli_value = getattr(args, key, None)
             parser_default_value = getattr(parser_defaults_ns, key)
             if cli_value == parser_default_value:
                 setattr(args, key, preset_val)
                 print(f"[INFO] Using preset for --{key.replace('_', '-')}: {preset_val}")
 
-    # If models are still not set (neither by CLI's --model nor by presets), try global default_model
-    if not args.model:
-        # Pass interactive=True because this is the main thread.
+    if not getattr(args, 'model', None):
         default_model_from_config = get_default_model(config, interactive=True)
         if default_model_from_config:
-            args.model = [default_model_from_config] # Set it for the args Namespace
+            args.model = [default_model_from_config]
             print(f"[INFO] Using 'default_model' from config (or user prompt): {args.model}")
         else:
-            # If still no model (no config, and user provided no input when prompted or non-interactive)
-            print("[ERROR] No OCR model specified or configured. Required for 'pdf2text'.")
+            print("[ERROR] No OCR model specified or configured.")
             print("  Use --model <model_name>, set a 'defaults.model' preset, or set a 'default_model'.")
             sys.exit(1)
-    # --- End Model Resolution ---
 
-    remaining_model_repeats = []
-    for idx, model_name in enumerate(args.model): # Use the now-resolved args.model
+
+def _dir_has_top_level_images(path: Path) -> bool:
+    try:
+        return any(f.is_file() and f.suffix.lower() in _IMAGE_EXTS for f in path.iterdir())
+    except OSError:
+        return False
+
+
+def _find_image_subdirs(path: Path) -> List[Path]:
+    try:
+        candidates = sorted(d for d in path.iterdir() if d.is_dir())
+    except OSError:
+        return []
+    return [d for d in candidates if _dir_has_top_level_images(d)]
+
+
+def _run_single_dir_ocr(args: argparse.Namespace) -> None:
+    """Run OCR on one flat images_dir. Expects args.model already resolved."""
+    pid_str = f"[{os.getpid() if hasattr(os, 'getpid') else 'main'}]"
+    remaining_model_repeats: List[Tuple[str, int]] = []
+    for idx, model_name in enumerate(args.model):
         rp = 1
         if args.repeat and idx < len(args.repeat):
             rp = args.repeat[idx]
         remaining_model_repeats.append((model_name, rp))
-    
-    if not remaining_model_repeats: # Should not happen if args.model was populated
-        raise ValueError(f"{pid_str} images_to_text (core wrapper): No models and repeats configured after processing args.")
+
+    if not remaining_model_repeats:
+        raise ValueError(f"{pid_str} _run_single_dir_ocr: No models/repeats configured.")
 
     pic2text.convert_images_to_text(
         images_dir=args.images_dir,
@@ -231,9 +233,141 @@ def images_to_text(args: argparse.Namespace) -> None:
         judge_with_image=args.judge_with_image,
         no_resume=getattr(args, 'no_resume', False),
         max_page_attempts=getattr(args, 'max_page_attempts', 40),
-        verbose=getattr(args, 'verbose', False), # Pass verbose down
+        verbose=getattr(args, 'verbose', False),
         max_concurrent_pages=getattr(args, 'max_concurrent_pages', 8),
+        max_image_kb=getattr(args, 'max_image_kb', pic2text.DEFAULT_MAX_IMAGE_KB),
     )
+
+
+def _process_image_dir_worker(subdir_str: str, common_args_dict: dict, output_base_dir_str: str) -> str:
+    """Worker that OCRs one image subdirectory into {output_base_dir}/{subdir.name}.txt."""
+    worker_args = argparse.Namespace(**common_args_dict)
+    subdir = Path(subdir_str)
+    pid = os.getpid()
+
+    try:
+        print(f"[{pid}] Starting OCR for subdirectory: {subdir.name}")
+        out_file = Path(output_base_dir_str) / f"{subdir.name}.txt"
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+
+        worker_args.images_dir = str(subdir)
+        worker_args.output_file = str(out_file)
+        _run_single_dir_ocr(worker_args)
+        return f"SUCCESS: {subdir.name}"
+    except pic2text.OCRPauseException as pause_exc:
+        print(f"[{pid}] PAUSED OCR for {subdir.name}: {pause_exc}")
+        return f"PAUSED: {subdir.name} - {pause_exc}"
+    except Exception as e:
+        print(f"[{pid}] ERROR OCR for {subdir.name}: {e}\n{traceback.format_exc()}")
+        return f"FAILURE: {subdir.name} - {e}"
+
+
+def images_to_text(args: argparse.Namespace) -> None:
+    """Perform OCR on images. Single-dir (flat images) or batch (dir of image-subdirs).
+
+    Batch dispatch rule: if images_dir has no image files at top level but contains
+    subdirectories that themselves hold images, treat each subdir as one document
+    and process them in parallel (mirrors pdf2text's dir-of-PDFs batch mode).
+    """
+    pid_str = f"[{os.getpid() if hasattr(os, 'getpid') else 'main'}]"
+    if getattr(args, 'verbose', False):
+        print(f"{pid_str} images_to_text (core wrapper) called for dir: {args.images_dir}")
+
+    input_path = Path(args.images_dir)
+    if not input_path.is_dir():
+        raise FileNotFoundError(f"images_dir is not a directory: {args.images_dir}")
+
+    config = load_config()
+    _apply_ocr_presets_and_resolve_model(args, config)
+
+    is_batch_mode = False
+    image_subdirs: List[Path] = []
+    if not _dir_has_top_level_images(input_path):
+        image_subdirs = _find_image_subdirs(input_path)
+        is_batch_mode = bool(image_subdirs)
+
+    if is_batch_mode:
+        # output_file in batch mode is treated as the output directory for per-subdir txt files.
+        if args.output_file:
+            explicit_out = Path(args.output_file)
+            if explicit_out.suffix and not explicit_out.is_dir():
+                output_base_dir = explicit_out.parent or Path.cwd()
+            else:
+                output_base_dir = explicit_out
+        else:
+            output_base_dir = Path.cwd()
+        output_base_dir.mkdir(parents=True, exist_ok=True)
+
+        print(
+            f"[INFO] pic2text batch mode: {len(image_subdirs)} image subdirectories in "
+            f"'{args.images_dir}'. Output → '{output_base_dir}/<subdir>.txt'."
+        )
+        cpu_cores = os.cpu_count() or 1
+        num_workers = min(len(image_subdirs), max(1, int(cpu_cores * 0.6)))
+        print(f"[INFO] Using up to {num_workers} parallel worker processes.")
+
+        common_args_dict = vars(args).copy()
+        common_args_dict.pop('func', None)
+
+        success_count = 0
+        failure_count = 0
+        paused_count = 0
+        pause_detected = False
+        results_summary: List[str] = []
+
+        with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
+            future_to_subdir = {
+                executor.submit(
+                    _process_image_dir_worker, str(subdir), common_args_dict, str(output_base_dir)
+                ): subdir
+                for subdir in image_subdirs
+            }
+            completed = 0
+            for future in concurrent.futures.as_completed(future_to_subdir):
+                subdir_done = future_to_subdir[future]
+                completed += 1
+                try:
+                    result_msg = future.result()
+                    results_summary.append(result_msg)
+                    if result_msg.startswith("SUCCESS"):
+                        success_count += 1
+                    elif result_msg.startswith("PAUSED"):
+                        paused_count += 1
+                        pause_detected = True
+                        for pending_future in future_to_subdir:
+                            if not pending_future.done():
+                                pending_future.cancel()
+                    else:
+                        failure_count += 1
+                except Exception as exc:
+                    failure_count += 1
+                    err_msg = f"FAILURE: {subdir_done.name} - Worker exception: {exc}"
+                    print(f"[ERROR] {err_msg}")
+                    results_summary.append(err_msg)
+                print(
+                    f"[INFO] Batch OCR progress: {completed}/{len(image_subdirs)} subdirs finished "
+                    f"(success={success_count}, paused={paused_count}, failed={failure_count})."
+                )
+
+        print("\n--- pic2text Batch Summary ---")
+        for res in results_summary:
+            print(f"  - {res}")
+        print(f"Total success: {success_count}, paused: {paused_count}, failed: {failure_count}")
+        if pause_detected:
+            raise pic2text.OCRPauseException(
+                "OCR paused for at least one subdirectory after reaching per-page attempt limit. "
+                "Fix external issue and rerun to resume."
+            )
+        return
+
+    # --- Single-dir mode ---
+    if not args.output_file:
+        stem_source = input_path.resolve().name
+        fallback_stem = stem_source or "pic2text_output"
+        args.output_file = str(Path.cwd() / f"{fallback_stem}.txt")
+        print(f"[INFO] No output file specified. Defaulting to: {args.output_file}")
+
+    _run_single_dir_ocr(args)
     if getattr(args, 'verbose', False):
         print(f"{pid_str} images_to_text (core wrapper) completed for dir: {args.images_dir}")
 
@@ -280,7 +414,8 @@ def _process_pdf_worker(pdf_file_path_str: str, common_args_dict: dict) -> str:
             verbose=getattr(worker_args, 'verbose', False)
         )
         
-        # `worker_args.model` is passed here, which was resolved in the main thread
+        # `worker_args.model` is passed here, which was resolved in the main thread.
+        # Bypass images_to_text's dispatcher since we already know the single-dir shape.
         images_to_text_args = argparse.Namespace(
             images_dir=str(current_image_output_dir),
             output_file=str(current_text_output_file),
@@ -294,11 +429,12 @@ def _process_pdf_worker(pdf_file_path_str: str, common_args_dict: dict) -> str:
             no_resume=getattr(worker_args, 'no_resume', False),
             max_page_attempts=getattr(worker_args, 'max_page_attempts', 40),
             max_concurrent_pages=getattr(worker_args, 'max_concurrent_pages', 8),
+            max_image_kb=getattr(worker_args, 'max_image_kb', pic2text.DEFAULT_MAX_IMAGE_KB),
             verbose=getattr(worker_args, 'verbose', False)
         )
 
         pdf_to_images(pdf_to_images_args)
-        images_to_text(images_to_text_args) # Call the core.py wrapper
+        _run_single_dir_ocr(images_to_text_args)
 
         success_msg = f"Successfully processed {pdf_path.name}"
         print(f"[{pid}] {success_msg}")
@@ -341,46 +477,7 @@ def pdf_to_text(args: argparse.Namespace) -> None:
         raise FileNotFoundError(f"Input path is not a valid file or directory: {args.pdf_path}")
 
     config = load_config()
-    # --- Model Resolution (Main Thread Only) ---
-    # Priority: 1. CLI args -> 2. Preset defaults -> 3. Global default_model -> 4. Prompt
-    preset_defaults = get_preset_defaults(config)
-    parser_ocr_defaults = {
-        'model': [], 'repeat': [], 'judge_model': None,
-        'judge_mode': 'authoritative', 'judge_with_image': False,
-        'no_resume': False, 'max_page_attempts': 40
-    }
-
-    # Create a temporary namespace with parser defaults to check against
-    temp_parser = argparse.ArgumentParser()
-    for key, val in parser_ocr_defaults.items():
-        temp_parser.add_argument(f"--{key.replace('_', '-')}", default=val, action='append' if isinstance(val, list) else 'store')
-    parser_defaults_ns = temp_parser.parse_args([])
-
-    # Apply presets first, then allow CLI args to override them.
-    print("[INFO] Applying settings. Priority: CLI > Presets > Global Default > Prompt.")
-    for key, preset_val in preset_defaults.items():
-        if key in parser_ocr_defaults:
-            # Check if the user provided a value on the CLI.
-            # If not, apply the preset.
-            cli_value = getattr(args, key)
-            parser_default_value = getattr(parser_defaults_ns, key)
-            if cli_value == parser_default_value:
-                setattr(args, key, preset_val)
-                print(f"[INFO] Using preset for --{key.replace('_', '-')}: {preset_val}")
-
-    # If models are still not set (neither by CLI's --model nor by presets), try global default_model
-    if not args.model:
-        # Pass interactive=True because this is the main thread.
-        default_model_from_config = get_default_model(config, interactive=True)
-        if default_model_from_config:
-            args.model = [default_model_from_config] # Set it for the args Namespace
-            print(f"[INFO] Using 'default_model' from config (or user prompt): {args.model}")
-        else:
-            # If still no model (no config, and user provided no input when prompted or non-interactive)
-            print("[ERROR] No OCR model specified or configured. Required for 'pdf2text'.")
-            print("  Use --model <model_name>, set a 'defaults.model' preset, or set a 'default_model'.")
-            sys.exit(1)
-    # --- End Model Resolution ---
+    _apply_ocr_presets_and_resolve_model(args, config)
 
     common_args_dict = vars(args).copy()
     common_args_dict['_is_batch_mode'] = is_batch_mode
@@ -593,40 +690,8 @@ def process_pdf_to_anki(args: argparse.Namespace) -> None:
     config = load_config() # Load config once
 
     # --- Resolve OCR Model for Step 2 ---
-    # Logic mirrors pdf_to_text: CLI > Presets > Global > Prompt
+    _apply_ocr_presets_and_resolve_model(args, config)
     ocr_models_for_step2 = list(args.model)
-    preset_defaults = get_preset_defaults(config)
-    
-    # Create a temporary namespace with parser defaults to check against
-    parser_ocr_defaults = {
-        'model': [], 'repeat': [], 'judge_model': None,
-        'judge_mode': 'authoritative', 'judge_with_image': False,
-        'no_resume': False, 'max_page_attempts': 40
-    }
-    temp_parser = argparse.ArgumentParser()
-    for key, val in parser_ocr_defaults.items():
-        temp_parser.add_argument(f"--{key.replace('_', '-')}", default=val, action='append' if isinstance(val, list) else 'store')
-    parser_defaults_ns = temp_parser.parse_args([])
-
-    print("[INFO] Applying OCR settings for 'process' command. Priority: CLI > Presets > Global > Prompt.")
-    if preset_defaults:
-        for key, preset_val in preset_defaults.items():
-            if key in parser_ocr_defaults:
-                cli_value = getattr(args, key)
-                parser_default_value = getattr(parser_defaults_ns, key)
-                if cli_value == parser_default_value:
-                    setattr(args, key, preset_val)
-                    if key == 'model': ocr_models_for_step2 = preset_val
-                    if getattr(args, 'verbose', False): print(f"[INFO] Using preset for --{key.replace('_', '-')}: {preset_val}")
-
-    if not ocr_models_for_step2: # If still no models (no --model for 'process', presets didn't help)
-        default_ocr_model = get_default_model(config, interactive=True)
-        if default_ocr_model:
-            ocr_models_for_step2 = [default_ocr_model]
-            print(f"[INFO] Using 'default_model' (from config/prompt) for OCR in 'process': {ocr_models_for_step2}")
-        else:
-            print("[ERROR] No OCR model specified or configured for the 'process' command's text extraction step.")
-            sys.exit(1)
     # --- End OCR Model Resolution ---
 
     # --- Resolve Anki Model for Step 3 ---
@@ -655,19 +720,21 @@ def process_pdf_to_anki(args: argparse.Namespace) -> None:
     print(f"[INFO] Step 1 (process): Converting PDF '{args.pdf_path}' to images in '{args.output_dir}'...")
     pdf_to_images(pdf_to_images_args)
 
-    # Step 2: Images to Text
+    # Step 2: Images to Text — use single-dir path directly (we know shape).
     images_to_text_args_for_process = argparse.Namespace(
         images_dir=args.output_dir, output_file=str(output_text_file_path),
-        model=ocr_models_for_step2, # Use resolved OCR models
+        model=ocr_models_for_step2,
         repeat=args.repeat, judge_model=args.judge_model, judge_mode=args.judge_mode,
         ensemble_strategy=args.ensemble_strategy, trust_score=args.trust_score,
         judge_with_image=args.judge_with_image,
         no_resume=getattr(args, 'no_resume', False),
         max_page_attempts=getattr(args, 'max_page_attempts', 40),
+        max_concurrent_pages=getattr(args, 'max_concurrent_pages', 8),
+        max_image_kb=getattr(args, 'max_image_kb', pic2text.DEFAULT_MAX_IMAGE_KB),
         verbose=getattr(args, 'verbose', False)
     )
     print(f"[INFO] Step 2 (process): Extracting text to '{output_text_file_path}'...")
-    images_to_text(images_to_text_args_for_process)
+    _run_single_dir_ocr(images_to_text_args_for_process)
 
     # Step 3: Text to Anki
     text_to_anki_args_for_process = argparse.Namespace(
@@ -841,6 +908,7 @@ def cli_invoke() -> None:
     parser_pic2text.add_argument("--no-resume", action="store_true", default=False, help="Disable OCR resume and start this OCR run from scratch.")
     parser_pic2text.add_argument("--max-page-attempts", type=int, default=40, help="Maximum full OCR attempts per page before pausing the run.")
     parser_pic2text.add_argument("--max-concurrent-pages", type=int, default=8, help="Pages processed in parallel within one PDF (1 = sequential).")
+    parser_pic2text.add_argument("--max-image-kb", type=int, default=pic2text.DEFAULT_MAX_IMAGE_KB, help=f"Cap the JPEG payload sent to the OCR API (KB). 0 = disable. Default: {pic2text.DEFAULT_MAX_IMAGE_KB}.")
     parser_pic2text.set_defaults(func=images_to_text)
 
     # --- PDF to Text Command ---
@@ -859,6 +927,7 @@ def cli_invoke() -> None:
     parser_pdf2text.add_argument("--no-resume", action="store_true", default=False, help="Disable OCR resume and start this OCR run from scratch.")
     parser_pdf2text.add_argument("--max-page-attempts", type=int, default=40, help="Maximum full OCR attempts per page before pausing the run.")
     parser_pdf2text.add_argument("--max-concurrent-pages", type=int, default=8, help="Pages processed in parallel within one PDF (1 = sequential).")
+    parser_pdf2text.add_argument("--max-image-kb", type=int, default=pic2text.DEFAULT_MAX_IMAGE_KB, help=f"Cap the JPEG payload sent to the OCR API (KB). 0 = disable. Default: {pic2text.DEFAULT_MAX_IMAGE_KB}.")
     parser_pdf2text.set_defaults(func=pdf_to_text)
     
     # --- Text to Anki Command ---
@@ -894,6 +963,8 @@ def cli_invoke() -> None:
     parser_process.add_argument("--judge-with-image", action="store_true", default=False, help="Judge sees image in OCR step (overrides presets).")
     parser_process.add_argument("--no-resume", action="store_true", default=False, help="Disable OCR resume and start this OCR run from scratch.")
     parser_process.add_argument("--max-page-attempts", type=int, default=40, help="Maximum full OCR attempts per page before pausing the run.")
+    parser_process.add_argument("--max-concurrent-pages", type=int, default=8, help="Pages processed in parallel within one PDF (1 = sequential).")
+    parser_process.add_argument("--max-image-kb", type=int, default=pic2text.DEFAULT_MAX_IMAGE_KB, help=f"Cap the JPEG payload sent to the OCR API (KB). 0 = disable. Default: {pic2text.DEFAULT_MAX_IMAGE_KB}.")
     parser_process.set_defaults(func=process_pdf_to_anki)
 
     # --- Workflow Command (project-based card generation) ---

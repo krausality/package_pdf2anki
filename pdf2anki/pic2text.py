@@ -44,6 +44,9 @@ LOG_EXTENSION = ".log"
 MAX_API_CALL_THREADS = 5
 STATE_SCHEMA_VERSION = 1
 DEFAULT_MAX_PAGE_ATTEMPTS = 40
+DEFAULT_MAX_IMAGE_KB = 800
+MIN_LONGEST_EDGE_PX = 1600
+MIN_JPEG_QUALITY = 60
 
 OUTPUT_SECTION_HEADER_RE = re.compile(r'^Image:\s*(.+?)\s*$')
 
@@ -496,11 +499,12 @@ def _run_ocr_cycle_for_image(
     judge_decision_log_file_path: str,
     executor: concurrent.futures.ThreadPoolExecutor,
     pid: Any,
-    verbose: bool
+    verbose: bool,
+    max_image_kb: int = 0,
 ) -> Tuple[bool, Optional[str], str]:
     base64_image_data: Optional[str] = None
     try:
-        base64_image_data = _image_to_base64(image_path)
+        base64_image_data = _image_to_base64(image_path, max_kb=max_image_kb)
     except Exception as image_err:
         error_text = f"[ERROR: Failed to load/convert image: {image_err}]"
         if verbose:
@@ -567,14 +571,57 @@ def _run_ocr_cycle_for_image(
         return True, final_text_for_image, ""
     return False, None, final_text_for_image
 
-def _image_to_base64(image_path: str) -> str:
+def _image_to_base64(image_path: str, max_kb: int = 0) -> str:
+    """Encode image as base64 JPEG. If max_kb > 0, cap the payload size.
+
+    Budget strategy: try quality=95 first. If over budget, reduce quality in
+    steps down to MIN_JPEG_QUALITY; if still over, shrink longest edge by 20%
+    per iteration down to MIN_LONGEST_EDGE_PX. Below that floor we stop —
+    OCR text legibility beats byte count.
+    """
     try:
-        with Image.open(image_path) as img:
-            if img.mode == 'RGBA':
-                img = img.convert('RGB')
+        with Image.open(image_path) as src_img:
+            if src_img.mode in ('RGBA', 'P', 'LA'):
+                src_img = src_img.convert('RGB')
+            elif src_img.mode not in ('RGB', 'L'):
+                src_img = src_img.convert('RGB')
+
+            quality = 95
+            cur_img = src_img
             buffered = io.BytesIO()
-            img.save(buffered, format="JPEG", quality=95) 
+            cur_img.save(buffered, format="JPEG", quality=quality)
             img_bytes = buffered.getvalue()
+            orig_size_kb = len(img_bytes) / 1024
+
+            if max_kb > 0 and orig_size_kb > max_kb:
+                while (len(img_bytes) / 1024) > max_kb and quality > MIN_JPEG_QUALITY:
+                    quality = max(MIN_JPEG_QUALITY, quality - 5)
+                    buffered = io.BytesIO()
+                    cur_img.save(buffered, format="JPEG", quality=quality)
+                    img_bytes = buffered.getvalue()
+
+                while (len(img_bytes) / 1024) > max_kb:
+                    w, h = cur_img.size
+                    longest = max(w, h)
+                    if longest <= MIN_LONGEST_EDGE_PX:
+                        break
+                    target_longest = max(int(longest * 0.8), MIN_LONGEST_EDGE_PX)
+                    scale = target_longest / longest
+                    new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+                    cur_img = cur_img.resize(new_size, Image.LANCZOS)
+                    buffered = io.BytesIO()
+                    cur_img.save(buffered, format="JPEG", quality=quality)
+                    img_bytes = buffered.getvalue()
+
+                final_size_kb = len(img_bytes) / 1024
+                final_w, final_h = cur_img.size
+                pid = os.getpid() if hasattr(os, 'getpid') else 'main'
+                print(
+                    f"[{pid}] [NORMALIZE] {Path(image_path).name}: "
+                    f"{orig_size_kb:.0f}KB -> {final_size_kb:.0f}KB "
+                    f"(size={final_w}x{final_h}, q={quality})"
+                )
+
         return base64.b64encode(img_bytes).decode("utf-8")
     except Exception as e:
         pid = os.getpid() if hasattr(os, 'getpid') else 'main'
@@ -847,6 +894,7 @@ def _process_single_page(
     counters: Dict[str, int],
     state_lock: threading.RLock,
     pause_event: threading.Event,
+    max_image_kb: int = 0,
 ) -> bool:
     """Process a single page with retries. Mutates state, page_texts, and counters.
 
@@ -908,7 +956,8 @@ def _process_single_page(
             judge_decision_log_file_path=judge_decision_log_file_path,
             executor=executor,
             pid=pid,
-            verbose=verbose
+            verbose=verbose,
+            max_image_kb=max_image_kb,
         )
 
         with state_lock:
@@ -1009,6 +1058,7 @@ def convert_images_to_text(
     max_page_attempts: int = DEFAULT_MAX_PAGE_ATTEMPTS,
     verbose: bool = False,
     max_concurrent_pages: int = 1,
+    max_image_kb: int = DEFAULT_MAX_IMAGE_KB,
 ) -> str:
     pid = os.getpid() if hasattr(os, 'getpid') else 'main'
     if verbose:
@@ -1166,6 +1216,7 @@ def convert_images_to_text(
                         counters=counters,
                         state_lock=state_lock,
                         pause_event=pause_event,
+                        max_image_kb=max_image_kb,
                     )
             else:
                 with concurrent.futures.ThreadPoolExecutor(
@@ -1202,6 +1253,7 @@ def convert_images_to_text(
                             counters=counters,
                             state_lock=state_lock,
                             pause_event=pause_event,
+                            max_image_kb=max_image_kb,
                         )
                         futures.append(fut)
 
