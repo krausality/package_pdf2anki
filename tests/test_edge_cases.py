@@ -401,7 +401,7 @@ class TestParseResponse:
 
     def test_debug_file_created_on_total_failure(self, tmp_path, monkeypatch):
         """When all strategies fail, raw response is saved for debugging."""
-        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("pdf2anki.text2anki.text_ingester.tempfile.gettempdir", lambda: str(tmp_path))
         self.ingestor._parse_response("totally unparseable garbage with no JSON at all")
         debug_file = tmp_path / "llm_response_debug.txt"
         assert debug_file.exists()

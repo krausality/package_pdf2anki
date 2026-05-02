@@ -11,6 +11,7 @@ Option-3-ready: IngestorBase definiert das Plugin-Interface für Milestone 3.
 import json
 import os
 import re
+import tempfile
 from typing import List
 
 from .console_utils import safe_print, verbose_print
@@ -423,7 +424,7 @@ class TextFileIngestor(IngestorBase):
 
     def _dump_debug_response(self, response: str):
         """Save raw LLM response to file for debugging when all parse strategies fail."""
-        debug_path = os.path.join(os.getcwd(), "llm_response_debug.txt")
+        debug_path = os.path.join(tempfile.gettempdir(), "llm_response_debug.txt")
         try:
             with open(debug_path, 'w', encoding='utf-8') as f:
                 f.write(response)
