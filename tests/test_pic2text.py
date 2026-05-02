@@ -268,7 +268,7 @@ class TestConvertImagesToText:
         mock_resp = make_mock_ocr_response("This is the OCR text.")
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post", return_value=mock_resp), \
+             patch("pdf2anki.pic2text._http_post", return_value=mock_resp), \
              patch("pdf2anki.pic2text.time.sleep"):
             result = convert_images_to_text(
                 images_dir=str(tmp_path),
@@ -290,7 +290,7 @@ class TestConvertImagesToText:
         out_file = str(tmp_path / "output.txt")
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post", side_effect=req_lib.exceptions.Timeout("timeout")), \
+             patch("pdf2anki.pic2text._http_post", side_effect=req_lib.exceptions.Timeout("timeout")), \
              patch("pdf2anki.pic2text.time.sleep"):
             with pytest.raises(OCRPauseException):
                 convert_images_to_text(
@@ -313,7 +313,7 @@ class TestConvertImagesToText:
         out_file = str(tmp_path / "output.txt")
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post", side_effect=req_lib.exceptions.Timeout("t")), \
+             patch("pdf2anki.pic2text._http_post", side_effect=req_lib.exceptions.Timeout("t")), \
              patch("pdf2anki.pic2text.time.sleep"):
             with pytest.raises(OCRPauseException):
                 convert_images_to_text(
@@ -357,7 +357,7 @@ class TestConvertImagesToText:
             return make_mock_ocr_response("Should not be called")
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post", side_effect=fake_post), \
+             patch("pdf2anki.pic2text._http_post", side_effect=fake_post), \
              patch("pdf2anki.pic2text.time.sleep"):
             convert_images_to_text(
                 images_dir=str(tmp_path),
@@ -387,7 +387,7 @@ class TestConvertImagesToText:
             return r
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post", side_effect=fake_post), \
+             patch("pdf2anki.pic2text._http_post", side_effect=fake_post), \
              patch("pdf2anki.pic2text.time.sleep"):
             convert_images_to_text(
                 images_dir=str(tmp_path),
@@ -426,7 +426,7 @@ class TestConvertImagesToText:
             return make_mock_ocr_response("Fresh OCR")
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post", side_effect=fake_post), \
+             patch("pdf2anki.pic2text._http_post", side_effect=fake_post), \
              patch("pdf2anki.pic2text.time.sleep"):
             convert_images_to_text(
                 images_dir=str(tmp_path),
@@ -538,7 +538,7 @@ class TestSequentialRegressionBaseline:
         responses = [f"OCR for page {i}" for i in range(1, 6)]
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post",
+             patch("pdf2anki.pic2text._http_post",
                    side_effect=_sequential_side_effect(responses)), \
              patch("pdf2anki.pic2text.time.sleep"):
             convert_images_to_text(
@@ -557,7 +557,7 @@ class TestSequentialRegressionBaseline:
         texts = ["Alpha", "Beta", "Gamma"]
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post",
+             patch("pdf2anki.pic2text._http_post",
                    side_effect=_sequential_side_effect(texts)), \
              patch("pdf2anki.pic2text.time.sleep"):
             convert_images_to_text(
@@ -577,7 +577,7 @@ class TestSequentialRegressionBaseline:
         out = str(tmp_path / "output.txt")
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post",
+             patch("pdf2anki.pic2text._http_post",
                    side_effect=_sequential_side_effect(["t1", "t2", "t3"])), \
              patch("pdf2anki.pic2text.time.sleep"):
             convert_images_to_text(
@@ -608,7 +608,7 @@ class TestSequentialRegressionBaseline:
         ]
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post",
+             patch("pdf2anki.pic2text._http_post",
                    side_effect=_sequential_side_effect(responses)), \
              patch("pdf2anki.pic2text.time.sleep"):
             with pytest.raises(OCRPauseException):
@@ -638,7 +638,7 @@ class TestSequentialRegressionBaseline:
             raise req_lib.exceptions.Timeout("t")
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post", side_effect=tracking), \
+             patch("pdf2anki.pic2text._http_post", side_effect=tracking), \
              patch("pdf2anki.pic2text.time.sleep"):
             with pytest.raises(OCRPauseException):
                 convert_images_to_text(
@@ -687,7 +687,7 @@ class TestSequentialRegressionBaseline:
             return make_mock_ocr_response(f"New {call_count['n']}")
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post", side_effect=counter), \
+             patch("pdf2anki.pic2text._http_post", side_effect=counter), \
              patch("pdf2anki.pic2text.time.sleep"):
             convert_images_to_text(
                 images_dir=str(tmp_path), output_file=str(out),
@@ -711,7 +711,7 @@ class TestSequentialRegressionBaseline:
         ]
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post",
+             patch("pdf2anki.pic2text._http_post",
                    side_effect=_sequential_side_effect(responses)), \
              patch("pdf2anki.pic2text.time.sleep"):
             convert_images_to_text(
@@ -734,7 +734,7 @@ class TestSequentialRegressionBaseline:
         ]
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post",
+             patch("pdf2anki.pic2text._http_post",
                    side_effect=_sequential_side_effect(responses)), \
              patch("pdf2anki.pic2text.time.sleep"):
             with pytest.raises(OCRPauseException):
@@ -759,7 +759,7 @@ class TestSequentialRegressionBaseline:
         )
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post", side_effect=responder), \
+             patch("pdf2anki.pic2text._http_post", side_effect=responder), \
              patch("pdf2anki.pic2text.time.sleep"):
             convert_images_to_text(
                 images_dir=str(tmp_path), output_file=out,
@@ -797,7 +797,7 @@ class TestPageLevelParallelismSpec:
         responses = [f"Text {i}" for i in range(1, 11)]
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post",
+             patch("pdf2anki.pic2text._http_post",
                    side_effect=_threadsafe_side_effect(responses)), \
              patch("pdf2anki.pic2text.time.sleep"):
             result = convert_images_to_text(
@@ -817,7 +817,7 @@ class TestPageLevelParallelismSpec:
         responses = [f"Text {i}" for i in range(1, 11)]
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post",
+             patch("pdf2anki.pic2text._http_post",
                    side_effect=_threadsafe_side_effect(responses)), \
              patch("pdf2anki.pic2text.time.sleep"):
             convert_images_to_text(
@@ -837,7 +837,7 @@ class TestPageLevelParallelismSpec:
         out = str(tmp_path / "output.txt")
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post",
+             patch("pdf2anki.pic2text._http_post",
                    side_effect=_threadsafe_side_effect(
                        [f"T{i}" for i in range(1, 6)])), \
              patch("pdf2anki.pic2text.time.sleep"):
@@ -861,7 +861,7 @@ class TestPageLevelParallelismSpec:
         out = str(tmp_path / "output.txt")
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post",
+             patch("pdf2anki.pic2text._http_post",
                    side_effect=_sequential_side_effect(["A", "B", "C"])), \
              patch("pdf2anki.pic2text.time.sleep"):
             convert_images_to_text(
@@ -898,7 +898,7 @@ class TestPageLevelParallelismSpec:
             raise req_lib.exceptions.Timeout("t")
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post", side_effect=_mixed), \
+             patch("pdf2anki.pic2text._http_post", side_effect=_mixed), \
              patch("pdf2anki.pic2text.time.sleep"):
             with pytest.raises(OCRPauseException):
                 convert_images_to_text(
@@ -930,7 +930,7 @@ class TestPageLevelParallelismSpec:
             raise req_lib.exceptions.Timeout("t")
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post", side_effect=_mixed), \
+             patch("pdf2anki.pic2text._http_post", side_effect=_mixed), \
              patch("pdf2anki.pic2text.time.sleep"):
             with pytest.raises(OCRPauseException):
                 convert_images_to_text(
@@ -963,7 +963,7 @@ class TestPageLevelParallelismSpec:
             raise req_lib.exceptions.Timeout("t")
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post", side_effect=_mixed), \
+             patch("pdf2anki.pic2text._http_post", side_effect=_mixed), \
              patch("pdf2anki.pic2text.time.sleep"):
             with pytest.raises(OCRPauseException):
                 convert_images_to_text(
@@ -1021,7 +1021,7 @@ class TestPageLevelParallelismSpec:
             return make_mock_ocr_response(f"New {api_calls[0]}")
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post", side_effect=counting), \
+             patch("pdf2anki.pic2text._http_post", side_effect=counting), \
              patch("pdf2anki.pic2text.time.sleep"):
             convert_images_to_text(
                 images_dir=str(tmp_path), output_file=str(out),
@@ -1046,7 +1046,7 @@ class TestPageLevelParallelismSpec:
         responses = [f"Page {i}" for i in range(1, 21)]
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post",
+             patch("pdf2anki.pic2text._http_post",
                    side_effect=_threadsafe_side_effect(responses)), \
              patch("pdf2anki.pic2text.time.sleep"):
             convert_images_to_text(
@@ -1070,7 +1070,7 @@ class TestPageLevelParallelismSpec:
         out = str(tmp_path / "output.txt")
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post",
+             patch("pdf2anki.pic2text._http_post",
                    side_effect=_threadsafe_side_effect(
                        [f"T{i}" for i in range(1, 9)])), \
              patch("pdf2anki.pic2text.time.sleep"):
@@ -1103,7 +1103,7 @@ class TestPageLevelParallelismSpec:
         )
 
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
-             patch("pdf2anki.pic2text.requests.post", side_effect=responder), \
+             patch("pdf2anki.pic2text._http_post", side_effect=responder), \
              patch("pdf2anki.pic2text.time.sleep"):
             convert_images_to_text(
                 images_dir=str(tmp_path), output_file=out,

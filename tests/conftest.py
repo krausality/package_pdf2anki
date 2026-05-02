@@ -5,6 +5,10 @@ import pytest
 from datetime import datetime
 from unittest.mock import MagicMock
 
+# Suppress the per-model OCR concurrency tuner across the test suite so that
+# pause/error paths in pic2text tests don't write to ~/.pdf2anki/perf_log.ndjson.
+os.environ.setdefault("PDF2ANKI_DISABLE_TUNER", "1")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Minimal valid project.json data

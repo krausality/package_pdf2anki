@@ -23,6 +23,7 @@ from pathlib import Path # Ensure Path is imported here as it's used widely
 from typing import List, Tuple, Optional, Dict, Any
 from . import pdf2pic
 from . import pic2text
+from . import perf_tuner
 from . import text2anki
 
 # --- Configuration Management ---
@@ -222,6 +223,12 @@ def _run_single_dir_ocr(args: argparse.Namespace) -> None:
     if not remaining_model_repeats:
         raise ValueError(f"{pid_str} _run_single_dir_ocr: No models/repeats configured.")
 
+    explicit_concurrency = getattr(args, 'max_concurrent_pages', None)
+    primary_model = remaining_model_repeats[0][0]
+    resolved_concurrency = perf_tuner.resolve_concurrency(primary_model, explicit_concurrency)
+    if explicit_concurrency is None and not perf_tuner.is_disabled():
+        print(f"{pid_str} [TUNER] max_concurrent_pages={resolved_concurrency} for {primary_model}")
+
     pic2text.convert_images_to_text(
         images_dir=args.images_dir,
         output_file=args.output_file,
@@ -234,7 +241,7 @@ def _run_single_dir_ocr(args: argparse.Namespace) -> None:
         no_resume=getattr(args, 'no_resume', False),
         max_page_attempts=getattr(args, 'max_page_attempts', 40),
         verbose=getattr(args, 'verbose', False),
-        max_concurrent_pages=getattr(args, 'max_concurrent_pages', 8),
+        max_concurrent_pages=resolved_concurrency,
         max_image_kb=getattr(args, 'max_image_kb', pic2text.DEFAULT_MAX_IMAGE_KB),
     )
 
@@ -428,7 +435,7 @@ def _process_pdf_worker(pdf_file_path_str: str, common_args_dict: dict) -> str:
             judge_with_image=worker_args.judge_with_image,
             no_resume=getattr(worker_args, 'no_resume', False),
             max_page_attempts=getattr(worker_args, 'max_page_attempts', 40),
-            max_concurrent_pages=getattr(worker_args, 'max_concurrent_pages', 8),
+            max_concurrent_pages=getattr(worker_args, 'max_concurrent_pages', None),
             max_image_kb=getattr(worker_args, 'max_image_kb', pic2text.DEFAULT_MAX_IMAGE_KB),
             verbose=getattr(worker_args, 'verbose', False)
         )
@@ -729,7 +736,7 @@ def process_pdf_to_anki(args: argparse.Namespace) -> None:
         judge_with_image=args.judge_with_image,
         no_resume=getattr(args, 'no_resume', False),
         max_page_attempts=getattr(args, 'max_page_attempts', 40),
-        max_concurrent_pages=getattr(args, 'max_concurrent_pages', 8),
+        max_concurrent_pages=getattr(args, 'max_concurrent_pages', None),
         max_image_kb=getattr(args, 'max_image_kb', pic2text.DEFAULT_MAX_IMAGE_KB),
         verbose=getattr(args, 'verbose', False)
     )
@@ -847,8 +854,12 @@ def cli_invoke() -> None:
                              help="Re-run discovery even if project.json already exists.")
         _parser.add_argument("--ocr-model", type=str, default=None, metavar="MODEL",
                              help="OCR model for pending PDFs (default: google/gemini-2.5-flash).")
-        _parser.add_argument("--max-concurrent-pages", type=int, default=8, metavar="N",
-                             help="Pages processed in parallel within one PDF (1 = sequential).")
+        _parser.add_argument("--max-concurrent-pages", type=int, default=None, metavar="N",
+                             help="Pages processed in parallel within one PDF "
+                                  "(default: per-model auto-tuner; 1 = sequential).")
+        _parser.add_argument("--max-image-kb", type=int, default=None, metavar="KB",
+                             help=f"Image payload normalization target KB "
+                                  f"(default: {pic2text.DEFAULT_MAX_IMAGE_KB}; 0 = disable).")
         _parser.add_argument("-y", "--yes", action="store_true",
                              help="Skip interactive confirmation prompts (auto-accept).")
         _parser.add_argument("-v", "--verbose", action="store_true",
@@ -865,6 +876,7 @@ def cli_invoke() -> None:
             reconfig=_args.reconfig,
             ocr_model=_args.ocr_model,
             max_concurrent_pages=_args.max_concurrent_pages,
+            max_image_kb=_args.max_image_kb,
             auto_confirm=_args.yes,
         )
         return
@@ -907,7 +919,7 @@ def cli_invoke() -> None:
     parser_pic2text.add_argument("--judge-with-image", action="store_true", default=False, help="Judge sees image (overrides presets).")
     parser_pic2text.add_argument("--no-resume", action="store_true", default=False, help="Disable OCR resume and start this OCR run from scratch.")
     parser_pic2text.add_argument("--max-page-attempts", type=int, default=40, help="Maximum full OCR attempts per page before pausing the run.")
-    parser_pic2text.add_argument("--max-concurrent-pages", type=int, default=8, help="Pages processed in parallel within one PDF (1 = sequential).")
+    parser_pic2text.add_argument("--max-concurrent-pages", type=int, default=None, help="Pages processed in parallel within one PDF (default: per-model auto-tuner; 1 = sequential).")
     parser_pic2text.add_argument("--max-image-kb", type=int, default=pic2text.DEFAULT_MAX_IMAGE_KB, help=f"Cap the JPEG payload sent to the OCR API (KB). 0 = disable. Default: {pic2text.DEFAULT_MAX_IMAGE_KB}.")
     parser_pic2text.set_defaults(func=images_to_text)
 
@@ -926,7 +938,7 @@ def cli_invoke() -> None:
     parser_pdf2text.add_argument("--judge-with-image", action="store_true", default=False, help="Judge sees image (overrides presets).")
     parser_pdf2text.add_argument("--no-resume", action="store_true", default=False, help="Disable OCR resume and start this OCR run from scratch.")
     parser_pdf2text.add_argument("--max-page-attempts", type=int, default=40, help="Maximum full OCR attempts per page before pausing the run.")
-    parser_pdf2text.add_argument("--max-concurrent-pages", type=int, default=8, help="Pages processed in parallel within one PDF (1 = sequential).")
+    parser_pdf2text.add_argument("--max-concurrent-pages", type=int, default=None, help="Pages processed in parallel within one PDF (default: per-model auto-tuner; 1 = sequential).")
     parser_pdf2text.add_argument("--max-image-kb", type=int, default=pic2text.DEFAULT_MAX_IMAGE_KB, help=f"Cap the JPEG payload sent to the OCR API (KB). 0 = disable. Default: {pic2text.DEFAULT_MAX_IMAGE_KB}.")
     parser_pdf2text.set_defaults(func=pdf_to_text)
     
@@ -963,7 +975,7 @@ def cli_invoke() -> None:
     parser_process.add_argument("--judge-with-image", action="store_true", default=False, help="Judge sees image in OCR step (overrides presets).")
     parser_process.add_argument("--no-resume", action="store_true", default=False, help="Disable OCR resume and start this OCR run from scratch.")
     parser_process.add_argument("--max-page-attempts", type=int, default=40, help="Maximum full OCR attempts per page before pausing the run.")
-    parser_process.add_argument("--max-concurrent-pages", type=int, default=8, help="Pages processed in parallel within one PDF (1 = sequential).")
+    parser_process.add_argument("--max-concurrent-pages", type=int, default=None, help="Pages processed in parallel within one PDF (default: per-model auto-tuner; 1 = sequential).")
     parser_process.add_argument("--max-image-kb", type=int, default=pic2text.DEFAULT_MAX_IMAGE_KB, help=f"Cap the JPEG payload sent to the OCR API (KB). 0 = disable. Default: {pic2text.DEFAULT_MAX_IMAGE_KB}.")
     parser_process.set_defaults(func=process_pdf_to_anki)
 

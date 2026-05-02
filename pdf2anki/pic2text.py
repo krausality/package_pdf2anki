@@ -32,11 +32,48 @@ from dotenv import load_dotenv
 import concurrent.futures 
 from typing import List, Tuple, Optional, Dict, Any
 from pathlib import Path 
-import sys 
-import threading 
+import sys
+import threading
+
+from . import perf_tuner as _perf_tuner
 
 load_dotenv()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+
+# Per-process requests.Session cache. OpenRouter does not rate-limit paid
+# models, but each call without a Session pays a fresh TLS handshake and
+# urllib3's default pool would silently throttle past ~10 concurrent sockets.
+# Keying by os.getpid() makes this fork-safe (Linux) and is a harmless no-op
+# under spawn (Windows / ProcessPoolExecutor) where child modules re-import.
+_session_lock = threading.Lock()
+_session_by_pid: Dict[int, requests.Session] = {}
+
+
+def _get_session() -> requests.Session:
+    pid = os.getpid()
+    s = _session_by_pid.get(pid)
+    if s is not None:
+        return s
+    with _session_lock:
+        s = _session_by_pid.get(pid)
+        if s is not None:
+            return s
+        s = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=8,
+            pool_maxsize=64,
+        )
+        s.mount("https://", adapter)
+        s.mount("http://", adapter)
+        _session_by_pid[pid] = s
+        return s
+
+
+def _http_post(**kwargs):
+    # Single chokepoint for OpenRouter HTTP calls. Production routes through
+    # the per-process Session; tests patch this name directly with side_effect.
+    return _get_session().post(**kwargs)
+
 
 DEFAULT_OCR_LOG_BASENAME = "ocr"
 DEFAULT_JUDGE_LOG_BASENAME = "decisionmaking"
@@ -687,17 +724,17 @@ def _post_ocr_request(model_name: str, base64_image: str, ocr_log_file: str, ima
     response_data = None
     cleaned_text = f"[ERROR: OCR request for {model_name} did not complete successfully]"
     try:
-        response = requests.post(
+        response = _http_post(
             url="https://openrouter.ai/api/v1/chat/completions",
             headers={
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
                 "Content-Type": "application/json",
-                "X-Title": "pdf2anki-ocr" 
+                "X-Title": "pdf2anki-ocr"
             },
             data=json.dumps(request_payload),
-            timeout=120 
+            timeout=120
         )
-        response.raise_for_status() 
+        response.raise_for_status()
         response_data = response.json()
         
         if response_data and response_data.get("choices") and \
@@ -804,7 +841,7 @@ def _post_judge_request(
     response_data_judge = None
 
     try:
-        response = requests.post(
+        response = _http_post(
             url="https://openrouter.ai/api/v1/chat/completions",
             headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json", "X-Title": "pdf2anki-judge"},
             data=json.dumps(request_payload),
@@ -1297,6 +1334,13 @@ def convert_images_to_text(
 
         if verbose:
             print(f"[{pid}] All images processed successfully for this document worker. Total: {processed_images_count}")
+        _perf_tuner.record_observation(
+            model_id=model_repeats[0][0] if model_repeats else "",
+            concurrency=max_concurrent_pages,
+            pages_completed=newly_done_pages_count,
+            errors=failed_attempt_cycles,
+            paused=False,
+        )
         return output_file
     except OCRPauseException:
         processed_images_count = counters["processed"]
@@ -1309,6 +1353,13 @@ def convert_images_to_text(
             f"resumed_pages={resumed_pages_count} newly_done={newly_done_pages_count} "
             f"attempt_cycles={attempt_cycles} failed_attempts={failed_attempt_cycles} "
             f"elapsed={elapsed_seconds:.1f}s"
+        )
+        _perf_tuner.record_observation(
+            model_id=model_repeats[0][0] if model_repeats else "",
+            concurrency=max_concurrent_pages,
+            pages_completed=newly_done_pages_count,
+            errors=failed_attempt_cycles,
+            paused=True,
         )
         raise
     finally:

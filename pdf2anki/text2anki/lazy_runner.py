@@ -7,11 +7,14 @@ infers pipeline state, generates an ordered execution plan, and runs pending ste
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Optional
 
+from .. import perf_tuner as _perf_tuner
 from .pipeline_state import scan_directory, infer_ocr_status
 from .pipeline_trace import PipelineTrace
 from .project_config import ProjectConfig
@@ -38,7 +41,8 @@ def run_lazy_mode(
     reconfig: bool = False,
     ocr_model: Optional[str] = None,
     auto_confirm: bool = False,
-    max_concurrent_pages: int = 1,
+    max_concurrent_pages: Optional[int] = None,
+    max_image_kb: Optional[int] = None,
 ) -> None:
     """
     Full lazy-mode pipeline for `pdf2anki .`.
@@ -50,7 +54,9 @@ def run_lazy_mode(
         reconfig:  If True, re-run discovery even if project.json already exists.
         ocr_model: OCR model to use for pending PDFs. Defaults to gemini-2.5-flash.
         auto_confirm: If True, skip interactive y/n confirmation prompts.
-        max_concurrent_pages: Pages processed in parallel within one PDF (1 = sequential).
+        max_concurrent_pages: Pages processed in parallel within one PDF.
+            None = use the per-model auto-tuner; int = explicit override.
+        max_image_kb: Image payload normalization target (KB). None = pic2text default.
     """
     base_dir = base_dir.resolve()
     ocr_model = ocr_model or _DEFAULT_OCR_MODEL
@@ -104,7 +110,9 @@ def run_lazy_mode(
         set_phase("ocr")
         pending_count = sum(1 for s in state_map.values() if s.ocr == "pending")
         skipped_count = sum(1 for s in state_map.values() if s.ocr == "done")
-        ocr_done_txts = _run_pending_ocr(base_dir, state_map, ocr_model, max_concurrent_pages)
+        ocr_done_txts = _run_pending_ocr(
+            base_dir, state_map, ocr_model, max_concurrent_pages, max_image_kb,
+        )
         trace.end_phase("ocr", "ok", {
             "note": "Detailed OCR logs in log_archive/",
             "pdfs_processed": len(ocr_done_txts),
@@ -274,47 +282,145 @@ def _run_pending_ocr(
     base_dir: Path,
     state_map: dict,
     ocr_model: str,
-    max_concurrent_pages: int = 1,
+    max_concurrent_pages: Optional[int] = None,
+    max_image_kb: Optional[int] = None,
 ) -> list[Path]:
-    """Run OCR for all PDFs with status 'pending'. Returns list of produced .txt paths."""
+    """Run OCR for all PDFs with status 'pending'. Returns list of produced .txt paths.
+
+    Parallelisation: each PDF has its own ocr_state.json so worker processes
+    cannot contend on resume state. A pause raised by one worker only stops
+    that PDF — the other workers' partial progress is preserved on disk and
+    will resume on the next invocation.
+    """
     pending = [
         base_dir / rel
         for rel, state in state_map.items()
         if state.ocr == "pending"
     ]
-
     if not pending:
         return []
 
     safe_print(f"\n--- OCR: {len(pending)} PDF(s) ausstehend ---")
 
+    resolved_concurrency = _perf_tuner.resolve_concurrency(ocr_model, max_concurrent_pages)
+    if max_concurrent_pages is None and not _perf_tuner.is_disabled():
+        safe_print(f"  Auto-tuner: max_concurrent_pages={resolved_concurrency} for {ocr_model}")
+
+    if len(pending) == 1:
+        return _ocr_one_pdf_inproc(
+            base_dir, pending[0], ocr_model, resolved_concurrency, max_image_kb,
+        )
+
+    num_workers = min(len(pending), max(1, int((os.cpu_count() or 1) * 0.6)))
+    safe_print(f"  Multi-PDF parallel: {num_workers} Worker-Prozess(e).")
+
+    produced: list[Path] = []
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
+        future_map = {
+            executor.submit(
+                _ocr_pdf_worker,
+                str(base_dir), str(pdf_path), ocr_model,
+                resolved_concurrency, max_image_kb,
+            ): pdf_path
+            for pdf_path in pending
+        }
+        for fut in concurrent.futures.as_completed(future_map):
+            pdf_path = future_map[fut]
+            try:
+                kind, payload = fut.result()
+            except concurrent.futures.CancelledError:
+                continue
+            except Exception as exc:
+                safe_print(f"  OCR fehlgeschlagen für {pdf_path.name}: {exc}", "ERROR")
+                continue
+            if kind == "ok":
+                produced.append(Path(payload))
+                safe_print(f"  OCR ok: {pdf_path.name}")
+            elif kind == "paused":
+                safe_print(f"  OCR pausiert für {pdf_path.name}: {payload}", "WARNING")
+                for pending_fut in future_map:
+                    if not pending_fut.done():
+                        pending_fut.cancel()
+            else:
+                safe_print(f"  OCR fehlgeschlagen für {pdf_path.name}: {payload}", "ERROR")
+    return produced
+
+
+def _ocr_one_pdf_inproc(
+    base_dir: Path,
+    pdf_path: Path,
+    ocr_model: str,
+    max_concurrent_pages: int,
+    max_image_kb: Optional[int],
+) -> list[Path]:
+    """Single-PDF in-process OCR (no executor overhead, clean stdout)."""
     from .. import pdf2pic as _pdf2pic
     from .. import pic2text as _pic2text
 
-    produced: list[Path] = []
-    for pdf_path in pending:
-        safe_print(f"  OCR: {pdf_path.name}")
-        images_dir = base_dir / "pdf2pic" / pdf_path.stem
-        images_dir.mkdir(parents=True, exist_ok=True)
-        txt_path = pdf_path.with_suffix(".txt")
+    safe_print(f"  OCR: {pdf_path.name}")
+    images_dir = base_dir / "pdf2pic" / pdf_path.stem
+    images_dir.mkdir(parents=True, exist_ok=True)
+    txt_path = pdf_path.with_suffix(".txt")
+    try:
+        _pdf2pic.convert_pdf_to_images(
+            pdf_path=str(pdf_path),
+            output_dir=str(images_dir),
+            resume_existing=True,
+        )
+        _pic2text.convert_images_to_text(
+            images_dir=str(images_dir),
+            output_file=str(txt_path),
+            model_repeats=[(ocr_model, 1)],
+            max_concurrent_pages=max_concurrent_pages,
+            max_image_kb=max_image_kb if max_image_kb is not None else _pic2text.DEFAULT_MAX_IMAGE_KB,
+        )
+        return [txt_path]
+    except Exception as exc:
+        safe_print(f"  OCR fehlgeschlagen für {pdf_path.name}: {exc}", "ERROR")
+        return []
 
-        try:
-            _pdf2pic.convert_pdf_to_images(
-                pdf_path=str(pdf_path),
-                output_dir=str(images_dir),
-                resume_existing=True,
-            )
-            _pic2text.convert_images_to_text(
-                images_dir=str(images_dir),
-                output_file=str(txt_path),
-                model_repeats=[(ocr_model, 1)],
-                max_concurrent_pages=max_concurrent_pages,
-            )
-            produced.append(txt_path)
-        except Exception as exc:
-            safe_print(f"  OCR fehlgeschlagen für {pdf_path.name}: {exc}", "ERROR")
 
-    return produced
+def _ocr_pdf_worker(
+    base_dir_str: str,
+    pdf_path_str: str,
+    ocr_model: str,
+    max_concurrent_pages: int,
+    max_image_kb: Optional[int],
+) -> tuple[str, str]:
+    """Subprocess worker. Returns (status, payload) where status is one of
+    'ok' (payload = txt path), 'paused' (payload = pause reason), or
+    'error' (payload = short error message).
+
+    Each worker has its own pic2text state file (name keyed by output txt)
+    so resume is process-independent and pause from another worker has no
+    effect on this worker's already-saved progress.
+    """
+    from .. import pdf2pic as _pdf2pic
+    from .. import pic2text as _pic2text
+
+    base_dir = Path(base_dir_str)
+    pdf_path = Path(pdf_path_str)
+    images_dir = base_dir / "pdf2pic" / pdf_path.stem
+    images_dir.mkdir(parents=True, exist_ok=True)
+    txt_path = pdf_path.with_suffix(".txt")
+    try:
+        _pdf2pic.convert_pdf_to_images(
+            pdf_path=str(pdf_path),
+            output_dir=str(images_dir),
+            resume_existing=True,
+        )
+        _pic2text.convert_images_to_text(
+            images_dir=str(images_dir),
+            output_file=str(txt_path),
+            model_repeats=[(ocr_model, 1)],
+            max_concurrent_pages=max_concurrent_pages,
+            max_image_kb=max_image_kb if max_image_kb is not None else _pic2text.DEFAULT_MAX_IMAGE_KB,
+        )
+        return ("ok", str(txt_path))
+    except _pic2text.OCRPauseException as pause_exc:
+        return ("paused", str(pause_exc))
+    except Exception as exc:
+        return ("error", f"{type(exc).__name__}: {exc}")
 
 
 # ---------------------------------------------------------------------------
