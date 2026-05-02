@@ -31,14 +31,15 @@ def _read_log(tmp_path: Path) -> list[dict]:
 
 
 class TestColdStart:
-    def test_seed_for_known_provider(self, tuner_with_tmp_home):
-        assert tuner_with_tmp_home.get_recommended_concurrency("google/gemini-2.5-flash") == 12
-        assert tuner_with_tmp_home.get_recommended_concurrency("anthropic/claude-sonnet-4-5") == 6
-        assert tuner_with_tmp_home.get_recommended_concurrency("openai/gpt-4o") == 8
-
-    def test_seed_for_unknown_provider(self, tuner_with_tmp_home):
-        # Falls back to _DEFAULT_COLD_START
-        assert tuner_with_tmp_home.get_recommended_concurrency("foo/bar") == 4
+    def test_cold_start_is_model_id_agnostic(self, tuner_with_tmp_home):
+        # Every model_id gets the same conservative cold-start. The tuner
+        # then learns per-model from observations.
+        cs = tuner_with_tmp_home.COLD_START_CONCURRENCY
+        assert tuner_with_tmp_home.get_recommended_concurrency("google/gemini-2.5-flash") == cs
+        assert tuner_with_tmp_home.get_recommended_concurrency("google/gemini-2.5-pro") == cs
+        assert tuner_with_tmp_home.get_recommended_concurrency("anthropic/claude-sonnet-4-5") == cs
+        assert tuner_with_tmp_home.get_recommended_concurrency("openai/gpt-4o") == cs
+        assert tuner_with_tmp_home.get_recommended_concurrency("foo/bar") == cs
 
     def test_resolve_explicit_overrides_tuner(self, tuner_with_tmp_home):
         assert tuner_with_tmp_home.resolve_concurrency("google/gemini-2.5-flash", 24) == 24
@@ -49,7 +50,7 @@ class TestDisabled:
     def test_disabled_returns_seed(self, monkeypatch):
         monkeypatch.setenv("PDF2ANKI_DISABLE_TUNER", "1")
         importlib.reload(perf_tuner)
-        assert perf_tuner.get_recommended_concurrency("google/foo") == 12
+        assert perf_tuner.get_recommended_concurrency("google/foo") == perf_tuner.COLD_START_CONCURRENCY
 
     def test_disabled_skips_recording(self, tmp_path, monkeypatch):
         monkeypatch.setenv("PDF2ANKI_DISABLE_TUNER", "1")
@@ -100,8 +101,12 @@ class TestPolicy:
 
     def test_per_model_isolation(self, tuner_with_tmp_home):
         tuner_with_tmp_home.record_observation("google/foo", 16, 20, 0, paused=True)
-        # Different model is not affected
-        assert tuner_with_tmp_home.get_recommended_concurrency("openai/bar") == 8
+        # Different model is not affected — gets the cold-start, not the
+        # halved value learned for "google/foo".
+        assert (
+            tuner_with_tmp_home.get_recommended_concurrency("openai/bar")
+            == tuner_with_tmp_home.COLD_START_CONCURRENCY
+        )
 
     def test_demote_floor_is_one(self, tuner_with_tmp_home):
         tuner_with_tmp_home.record_observation("foo/bar", 1, 20, 0, paused=True)
@@ -140,8 +145,11 @@ class TestResilience:
             return real_open(path, *args, **kwargs)
 
         monkeypatch.setattr(builtins, "open", boom)
-        # Should not raise; falls back to provider seed.
-        assert tuner_with_tmp_home.get_recommended_concurrency("google/foo") == 12
+        # Should not raise; falls back to cold-start constant.
+        assert (
+            tuner_with_tmp_home.get_recommended_concurrency("google/foo")
+            == tuner_with_tmp_home.COLD_START_CONCURRENCY
+        )
 
     def test_record_failure_silent(self, tuner_with_tmp_home, monkeypatch):
         # Ensure a write failure does not propagate.
