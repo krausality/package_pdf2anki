@@ -147,6 +147,83 @@ class TestCollectionSortKey:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# B2b: check_distribution_balance must apply sort key only to dict keys
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestCheckDistributionBalance:
+    """Regression: sorted(dict.items(), key=_collection_sort_key) crashed because
+    items yields (key, value) tuples but _collection_sort_key expects a string.
+    See database_manager.py:1097 — must use lambda x: _collection_sort_key(x[0])."""
+
+    def _seed_balanced_db(self, tmp_path, counts: dict[str, int]):
+        """Build a DB with the given per-collection card counts."""
+        cards = []
+        for coll, n in counts.items():
+            for i in range(n):
+                cards.append(AnkiCard(
+                    front=f"Q_{coll}_{i}",
+                    back=f"A_{coll}_{i}",
+                    collection=coll,
+                    category="a_grundlagen",
+                    sort_field=f"00_A_{i:02d}",
+                ))
+        return _make_gti_db(tmp_path, cards=cards)
+
+    def test_does_not_crash_with_legacy_keys(self, tmp_path, sample_config):
+        """Original crash scenario: standard collection_N_* keys, >20 cards, >=2 collections."""
+        mock_mm = MagicMock()
+        mock_mm.get_course_material.return_value = None
+        db = DatabaseManager(
+            db_path=str(tmp_path / "card_database.json"),
+            material_manager=mock_mm,
+            project_config=sample_config,
+        )
+        db.cards = []
+        for i in range(15):
+            db.cards.append(AnkiCard(
+                front=f"Q1_{i}", back=f"A1_{i}",
+                collection="collection_0_Kapitel1",
+                category="a_grund", sort_field=f"00_A_{i:02d}",
+            ))
+        for i in range(15):
+            db.cards.append(AnkiCard(
+                front=f"Q2_{i}", back=f"A2_{i}",
+                collection="collection_1_Kapitel2",
+                category="a_grund", sort_field=f"00_A_{i:02d}",
+            ))
+        # Pre-fix this raised AttributeError: 'tuple' object has no attribute 'split'
+        warnings = db.check_distribution_balance()
+        assert isinstance(warnings, list)
+
+    def test_does_not_crash_with_nonstandard_keys(self, tmp_path):
+        """Same crash also reproducible with non-standard collection keys."""
+        db = self._seed_balanced_db(tmp_path, {
+            "Skript_ws_25": 15,
+            "Uebung_Hausuebungen": 15,
+        })
+        warnings = db.check_distribution_balance()
+        assert isinstance(warnings, list)
+
+    def test_returns_empty_below_threshold(self, tmp_path):
+        """Total <=20 cards: skip balance check, return []."""
+        db = self._seed_balanced_db(tmp_path, {
+            "Skript_ws_25": 5,
+            "Uebung_Hausuebungen": 5,
+        })
+        assert db.check_distribution_balance() == []
+
+    def test_warns_on_underrepresented_collection(self, tmp_path):
+        """Balanced 100-card DB with one tiny collection should produce a warning."""
+        db = self._seed_balanced_db(tmp_path, {
+            "Skript_ws_25": 50,
+            "Uebung_Hausuebungen": 50,
+            "Uebung_Uebungsblaetter": 1,
+        })
+        warnings = db.check_distribution_balance()
+        assert any("Uebung_Uebungsblaetter" in w for w in warnings)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # B3: Gate check with .txt/.pdf in directory does not fail on fresh project
 # ─────────────────────────────────────────────────────────────────────────────
 

@@ -1094,7 +1094,7 @@ class DatabaseManager:
         threshold = max(3, int(median * 0.15))
 
         warnings: list[str] = []
-        for coll_key, count in sorted(coll_counts.items(), key=_collection_sort_key):
+        for coll_key, count in sorted(coll_counts.items(), key=lambda x: _collection_sort_key(x[0])):
             if count < threshold:
                 warnings.append(
                     f"Collection '{coll_key}' hat nur {count} Karten "
