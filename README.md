@@ -407,6 +407,10 @@ pdf2anki workflow --project ./my_project/ --export
 
 # --- Optional: force sync derived files without touching the database ---
 pdf2anki workflow --project ./my_project/ --sync
+
+# --- Optional: post-hoc semantic dedup of an existing SSOT (see "Post-hoc semantic dedup" below) ---
+pdf2anki workflow --project ./my_project/ --dedup --passes 3 --resolver auto
+pdf2anki workflow --project ./my_project/ --dedup --from-stage 4 --apply
 ```
 
 **Typical semester rhythm:**
@@ -451,7 +455,67 @@ The workflow includes two layers of duplicate detection during `--integrate`:
 
 **Known limitation — multi-source semantic overlap:** When you ingest material from multiple sources covering the same topic (e.g., a lecture chapter, then the corresponding exercise sheet, then tutorial notes), the LLM dedup catches most but not all conceptually redundant cards. Cards with low surface-text overlap but the same underlying concept — e.g., "What is an alphabet?" (from the lecture) vs. "Is Z an alphabet? Why not?" (from the exercises) — may both be accepted because they frame the same concept as different question types.
 
-This is by design: exercise-style application cards complement definition cards and have value even when they test the same underlying knowledge. If you want stricter dedup, review `new_cards_output.json` before running `--integrate` and remove candidates manually.
+This is by design: exercise-style application cards complement definition cards and have value even when they test the same underlying knowledge. If you want stricter dedup, review `new_cards_output.json` before running `--integrate` and remove candidates manually — or run the post-hoc `--dedup` workflow described next.
+
+### Post-hoc semantic dedup
+
+The dedup that runs inside `--integrate` only checks *new* candidates against
+*existing* cards. It cannot scan the existing SSOT pairwise to find duplicates
+that crept in across multiple ingest cycles (e.g., a lecture-derived card and
+an exercise-sheet-derived card phrased differently but testing the same
+concept).
+
+The `--dedup` workflow fills that gap with a 4-stage pipeline. Each stage writes
+JSON to `dedup_run_<timestamp>/` for inspection and resume. Default is dry-run
+— nothing is written to the SSOT until you re-run with `--apply`.
+
+```bash
+# 1. Full pipeline, dry-run, default (3-pass cross-validation, hybrid resolver)
+pdf2anki workflow --dedup
+
+# 2. Inspect dedup_run_<ts>/stage3_actions.json before applying
+#    (each action is keep_oldest|keep_newest|keep_specific|keep_all|skip)
+
+# 3. Apply: re-runs only stage 4 against the saved actions, with backup
+pdf2anki workflow --dedup --from-stage 4 --run-dir dedup_run_<ts> --apply
+
+# 4. Re-export apkg files (stage 4 already auto-distributes to collection_*.json)
+pdf2anki workflow --export
+```
+
+**The 4 stages**
+
+| Stage | Output | What happens |
+|------|--------|---------------|
+| 1 | `stage1_clusters.json` | LLM gets the full indexed list of card fronts and proposes clusters of semantic duplicates. No heuristic pre-filter — the LLM is the only classifier. |
+| 2 | `stage2_votes.json` | Re-runs detection N times (default 3) with shuffled order and 3 different prompt framings. Each pair gets `votes[]` and a `confidence` label (`HIGH`/`MEDIUM`/`LOW`). Final clusters are the transitive closure over `HIGH+MEDIUM` pairs. |
+| 3 | `stage3_actions.json` | Per-cluster action via `--resolver`: `auto` (LLM picks), `manual` (interactive CLI), or `hybrid` (HIGH→auto, MEDIUM→manual; default). The LLM has a per-cluster veto via `keep_all`. |
+| 4 | `stage4_applied.json` | Backup → mutate `card_database.json` → auto-distribute to derived `collection_*.json` and markdown. `.apkg` files still need a separate `--export`. Atomic rollback on exception. |
+
+**`--dedup` flags**
+
+| Flag | Default | Effect |
+|------|---------|--------|
+| `--passes N` | `3` | Number of cross-validation passes |
+| `--resolver {auto,manual,hybrid}` | `hybrid` | How clusters are resolved into actions |
+| `--from-stage {1,2,3,4}` | `1` | Resume from a saved stage in `--run-dir` |
+| `--apply` | off | Mutate the SSOT (default is dry-run) |
+| `--allow-merge` | off | Permit `merge_backs` action (LLM combines multiple backs into one) |
+| `--include-low` | off | Also resolve `LOW`-confidence pairs (default skips them) |
+| `--run-dir PATH` | new timestamp | Custom location for stage outputs |
+
+**Cost / time guidance.** A 3-pass run on a ~700-card deck takes ~2 minutes and
+~$0.20 at current OpenRouter `gemini-2.5-flash` prices: 1 LLM call for Stage 1
+(~30k input tokens, prompt-cache friendly across passes), 2 more for Stage 2,
+and one short call per surviving cluster in Stage 3 auto. `--include-low` and
+`--allow-merge` increase Stage 3 calls.
+
+**Cross-validation rationale.** Stage 1 alone is over-eager — for a typical
+700-card deck it proposes ~330 clusters, of which the LLM auto-resolver later
+vetos roughly half (`keep_all`) as not-actually-duplicates. Stage 2 culls
+clusters that don't survive multiple framings, and the resolver provides the
+final guard. The combined pipeline removes only ~20% of cards in practice and
+is conservative against false positives.
 
 ---
 
@@ -879,7 +943,7 @@ python -m pytest tests/ -v
 python -m pytest tests/test_database_manager.py -v
 ```
 
-> **Note:** A small number of integration tests in `test_regression_e2e.py` make real LLM API calls and require `OPENROUTER_API_KEY` to be set. All other tests are fully offline.
+> **Note:** A small number of integration tests in `test_regression_e2e.py` make real LLM API calls and require `OPENROUTER_API_KEY` to be set. The dedup tests in `test_dedup.py` also require it (they exercise the LLM-based detection and resolver against a tiny crafted deck) — they auto-skip when the key is missing. All other tests are fully offline.
 
 | Test file | What it covers |
 |-----------|----------------|
@@ -902,6 +966,8 @@ python -m pytest tests/test_database_manager.py -v
 | `test_regression_e2e.py` | End-to-end workflow regression tests |
 | `test_real_data_and_sync.py` | SSOT sync, integrity verification |
 | `test_specification.py` | Behavioral specification tests |
+| `test_dedup.py` | `--dedup` 4-stage pipeline: LLM cluster detection, multi-pass voting, auto-resolver, apply with backup + auto-distribute (real LLM, skipped offline) |
+| `test_nonstandard_collection_keys.py` | Non-standard collection keys (`Skript_ws_25`, `Uebung_Hausuebungen`); regression coverage for `_collection_sort_key`, `check_distribution_balance`, gate, markdown, distribute |
 
 ### Project Layout
 
@@ -914,7 +980,8 @@ pdf2anki/
     __init__.py         ← convert_text_to_anki, convert_json_to_anki
     card.py             ← AnkiCard dataclass (SSOT data model)
     project_config.py   ← ProjectConfig (loads/validates project.json; create_from_dict)
-    database_manager.py ← SSOT operations (bootstrap, integrate, distribute, dedup)
+    database_manager.py ← SSOT operations (bootstrap, integrate, distribute, dedup-on-ingest)
+    dedup.py            ← Post-hoc `--dedup` pipeline: detect (Stage 1) → vote (Stage 2) → resolve (Stage 3) → apply (Stage 4)
     text_ingester.py    ← TextFileIngestor (text → card candidates via LLM)
     apkg_exporter.py    ← ApkgExporter (cards → .apkg via genanki)
     workflow_manager.py ← WorkflowManager + _run_init() (SSOT workflows; `pdf2anki workflow`)

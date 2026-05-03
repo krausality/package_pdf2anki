@@ -40,6 +40,36 @@ class WorkflowManager:
         self.legacy_markdown_file = self._config.get_markdown_path()
         self.new_cards_file = self._config.get_new_cards_path()
 
+    def run_dedup_workflow(
+        self,
+        run_dir: str | None = None,
+        passes: int = 3,
+        resolver: str = "hybrid",
+        from_stage: int = 1,
+        apply: bool = False,
+        include_low: bool = False,
+        allow_merge: bool = False,
+    ) -> bool:
+        """Run the post-hoc semantic dedup pipeline. See dedup.run_dedup."""
+        from pathlib import Path
+        from .dedup import run_dedup
+        run_dir_path = Path(run_dir) if run_dir else None
+        try:
+            run_dedup(
+                self.db_manager,
+                run_dir=run_dir_path,
+                passes=passes,
+                resolver=resolver,
+                from_stage=from_stage,
+                apply=apply,
+                include_low=include_low,
+                allow_merge=allow_merge,
+            )
+            return True
+        except Exception as e:
+            safe_print(f"❌ Dedup-Pipeline fehlgeschlagen: {e}", "ERROR")
+            return False
+
     def run_export_workflow(self) -> bool:
         """Exportiert den aktuellen SSOT als .apkg Dateien."""
         safe_print("\n=== 📦 Starting '--export' Workflow ===")
@@ -421,6 +451,8 @@ def main():
                        help="📥 Liest .txt Datei(en) und generiert Karten via LLM → new_cards_output.json")
     group.add_argument("--init", metavar="NAME",
                        help="🏗️  Initialisiert neues Projekt mit project.json Template.")
+    group.add_argument("--dedup", action="store_true",
+                       help="🧹 Post-hoc semantic dedup: 4-stage pipeline (LLM detection → cross-validation → resolution → apply).")
 
     # Options
     parser.add_argument("--force", action="store_true",
@@ -461,6 +493,23 @@ def main():
                         help="Max LLM discovery turns for --init (default: 5).")
     parser.add_argument("--reconfig", action="store_true",
                         help="Re-run LLM discovery on existing project.json (overwrite).")
+
+    # Dedup-specific options
+    parser.add_argument("--passes", type=int, default=3, metavar="N",
+                        help="Number of cross-validation passes for --dedup (default: 3).")
+    parser.add_argument("--resolver", choices=["auto", "manual", "hybrid"], default="hybrid",
+                        help="Resolver for --dedup Stage 3 (default: hybrid).")
+    parser.add_argument("--from-stage", type=int, choices=[1, 2, 3, 4], default=1,
+                        help="Resume --dedup pipeline from this stage (default: 1).")
+    parser.add_argument("--apply", action="store_true",
+                        help="Apply --dedup actions to the database (default: dry-run).")
+    parser.add_argument("--allow-merge", action="store_true",
+                        help="Allow --dedup resolver to propose merge_backs action (default: off).")
+    parser.add_argument("--include-low", action="store_true",
+                        help="Include LOW-confidence pairs in --dedup resolution (default: off).")
+    parser.add_argument("--run-dir", default=None, metavar="PATH",
+                        help="Custom run-dir for --dedup (default: <project>/dedup_run_<timestamp>/).")
+
     args = parser.parse_args()
 
     # Handle --auto-all shortcut
@@ -528,6 +577,16 @@ def main():
         success = manager.run_export_workflow()
     elif args.ingest:
         success = manager.run_ingest_workflow(args.ingest)
+    elif args.dedup:
+        success = manager.run_dedup_workflow(
+            run_dir=args.run_dir,
+            passes=args.passes,
+            resolver=args.resolver,
+            from_stage=args.from_stage,
+            apply=args.apply,
+            include_low=args.include_low,
+            allow_merge=args.allow_merge,
+        )
     else:
         safe_print("No valid command specified. Use --help for options.")
         sys.exit(1)
