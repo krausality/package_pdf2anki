@@ -759,10 +759,136 @@ def process_pdf_to_anki(args: argparse.Namespace) -> None:
 
 def view_config(args: argparse.Namespace) -> None:
     config = load_config()
-    if config:
-        print(json.dumps(config, indent=2))
-    else:
+    if not config:
         print("Configuration is empty.")
+        print("\nGet started:")
+        print("  pdf2anki config set default_model <model_name>      # global fallback OCR model")
+        print("  pdf2anki config set default_anki_model <model_name> # model used for Anki card generation")
+        print("  pdf2anki config set defaults model <model_name>     # OCR preset (overrides default_model)")
+        return
+
+    print(json.dumps(config, indent=2))
+
+    if getattr(args, 'raw', False):
+        return
+
+    # --- Effective settings: show what will actually be used and from where ---
+    presets = config.get("defaults", {}) or {}
+    effective: List[tuple] = []  # (label, value, source)
+
+    # OCR model: preset wins over global
+    if presets.get("model"):
+        effective.append(("OCR model(s)", presets["model"], "defaults.model (preset)"))
+    elif config.get("default_model"):
+        effective.append(("OCR model(s)", [config["default_model"]], "default_model (global)"))
+    else:
+        effective.append(("OCR model(s)", "<not set -- will prompt>", "--"))
+
+    # Anki LLM model (no preset equivalent)
+    if config.get("default_anki_model"):
+        effective.append(("Anki LLM model", config["default_anki_model"], "default_anki_model (global)"))
+    else:
+        effective.append(("Anki LLM model", "<not set -- will prompt>", "--"))
+
+    # Preset-only fields (these have no global counterpart)
+    if presets.get("repeat"):
+        effective.append(("Repeats per model", presets["repeat"], "defaults.repeat (preset)"))
+    if presets.get("judge_model"):
+        effective.append(("Judge model", presets["judge_model"], "defaults.judge_model (preset)"))
+    if "judge_mode" in presets:
+        effective.append(("Judge mode", presets["judge_mode"], "defaults.judge_mode (preset)"))
+    if "judge_with_image" in presets:
+        effective.append(("Judge with image", presets["judge_with_image"], "defaults.judge_with_image (preset)"))
+
+    label_w = max(len(lbl) for lbl, _, _ in effective)
+    val_w = max(len(str(val)) for _, val, _ in effective)
+    print("\nEffective settings (what will actually be used, CLI flags can still override):")
+    for lbl, val, src in effective:
+        print(f"  {lbl.ljust(label_w)}  =  {str(val).ljust(val_w)}   <- {src}")
+
+    # Conflict / shadow warning
+    if presets.get("model") and config.get("default_model"):
+        if presets["model"] != [config["default_model"]]:
+            print("\n[NOTE] 'default_model' is shadowed by the 'defaults.model' preset (preset wins).")
+
+    # --- Migration commands (OCR model): always show what's applicable in BOTH directions ---
+    preset_model = presets.get("model") or []
+    global_model = config.get("default_model")
+    if preset_model or global_model:
+        print("\nMigration commands (OCR model) -- copy-paste to migrate between preset <-> global:")
+        if preset_model and global_model:
+            preset_first = preset_model[0]
+            print(f"  Promote preset -> global  (overwrite global with preset's first model):")
+            print(f"    pdf2anki config set default_model {preset_first}")
+            print(f"  Promote global -> preset  (overwrite preset with global value):")
+            print(f"    pdf2anki config set defaults model {global_model}")
+            print(f"  Drop preset (so global '{global_model}' takes over):")
+            print(f"    pdf2anki config unset defaults model")
+            print(f"  Drop global (preset still wins; only matters if you later drop the preset too):")
+            print(f"    pdf2anki config unset default_model")
+        elif preset_model and not global_model:
+            preset_first = preset_model[0]
+            print(f"  Promote preset -> global  (set the global fallback to match):")
+            print(f"    pdf2anki config set default_model {preset_first}")
+            print(f"  Drop preset (no global is set, so pdf2anki will prompt at runtime):")
+            print(f"    pdf2anki config unset defaults model")
+        elif global_model and not preset_model:
+            print(f"  Promote global -> preset  (create a preset so multi-model/ensemble is possible later):")
+            print(f"    pdf2anki config set defaults model {global_model}")
+            print(f"  Drop global (no preset is set, so pdf2anki will prompt at runtime):")
+            print(f"    pdf2anki config unset default_model")
+
+    print("\nPriority order: CLI flags > Presets (defaults.*) > Global (default_*) > Interactive prompt")
+    print("Tip: 'pdf2anki config view --raw' prints only the JSON (no annotations).")
+
+_PRESET_SUBKEYS = ("model", "repeat", "judge_model", "judge_mode", "judge_with_image")
+
+
+def unset_config_value(args: argparse.Namespace) -> None:
+    config = load_config()
+    key = args.key
+    subkey = getattr(args, 'subkey', None)
+
+    valid_top = ("default_model", "default_anki_model", "defaults")
+    if key not in valid_top:
+        print(f"[ERROR] Unknown config key: '{key}'.")
+        print(f"        Valid keys: {', '.join(valid_top)}")
+        return
+
+    if subkey is not None and key != "defaults":
+        print(f"[ERROR] Subkey is only valid with 'defaults'. Got: 'unset {key} {subkey}'.")
+        print(f"        Did you mean: 'pdf2anki config unset {key}'  (no subkey)?")
+        return
+
+    if subkey is not None and subkey not in _PRESET_SUBKEYS:
+        print(f"[ERROR] Unknown preset subkey: '{subkey}'.")
+        print(f"        Valid subkeys: {', '.join(_PRESET_SUBKEYS)}")
+        return
+
+    if key not in config:
+        print(f"[INFO] '{key}' is not set -- nothing to unset.")
+        return
+
+    if subkey is None:
+        del config[key]
+        save_config(config)
+        print(f"Removed '{key}'.")
+    else:
+        defaults = config.get("defaults", {})
+        if subkey not in defaults:
+            print(f"[INFO] 'defaults.{subkey}' is not set -- nothing to unset.")
+            return
+        del defaults[subkey]
+        if not defaults:
+            del config["defaults"]
+            print(f"Removed 'defaults.{subkey}'. (Preset block is now empty and was removed entirely.)")
+        else:
+            config["defaults"] = defaults
+            print(f"Removed 'defaults.{subkey}'.")
+        save_config(config)
+
+    print("Tip: run 'pdf2anki config view' to see the new effective settings.")
+
 
 def set_config_value(args: argparse.Namespace) -> None:
     config = load_config()
@@ -771,11 +897,18 @@ def set_config_value(args: argparse.Namespace) -> None:
 
     if not values:
         print(f"[ERROR] No value provided for key '{key}'.")
-        print("\nUsage examples:")
-        print("  pdf2anki config set default_model <model_name>")
-        print("  pdf2anki config set default_anki_model <model_name>")
-        print("  pdf2anki config set defaults model <model_name>")
-        print("  pdf2anki config set defaults judge_model <model_name>")
+        print("\nThere are two tiers of settings -- pick the right one:")
+        print("  GLOBAL (single value, lowest priority -- pure fallback):")
+        print("    pdf2anki config set default_model <model_name>       # OCR model")
+        print("    pdf2anki config set default_anki_model <model_name>  # Anki-card generation model")
+        print("  PRESET (overrides global, may hold multiple models for ensemble OCR):")
+        print("    pdf2anki config set defaults model <model_name>[,model2,...]")
+        print("    pdf2anki config set defaults repeat 2[,3,...]")
+        print("    pdf2anki config set defaults judge_model <model_name>")
+        print("    pdf2anki config set defaults judge_mode authoritative")
+        print("    pdf2anki config set defaults judge_with_image true|false")
+        print("\nPriority: CLI flags > Presets (defaults.*) > Global (default_*) > Interactive prompt")
+        print("Run 'pdf2anki config view' to see current + effective settings.")
         return
 
     if key == "defaults":
@@ -808,10 +941,19 @@ def set_config_value(args: argparse.Namespace) -> None:
                     else: raise ValueError(f"Invalid boolean: '{value_str}'. Use true/false.")
                 else:
                     print(f"[ERROR] Unknown 'defaults' subkey: '{subkey}'.")
+                    print(f"        Valid subkeys: model, repeat, judge_model, judge_mode, judge_with_image")
                     return
                 config["defaults"] = defaults
                 save_config(config)
                 print(f"Set 'defaults.{subkey}' to: {defaults[subkey]}")
+                # Symmetric warning: setting the preset shadows the global default_model
+                if subkey == "model" and defaults[subkey] and config.get("default_model") \
+                        and defaults[subkey] != [config["default_model"]]:
+                    print(f"\n[NOTE] Your global 'default_model' is '{config['default_model']}', which is now")
+                    print(f"       shadowed by this preset (presets win). The preset will be used.")
+                    print(f"       This is usually what you want -- presets exist to allow project-specific")
+                    print(f"       model lists (e.g. ensembles with multiple models). Run 'pdf2anki config view'")
+                    print(f"       to see effective settings.")
             except ValueError as e: print(f"[ERROR] Invalid value for 'defaults.{subkey}': {e}")
             except Exception as e: print(f"[ERROR] Failed to set 'defaults.{subkey}': {e}")
         else: print(f"[ERROR] Invalid arguments for 'defaults'.")
@@ -823,19 +965,38 @@ def set_config_value(args: argparse.Namespace) -> None:
                 save_config(config)
                 print(f"Set '{key}' to '{config[key]}'.")
                 # Warn if presets might override this global default
-                if key == "default_model" and "defaults" in config and "model" in config.get("defaults", {}):
-                    print(f"\n[WARN] Your 'defaults.model' preset is set to {config['defaults']['model']}.")
-                    print(f"[WARN] Presets override global defaults. To change the preset, use:")
-                    print(f"[WARN]   pdf2anki config set defaults model {value_str}")
+                if key == "default_model" and config.get("defaults", {}).get("model"):
+                    preset_models = config["defaults"]["model"]
+                    if preset_models != [value_str]:
+                        print(f"\n[WARN] 'default_model' is the GLOBAL fallback, but you also have a PRESET set:")
+                        print(f"         defaults.model = {preset_models}")
+                        print(f"       The preset overrides the global. So this change has NO effect")
+                        print(f"       unless you also update the preset (or clear it):")
+                        print(f"         pdf2anki config set defaults model {value_str}     # align preset")
+                        print(f"         pdf2anki config set defaults model \"\"               # clear preset (then global wins)")
+                        print(f"       Why both exist: 'default_model' = single fallback. 'defaults.model' =")
+                        print(f"       project preset that may hold multiple models (for ensemble OCR).")
             else: print(f"[ERROR] Value for '{key}' cannot be empty.")
         else: print(f"[ERROR] Usage: pdf2anki config set {key} <model_name>")
     else:
         print(f"[ERROR] Unknown config key: '{key}'.")
-        print(f"\n[HINT] Did you mean one of these?")
-        print(f"  - pdf2anki config set default_model <model_name>")
-        print(f"  - pdf2anki config set default_anki_model <model_name>")
-        print(f"  - pdf2anki config set defaults model <model_name>")
-        print(f"  - pdf2anki config set defaults judge_model <model_name>")
+        print(f"        Valid top-level keys: default_model, default_anki_model, defaults")
+        # Heuristic hint: if user typed a preset-subkey at top level, point them at 'defaults'
+        preset_subkeys = {"model", "repeat", "judge_model", "judge_mode", "judge_with_image"}
+        if key in preset_subkeys:
+            v = " ".join(values) if values else "<value>"
+            print(f"\n[HINT] '{key}' is a preset subkey. Did you mean:")
+            print(f"         pdf2anki config set defaults {key} {v}")
+            print(f"       Or did you mean the global fallback?")
+            if key == "model":
+                print(f"         pdf2anki config set default_model {v}")
+        else:
+            print(f"\n[HINT] Examples:")
+            print(f"         pdf2anki config set default_model <model_name>       # global fallback")
+            print(f"         pdf2anki config set default_anki_model <model_name>  # Anki-card generation")
+            print(f"         pdf2anki config set defaults model <model_name>      # preset (overrides global)")
+            print(f"         pdf2anki config set defaults judge_model <model_name>")
+        print(f"\nRun 'pdf2anki config set -h' for full help, or 'pdf2anki config view' for current state.")
 
 
 def cli_invoke() -> None:
@@ -998,37 +1159,184 @@ def cli_invoke() -> None:
     parser_workflow.set_defaults(func=lambda args: _run_workflow(args.workflow_args))
 
     # --- Configuration Command ---
-    parser_config = subparsers.add_parser("config", help="View or modify configuration.")
-    config_subparsers = parser_config.add_subparsers(title="Config Actions", dest="config_action", required=True)
-    parser_config_view = config_subparsers.add_parser("view", help="Show current config.")
-    parser_config_view.set_defaults(func=view_config)
-    parser_config_set = config_subparsers.add_parser("set", help="Set a config value.", formatter_class=argparse.RawTextHelpFormatter,
+    parser_config = subparsers.add_parser(
+        "config",
+        help="View or modify configuration (default models, presets, etc.).",
+        formatter_class=argparse.RawTextHelpFormatter,
         description=(
-            "Sets a configuration value. Key can be 'default_model', 'default_anki_model', or 'defaults'.\n"
+            "View or modify pdf2anki configuration.\n"
             "\n"
-            "IMPORTANT: Presets (defaults.*) override global defaults!\n"
-            "Priority: CLI args > Presets (defaults.*) > Global (default_*) > Prompt\n"
+            "There are TWO tiers of model settings -- this trips most people up, so read once:\n"
             "\n"
-            "Common Commands:\n"
-            "  # Set GLOBAL defaults (lowest priority):\n"
-            "  pdf2anki config set default_model google/gemini-pro\n"
-            "  pdf2anki config set default_anki_model google/gemini-pro\n"
+            "  1. GLOBAL fallback  (key: 'default_model', 'default_anki_model')\n"
+            "       A single model name. Used when nothing else is specified. Lowest priority.\n"
             "\n"
-            "  # Set PRESET defaults (higher priority, overrides global):\n"
-            "  pdf2anki config set defaults model google/gemini-pro\n"
-            "  pdf2anki config set defaults judge_model openai/gpt-4\n"
-            "  pdf2anki config set defaults repeat 2\n"
+            "  2. PRESET           (key: 'defaults' -- a nested object with 'model', 'repeat',\n"
+            "                       'judge_model', 'judge_mode', 'judge_with_image')\n"
+            "       Project-level profile. Can hold MULTIPLE models (for ensemble OCR with\n"
+            "       a judge picking the best answer) plus matching repeats and judge settings.\n"
+            "       OVERRIDES the global fallback when set.\n"
+            "\n"
+            "Resolution order (highest priority first):\n"
+            "  CLI flags  >  Presets (defaults.*)  >  Global (default_*)  >  Interactive prompt\n"
+            "\n"
+            "Subcommands:\n"
+            "  view    Show current config + 'effective settings' (what will actually be used\n"
+            "          and from which source). Run this first if anything seems unclear.\n"
+            "  set     Change a config value. See 'pdf2anki config set -h' for full examples.\n"
+            "  unset   Remove a config key, so the lower-priority source takes over.\n"
+            "          Useful for migrating from preset back to global (or clearing entirely).\n"
+            "          See 'pdf2anki config unset -h'.\n"
+            "\n"
+            "Quick reference:\n"
+            "  pdf2anki config view                                       # current state + effective values\n"
+            "  pdf2anki config set default_model google/gemini-flash-1.5  # set global OCR fallback\n"
+            "  pdf2anki config set defaults model google/gemini-flash-1.5 # set preset (recommended for active use)\n"
+            "  pdf2anki config unset defaults model                       # drop preset, global takes over\n"
+            "  pdf2anki config unset default_model                        # drop global (will prompt at runtime)\n"
+        ),
+    )
+    config_subparsers = parser_config.add_subparsers(title="Config Actions", dest="config_action", required=True)
+    parser_config_view = config_subparsers.add_parser(
+        "view",
+        help="Show current config + effective settings (annotated).",
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Prints the raw config JSON followed by an 'Effective settings' block that shows\n"
+            "which value will actually be used at runtime and where it comes from\n"
+            "(preset vs. global). Also warns if a global setting is shadowed by a preset.\n"
+            "\n"
+            "Use --raw for JSON-only output (e.g. for scripting / jq pipelines).\n"
+        ),
+    )
+    parser_config_view.add_argument(
+        "--raw",
+        action="store_true",
+        help="Print only the JSON config, without the annotated 'effective settings' block.",
+    )
+    parser_config_view.set_defaults(func=view_config)
+    parser_config_set = config_subparsers.add_parser(
+        "set",
+        help="Set a config value (global default or preset subkey).",
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Set a configuration value.\n"
+            "\n"
+            "MENTAL MODEL -- read this first:\n"
+            "  pdf2anki has TWO model-config tiers. Names look similar but behave differently:\n"
+            "\n"
+            "    default_model      = ONE global fallback OCR model (string).\n"
+            "                         Used only when no preset OCR model is set.\n"
+            "    default_anki_model = ONE global model for Anki-card generation (string).\n"
+            "                         No preset equivalent -- this is the only place to set it.\n"
+            "    defaults.model     = PRESET list of OCR models (one or more, comma-separated).\n"
+            "                         Overrides default_model. Use this for project-level config\n"
+            "                         and especially when you want ensemble OCR (multiple models\n"
+            "                         + a judge picking the best result).\n"
+            "    defaults.repeat              = repeats per preset model (list, comma-separated)\n"
+            "    defaults.judge_model         = judge LLM that adjudicates ensemble OCR results\n"
+            "    defaults.judge_mode          = currently only 'authoritative'\n"
+            "    defaults.judge_with_image    = true|false -- pass image to judge?\n"
+            "\n"
+            "PRIORITY (highest first):\n"
+            "  CLI flags  >  defaults.* (preset)  >  default_* (global)  >  interactive prompt\n"
+            "\n"
+            "EXAMPLES -- global fallback (single model, lowest priority):\n"
+            "  pdf2anki config set default_model google/gemini-flash-1.5\n"
+            "  pdf2anki config set default_anki_model google/gemini-2.5-flash\n"
+            "\n"
+            "EXAMPLES -- preset (overrides global, supports ensembles):\n"
+            "  pdf2anki config set defaults model google/gemini-flash-1.5\n"
+            "  pdf2anki config set defaults model google/gemini-flash-1.5,openai/gpt-4o   # ensemble\n"
+            "  pdf2anki config set defaults repeat 2,1                                    # 2x first model, 1x second\n"
+            "  pdf2anki config set defaults judge_model openai/gpt-4o\n"
+            "  pdf2anki config set defaults judge_mode authoritative\n"
             "  pdf2anki config set defaults judge_with_image true\n"
             "\n"
-            "  # Set multiple models in preset (comma-separated):\n"
-            "  pdf2anki config set defaults model google/gemini-pro,openai/gpt-4\n"
+            "CLEAR a preset (so global takes over again):\n"
+            "  pdf2anki config set defaults model \"\"\n"
             "\n"
-            "  # Advanced: Set all presets via JSON string:\n"
-            "  pdf2anki config set defaults '{\"model\": [\"m1\"], \"repeat\": [1]}'"
-        ))
-    parser_config_set.add_argument("key", type=str, help="Config key.")
-    parser_config_set.add_argument("values", nargs='*', help="Value(s) to set.")
+            "ADVANCED -- overwrite the whole preset object at once via JSON:\n"
+            "  pdf2anki config set defaults '{\"model\": [\"m1\",\"m2\"], \"repeat\": [2,1]}'\n"
+            "\n"
+            "After any change, run 'pdf2anki config view' to verify effective settings.\n"
+        ),
+    )
+    parser_config_set.add_argument(
+        "key",
+        type=str,
+        help=(
+            "Top-level config key. One of:\n"
+            "  default_model       (global OCR fallback -- single model string)\n"
+            "  default_anki_model  (global Anki-card-generation model -- single model string)\n"
+            "  defaults            (preset object -- requires a subkey as next argument, e.g.\n"
+            "                       'defaults model ...', 'defaults repeat ...', etc.)"
+        ),
+    )
+    parser_config_set.add_argument(
+        "values",
+        nargs='*',
+        help=(
+            "Value(s) to set. Form depends on key:\n"
+            "  default_model / default_anki_model:  <model_name>          (one value)\n"
+            "  defaults <subkey> <value>:           e.g. 'defaults model m1,m2'\n"
+            "  defaults '<json>':                   replace entire preset object via JSON string"
+        ),
+    )
     parser_config_set.set_defaults(func=set_config_value)
+
+    parser_config_unset = config_subparsers.add_parser(
+        "unset",
+        help="Remove a config key (so the lower-priority source takes over).",
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Remove a configuration key. The next-lower priority source then takes over\n"
+            "(see resolution order in 'pdf2anki config -h').\n"
+            "\n"
+            "USE CASES:\n"
+            "  - Preset overrides global, and you want the global to win again:\n"
+            "      pdf2anki config unset defaults model\n"
+            "  - Wipe the whole project preset block:\n"
+            "      pdf2anki config unset defaults\n"
+            "  - Clear a global default so pdf2anki prompts you next run:\n"
+            "      pdf2anki config unset default_model\n"
+            "\n"
+            "EXAMPLES:\n"
+            "  pdf2anki config unset default_model              # remove global OCR fallback\n"
+            "  pdf2anki config unset default_anki_model         # remove global Anki LLM model\n"
+            "  pdf2anki config unset defaults                   # remove WHOLE preset block\n"
+            "  pdf2anki config unset defaults model             # remove just the OCR preset\n"
+            "  pdf2anki config unset defaults judge_model\n"
+            "  pdf2anki config unset defaults repeat\n"
+            "  pdf2anki config unset defaults judge_mode\n"
+            "  pdf2anki config unset defaults judge_with_image\n"
+            "\n"
+            "Unsetting a key that isn't set is safe (prints an info message, no error).\n"
+            "After unset, run 'pdf2anki config view' to confirm effective settings.\n"
+        ),
+    )
+    parser_config_unset.add_argument(
+        "key",
+        type=str,
+        help=(
+            "Top-level config key to remove. One of:\n"
+            "  default_model       (global OCR fallback)\n"
+            "  default_anki_model  (global Anki LLM model)\n"
+            "  defaults            (the whole preset block, OR pair with a subkey to remove just one field)"
+        ),
+    )
+    parser_config_unset.add_argument(
+        "subkey",
+        type=str,
+        nargs='?',
+        default=None,
+        help=(
+            "Optional subkey, valid only when key='defaults'.\n"
+            "One of: model, repeat, judge_model, judge_mode, judge_with_image.\n"
+            "If omitted with key='defaults', removes the entire preset block."
+        ),
+    )
+    parser_config_unset.set_defaults(func=unset_config_value)
 
     try:
         args = parser.parse_args()
