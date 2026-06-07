@@ -1125,9 +1125,18 @@ def convert_images_to_text(
 
     total_api_calls_per_image = sum(repeat_count for _, repeat_count in model_repeats)
     if total_api_calls_per_image > 1 and not judge_model:
-        raise ValueError(
-            f"[{pid}] Multiple OCR calls per image implied (total {total_api_calls_per_image}) "
-            "but no judge model specified. This should be caught by the calling function in core.py."
+        # Safety net: ensemble OCR (multiple calls per image) needs a judge to
+        # adjudicate the candidates, but none was resolved (no --judge-model, no
+        # defaults.judge_model preset, no default_judge_model global). Rather than
+        # hard-failing, fall back to the primary OCR model as judge -- with a loud
+        # warning, because a judge that shares the OCR model's biases is weaker than
+        # a dedicated one. Set a judge explicitly to silence this.
+        judge_model = model_repeats[0][0]
+        print(
+            f"[{pid}] WARNING: ensemble OCR requested ({total_api_calls_per_image} calls/image) "
+            f"but no judge model is configured. Falling back to the primary OCR model "
+            f"'{judge_model}' as judge. For better quality, set a dedicated judge: "
+            f"'pdf2anki config set defaults judge_model <model>' (or default_judge_model)."
         )
 
     output_file_path = Path(output_file)
