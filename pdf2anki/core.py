@@ -213,6 +213,49 @@ def _apply_ocr_presets_and_resolve_model(args: argparse.Namespace, config: Dict[
             args.judge_model = global_judge
             print(f"[INFO] Using 'default_judge_model' from config: {global_judge}")
 
+    _preflight_validate_models(args)
+
+
+def _preflight_validate_models(args: argparse.Namespace) -> None:
+    """Fail fast on unknown OCR/judge model IDs before any processing starts.
+
+    Catches typos like 'google/gemini-3.1-flash' (which silently 400s on every
+    page) up front. Fails open: if the OpenRouter model list can't be fetched,
+    validation is skipped with a warning. Disable entirely via
+    PDF2ANKI_SKIP_MODEL_VALIDATION=1.
+    """
+    if os.getenv("PDF2ANKI_SKIP_MODEL_VALIDATION", "").strip() in ("1", "true", "True"):
+        return
+
+    candidate_ids: List[str] = []
+    for m in (getattr(args, 'model', None) or []):
+        if m and m not in candidate_ids:
+            candidate_ids.append(m)
+    judge = getattr(args, 'judge_model', None)
+    if judge and judge not in candidate_ids:
+        candidate_ids.append(judge)
+    if not candidate_ids:
+        return
+
+    available = pic2text.fetch_available_model_ids()
+    if available is None:
+        print("[WARN] Could not fetch the OpenRouter model list; skipping model-ID validation.")
+        return
+
+    import difflib
+    unknown = [m for m in candidate_ids if m not in available]
+    if not unknown:
+        return
+
+    print("[ERROR] One or more configured model IDs do not exist on OpenRouter:")
+    for m in unknown:
+        suggestions = difflib.get_close_matches(m, list(available), n=3, cutoff=0.5)
+        hint = f"  Did you mean: {', '.join(suggestions)}?" if suggestions else "  No close match found."
+        print(f"  - '{m}'\n  {hint}")
+    print("[ERROR] Aborting before processing so no API budget is wasted on guaranteed-400 calls.")
+    print("        Fix the model ID(s), or set PDF2ANKI_SKIP_MODEL_VALIDATION=1 to bypass this check.")
+    sys.exit(1)
+
 
 def _dir_has_top_level_images(path: Path) -> bool:
     try:

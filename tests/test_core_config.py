@@ -99,3 +99,40 @@ class TestGetDefaultModel:
         config = {"default_model": ""}
         result = core.get_default_model(config, interactive=False)
         assert result is None
+
+
+class TestPreflightValidateModels:
+    def _args(self, model, judge=None):
+        import argparse
+        return argparse.Namespace(model=model, judge_model=judge)
+
+    def test_unknown_model_aborts(self, monkeypatch):
+        import pdf2anki.core as core
+        monkeypatch.delenv("PDF2ANKI_SKIP_MODEL_VALIDATION", raising=False)
+        with patch("pdf2anki.pic2text.fetch_available_model_ids",
+                   return_value={"google/gemini-3.1-flash-lite", "google/gemini-3-flash-preview"}):
+            with pytest.raises(SystemExit) as exc:
+                core._preflight_validate_models(self._args(["google/gemini-3.1-flash"]))
+        assert exc.value.code == 1
+
+    def test_known_models_pass(self, monkeypatch):
+        import pdf2anki.core as core
+        monkeypatch.delenv("PDF2ANKI_SKIP_MODEL_VALIDATION", raising=False)
+        with patch("pdf2anki.pic2text.fetch_available_model_ids",
+                   return_value={"google/gemini-3.1-flash-lite", "google/gemini-3-flash-preview"}):
+            core._preflight_validate_models(
+                self._args(["google/gemini-3.1-flash-lite"], "google/gemini-3-flash-preview")
+            )  # no SystemExit
+
+    def test_fetch_failure_skips_validation(self, monkeypatch):
+        import pdf2anki.core as core
+        monkeypatch.delenv("PDF2ANKI_SKIP_MODEL_VALIDATION", raising=False)
+        with patch("pdf2anki.pic2text.fetch_available_model_ids", return_value=None):
+            core._preflight_validate_models(self._args(["anything/at-all"]))  # no SystemExit
+
+    def test_env_var_bypasses_validation(self, monkeypatch):
+        import pdf2anki.core as core
+        monkeypatch.setenv("PDF2ANKI_SKIP_MODEL_VALIDATION", "1")
+        with patch("pdf2anki.pic2text.fetch_available_model_ids") as fetch:
+            core._preflight_validate_models(self._args(["bogus/model"]))
+            fetch.assert_not_called()

@@ -1115,3 +1115,113 @@ class TestPageLevelParallelismSpec:
 
         sections = _parse_output_sections(Path(out))
         assert len(sections) == 20
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Judge-pending: a failed/missing judge must NOT silently pass as "done"
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestJudgePending:
+    def _ocr_ok_judge_fails_handler(self, ocr_text="OCR candidate text"):
+        """Handler: OCR calls succeed; judge calls raise a 400-style RequestException."""
+        import requests as req_lib
+        lock = threading.Lock()
+        counts = {"ocr": 0, "judge": 0}
+
+        def _handler(*_args, **kwargs):
+            title = kwargs.get("headers", {}).get("X-Title", "")
+            with lock:
+                if title == "pdf2anki-judge":
+                    counts["judge"] += 1
+                    raise req_lib.exceptions.RequestException("400 Client Error: Bad Request")
+                counts["ocr"] += 1
+            return make_mock_ocr_response(ocr_text)
+
+        return _handler, counts
+
+    def test_judge_failure_marks_page_judge_pending(self, tmp_path):
+        """Ensemble OCR + a judge that 400s: page must end 'judge_pending', the OCR
+        text must still be written, candidates persisted, and the run must NOT be a
+        clean 'completed' nor archive its state."""
+        make_png_image(tmp_path, "page_1.png")
+        out_file = str(tmp_path / "output.txt")
+        handler, counts = self._ocr_ok_judge_fails_handler("Usable OCR text.")
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text._http_post", side_effect=handler), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            result = convert_images_to_text(
+                images_dir=str(tmp_path),
+                output_file=out_file,
+                model_repeats=[("ocr/model", 2)],
+                judge_model="judge/model",
+                max_page_attempts=3,
+            )
+
+        assert result == out_file
+        # Judge was attempted and failed; OCR succeeded.
+        assert counts["judge"] >= 1
+
+        # Output still contains usable OCR text.
+        content = Path(out_file).read_text(encoding="utf-8")
+        assert "Usable OCR text." in content
+
+        # Live state file is kept (NOT archived) and shows the un-adjudicated state.
+        state_file = Path(out_file + ".ocr_state.json")
+        assert state_file.exists(), "judge_pending run must not archive its live state"
+        state = json.loads(state_file.read_text(encoding="utf-8"))
+        assert state["run_status"] == "completed_with_judge_pending"
+        page = state["pages"]["page_1.png"]
+        assert page["status"] == "judge_pending"
+        assert len(page.get("candidates", [])) == 2
+        assert len(page.get("candidate_models", [])) == 2
+
+    def test_judge_pending_rejudged_on_resume_without_reocr(self, tmp_path):
+        """A second run with a working judge re-adjudicates the stored candidates and
+        marks the page 'done' — WITHOUT issuing any new OCR calls."""
+        import requests as req_lib
+        make_png_image(tmp_path, "page_1.png")
+        out_file = str(tmp_path / "output.txt")
+
+        # Run 1: judge fails -> judge_pending.
+        handler1, _ = self._ocr_ok_judge_fails_handler("First-candidate OCR.")
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text._http_post", side_effect=handler1), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            convert_images_to_text(
+                images_dir=str(tmp_path), output_file=out_file,
+                model_repeats=[("ocr/model", 2)], judge_model="judge/model",
+                max_page_attempts=3,
+            )
+
+        # Run 2: judge succeeds; OCR must NOT be called again.
+        lock = threading.Lock()
+        counts = {"ocr": 0, "judge": 0}
+
+        def handler2(*_args, **kwargs):
+            title = kwargs.get("headers", {}).get("X-Title", "")
+            with lock:
+                if title == "pdf2anki-judge":
+                    counts["judge"] += 1
+                    return make_mock_ocr_response("Adjudicated final text.")
+                counts["ocr"] += 1
+            raise AssertionError("Re-OCR happened on resume; expected judge-only re-run.")
+
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), \
+             patch("pdf2anki.pic2text._http_post", side_effect=handler2), \
+             patch("pdf2anki.pic2text.time.sleep"):
+            convert_images_to_text(
+                images_dir=str(tmp_path), output_file=out_file,
+                model_repeats=[("ocr/model", 2)], judge_model="judge/model",
+                max_page_attempts=3,
+            )
+
+        assert counts["ocr"] == 0, "resume must re-judge stored candidates, not re-OCR"
+        assert counts["judge"] >= 1
+
+        content = Path(out_file).read_text(encoding="utf-8")
+        assert "Adjudicated final text." in content
+
+        # State is now clean and archived away.
+        state_file = Path(out_file + ".ocr_state.json")
+        assert not state_file.exists(), "fully-judged run should archive its state"

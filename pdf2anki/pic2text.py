@@ -75,6 +75,37 @@ def _http_post(**kwargs):
     return _get_session().post(**kwargs)
 
 
+OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
+_available_model_ids_cache: Optional[set] = None
+_available_model_ids_lock = threading.Lock()
+
+
+def fetch_available_model_ids(timeout: int = 10) -> Optional[set]:
+    """Return the set of model IDs available on OpenRouter, or None on failure.
+
+    Cached per process. None means the list could not be fetched (offline,
+    timeout, unexpected response) -- callers should treat that as "cannot
+    validate" and proceed rather than block the run.
+    """
+    global _available_model_ids_cache
+    if _available_model_ids_cache is not None:
+        return _available_model_ids_cache
+    with _available_model_ids_lock:
+        if _available_model_ids_cache is not None:
+            return _available_model_ids_cache
+        try:
+            resp = _get_session().get(OPENROUTER_MODELS_URL, timeout=timeout)
+            resp.raise_for_status()
+            data = resp.json()
+            ids = {m["id"] for m in data.get("data", []) if isinstance(m, dict) and m.get("id")}
+            if not ids:
+                return None
+            _available_model_ids_cache = ids
+            return ids
+        except Exception:
+            return None
+
+
 DEFAULT_OCR_LOG_BASENAME = "ocr"
 DEFAULT_JUDGE_LOG_BASENAME = "decisionmaking"
 LOG_EXTENSION = ".log"
@@ -450,7 +481,7 @@ def _load_or_initialize_state(
         elif verbose:
             print(f"[WARN] Ignoring incompatible archived OCR state file: {archived_state_path}")
 
-    if main_state_valid is not None and main_state_valid.get("run_status") in {"running", "paused"}:
+    if main_state_valid is not None and main_state_valid.get("run_status") in {"running", "paused", "completed_with_judge_pending"}:
         loaded_state = main_state_valid
         chosen_source = "state_file"
         chosen_path = state_file_path
@@ -512,6 +543,18 @@ def _load_or_initialize_state(
             page_state["status"] = "pending"
             page_state["last_error"] = "[ERROR: State marked page as done, but no successful section exists in output file.]"
             page_state["attempts_used"] = 0
+        elif status == "judge_pending" and page_state.get("candidates") and _is_successful_ocr_text(existing_text):
+            # OCR text is present and usable; the judge still owes a verdict.
+            # Keep the text and stored candidates so resume can re-judge without re-OCR.
+            page_texts[image_name] = existing_text if existing_text is not None else ""
+            page_state["status"] = "judge_pending"
+        elif status == "judge_pending":
+            # Candidates lost or output text missing -> fall back to a full re-OCR.
+            page_state["status"] = "pending"
+            page_state["last_error"] = "[ERROR: judge_pending state without recoverable candidates/text; re-OCR required.]"
+            page_state["attempts_used"] = 0
+            page_state.pop("candidates", None)
+            page_state.pop("candidate_models", None)
         else:
             page_state["status"] = "pending"
             page_state["last_error"] = page_state.get("last_error")
@@ -538,7 +581,16 @@ def _run_ocr_cycle_for_image(
     pid: Any,
     verbose: bool,
     max_image_kb: int = 0,
-) -> Tuple[bool, Optional[str], str]:
+) -> Tuple[str, Optional[str], str, List[str], List[Tuple[str, int]]]:
+    """Run one OCR (+judge) cycle for a page.
+
+    Returns (outcome, final_text, error_text, candidates, candidate_models):
+      - outcome == "success":       final_text is adjudicated/usable; page -> done.
+      - outcome == "judge_pending": OCR produced usable text (final_text) but the
+                                    judge did not adjudicate. candidates/candidate_models
+                                    are returned so a later run can re-judge without re-OCR.
+      - outcome == "failed":        no usable text; error_text explains why.
+    """
     base64_image_data: Optional[str] = None
     try:
         base64_image_data = _image_to_base64(image_path, max_kb=max_image_kb)
@@ -546,7 +598,7 @@ def _run_ocr_cycle_for_image(
         error_text = f"[ERROR: Failed to load/convert image: {image_err}]"
         if verbose:
             print(f"[{pid}] {error_text} ({image_name})")
-        return False, None, error_text
+        return "failed", None, error_text, [], []
 
     ocr_futures_map: Dict[concurrent.futures.Future, Tuple[str, int, int]] = {}
     model_info_for_judge_ordered: List[Tuple[str, int]] = []
@@ -576,13 +628,22 @@ def _run_ocr_cycle_for_image(
                 f"[ERROR: Future for {model_name_orig} Att.{attempt_num_orig} failed directly: {future_err}]"
             )
 
+    candidates = ocr_results_for_image_ordered
+    candidate_models = model_info_for_judge_ordered
+
     if not any(ocr_results_for_image_ordered):
-        final_text_for_image = f"[ERROR: No OCR results gathered for image {image_name}]"
-    elif total_api_calls_per_image == 1:
+        return "failed", None, f"[ERROR: No OCR results gathered for image {image_name}]", candidates, candidate_models
+
+    if total_api_calls_per_image == 1:
         final_text_for_image = ocr_results_for_image_ordered[0]
-    elif judge_model:
+        if _is_successful_ocr_text(final_text_for_image):
+            return "success", final_text_for_image, "", candidates, candidate_models
+        return "failed", None, final_text_for_image, candidates, candidate_models
+
+    if judge_model:
+        judged_ok = False
         try:
-            final_text_for_image = _post_judge_request(
+            final_text_for_image, judged_ok = _post_judge_request(
                 judge_model=judge_model,
                 model_outputs=ocr_results_for_image_ordered,
                 image_name=image_name,
@@ -592,21 +653,67 @@ def _run_ocr_cycle_for_image(
                 judge_with_image=judge_with_image
             )
         except Exception as judge_exc:
-            print(f"[{pid}] Judge request for {image_name} failed: {judge_exc}. Defaulting to first valid OCR result.")
+            # Defensive: _post_judge_request swallows known failures, but never
+            # let an unexpected raise silently mark the page done.
+            print(f"[{pid}] Judge request for {image_name} raised unexpectedly: {judge_exc}. Will re-judge later.")
             first_valid_ocr = next(
                 (res for res in ocr_results_for_image_ordered if _is_successful_ocr_text(res)),
                 None
             )
-            final_text_for_image = first_valid_ocr if first_valid_ocr else (
-                ocr_results_for_image_ordered[0] if ocr_results_for_image_ordered else "[ERROR: Judge failed and no OCR results]"
-            )
-    else:
-        print(f"[{pid}] WARNING: Multiple OCR results for {image_name} but no judge. Taking first result.")
-        final_text_for_image = ocr_results_for_image_ordered[0] if ocr_results_for_image_ordered else "[ERROR: No OCR results and no judge]"
+            final_text_for_image = first_valid_ocr if first_valid_ocr else ocr_results_for_image_ordered[0]
+            judged_ok = False
 
+        if not _is_successful_ocr_text(final_text_for_image):
+            return "failed", None, final_text_for_image, candidates, candidate_models
+        if not judged_ok:
+            # OCR text is usable, but the judge did not adjudicate -> needs re-judge.
+            return "judge_pending", final_text_for_image, "", candidates, candidate_models
+        return "success", final_text_for_image, "", candidates, candidate_models
+
+    print(f"[{pid}] WARNING: Multiple OCR results for {image_name} but no judge. Taking first result.")
+    final_text_for_image = ocr_results_for_image_ordered[0]
     if _is_successful_ocr_text(final_text_for_image):
-        return True, final_text_for_image, ""
-    return False, None, final_text_for_image
+        return "success", final_text_for_image, "", candidates, candidate_models
+    return "failed", None, final_text_for_image, candidates, candidate_models
+
+
+def _run_judge_only_for_image(
+    image_path: str,
+    image_name: str,
+    candidates: List[str],
+    candidate_models: List[Tuple[str, int]],
+    judge_model: str,
+    judge_with_image: bool,
+    judge_decision_log_file_path: str,
+    pid: Any,
+    verbose: bool,
+    max_image_kb: int = 0,
+) -> Tuple[bool, str]:
+    """Re-judge stored OCR candidates without re-running OCR.
+
+    Used on resume for pages left in 'judge_pending'. Returns (judged_ok, final_text).
+    Recomputes the image base64 only when judge_with_image is set.
+    """
+    base64_image_data: Optional[str] = None
+    if judge_with_image:
+        try:
+            base64_image_data = _image_to_base64(image_path, max_kb=max_image_kb)
+        except Exception as image_err:
+            if verbose:
+                print(f"[{pid}] Re-judge: failed to load image {image_name} ({image_err}); judging without image.")
+            base64_image_data = None
+
+    final_text, judged_ok = _post_judge_request(
+        judge_model=judge_model,
+        model_outputs=candidates,
+        image_name=image_name,
+        model_info_for_judge=candidate_models,
+        judge_decision_log_file=judge_decision_log_file_path,
+        base64_image=base64_image_data,
+        judge_with_image=judge_with_image and base64_image_data is not None,
+    )
+    return judged_ok, final_text
+
 
 def _image_to_base64(image_path: str, max_kb: int = 0) -> str:
     """Encode image as base64 JPEG. If max_kb > 0, cap the payload size.
@@ -778,7 +885,15 @@ def _post_judge_request(
     judge_decision_log_file: str,
     base64_image: Optional[str] = None,
     judge_with_image: bool = False
-) -> str:
+) -> Tuple[str, bool]:
+    """Adjudicate OCR candidates.
+
+    Returns (final_text, judged_ok). judged_ok is True only when the judge model
+    actually produced a verdict. On transport/API failure, timeout, unexpected
+    response, or empty content, judged_ok is False and final_text falls back to
+    the first valid candidate so the OCR text is still usable -- but the caller
+    must treat the page as needing a re-judge rather than as fully done.
+    """
     pid_str = f"Proc-{os.getpid() if hasattr(os, 'getpid') else 'N/A'}_Thread-{threading.get_ident()}"
     start_time = datetime.now()
 
@@ -798,7 +913,9 @@ def _post_judge_request(
             df.write(f"Image: {image_name}\nJudge Model: {judge_model}\n")
             df.write(f"Original Candidates (summary): {error_summary}\n")
             df.write(f"Fallback Text: {fallback_text}\n-------------------------------------\n")
-        return fallback_text
+        # No valid candidates is an OCR failure, not a judge-retry situation:
+        # the caller routes this to the normal OCR retry path via _is_successful_ocr_text.
+        return fallback_text, True
     
     enumerations = []
     for i, text_candidate in enumerate(valid_candidates_for_judge):
@@ -839,6 +956,7 @@ def _post_judge_request(
     request_payload = {"model": judge_model, "messages": [{"role": "user", "content": content_blocks}]}
     final_text = f"[ERROR: Judge request for {judge_model} did not complete successfully]"
     response_data_judge = None
+    judged_ok = False
 
     try:
         response = _http_post(
@@ -854,10 +972,13 @@ def _post_judge_request(
            isinstance(response_data_judge["choices"][0], dict) and response_data_judge["choices"][0].get("message") and \
            isinstance(response_data_judge["choices"][0]["message"], dict):
             final_text = response_data_judge["choices"][0]["message"].get("content", "").strip()
-            if not final_text: 
+            if not final_text:
+                 # Judge replied but produced no verdict -> not adjudicated; mark for re-judge.
                  final_text = "[INFO: Judge returned empty content. Defaulting to first valid candidate.]"
                  if valid_candidates_for_judge: final_text = valid_candidates_for_judge[0]
                  else: final_text = "[ERROR: Judge returned empty, and no valid candidates to fallback to.]"
+            else:
+                 judged_ok = True
         else:
             final_text = f"[ERROR: Judge returned unexpected response. Defaulting to first valid candidate.]"
             if valid_candidates_for_judge: final_text = valid_candidates_for_judge[0]
@@ -886,7 +1007,7 @@ def _post_judge_request(
             m_name, att_num = valid_model_info_for_judge[i]
             df.write(f"Candidate {i + 1} (Model: {m_name}, Attempt: {att_num}):\n{text_candidate}\n---\n")
         df.write(f"--- Judge Picked ---\n{final_text}\n-------------------------------------\n")
-    return final_text
+    return final_text, judged_ok
 
 def _archive_old_logs(output_file_path_str: str, log_files_to_archive: List[str]) -> None:
     try:
@@ -952,6 +1073,69 @@ def _process_single_page(
             print(f"[{pid}] Skipping already completed image {image_idx + 1}/{len(image_files)}: {image_name}")
         return True
 
+    # Resume fast-path: a page left in 'judge_pending' has usable OCR text and
+    # stored candidates -- re-judge those only, without paying for re-OCR.
+    with state_lock:
+        is_resumable_judge_pending = (
+            page_state.get("status") == "judge_pending"
+            and not no_resume
+            and bool(judge_model)
+            and bool(page_state.get("candidates"))
+            and _is_successful_ocr_text(page_texts.get(image_name))
+        )
+
+    if is_resumable_judge_pending:
+        with state_lock:
+            stored_candidates = list(page_state.get("candidates") or [])
+            stored_models = [tuple(cm) for cm in (page_state.get("candidate_models") or [])]
+        if verbose:
+            print(f"[{pid}] Re-judging stored candidates for {image_name} (no re-OCR).")
+        judged_ok, rejudged_text = _run_judge_only_for_image(
+            image_path=image_path,
+            image_name=image_name,
+            candidates=stored_candidates,
+            candidate_models=stored_models,
+            judge_model=judge_model,
+            judge_with_image=judge_with_image,
+            judge_decision_log_file_path=judge_decision_log_file_path,
+            pid=pid,
+            verbose=verbose,
+            max_image_kb=max_image_kb,
+        )
+        with state_lock:
+            page_state["updated_at"] = _utcnow_iso()
+            if judged_ok and _is_successful_ocr_text(rejudged_text):
+                page_state["status"] = "done"
+                page_state["last_error"] = None
+                page_state.pop("candidates", None)
+                page_state.pop("candidate_models", None)
+                page_texts[image_name] = rejudged_text
+                if state.get("run_status") != "paused":
+                    state["run_status"] = "running"
+                    state["pause_reason"] = None
+                state["updated_at"] = _utcnow_iso()
+                _write_output_sections_atomic(output_file_path, image_files, page_texts)
+                _write_json_atomic(state_file_path, state)
+                counters["processed"] += 1
+                counters["newly_done"] += 1
+                _print_progress(
+                    pid=pid, total_pages=total_pages, done_pages=counters["processed"],
+                    resumed_pages=resumed_pages_count, attempt_cycles=counters["attempt_cycles"],
+                    current_image=image_name, attempt_idx=None, max_page_attempts=max_page_attempts,
+                    status="completed", started_monotonic=started_monotonic, force_print=True,
+                )
+                return True
+            # Judge still unavailable -> stay judge_pending; keep usable OCR text, do not pause.
+            counters["judge_pending"] = counters.get("judge_pending", 0) + 1
+            _write_json_atomic(state_file_path, state)
+            _print_progress(
+                pid=pid, total_pages=total_pages, done_pages=counters["processed"],
+                resumed_pages=resumed_pages_count, attempt_cycles=counters["attempt_cycles"],
+                current_image=image_name, attempt_idx=None, max_page_attempts=max_page_attempts,
+                status="judge_pending", started_monotonic=started_monotonic, force_print=True,
+            )
+            return True
+
     if verbose:
         print(f"[{pid}] Processing image {image_idx + 1}/{len(image_files)}: {image_name}")
 
@@ -982,7 +1166,7 @@ def _process_single_page(
                 force_print=True
             )
 
-        is_success, final_text, error_text = _run_ocr_cycle_for_image(
+        outcome, final_text, error_text, candidates, candidate_models = _run_ocr_cycle_for_image(
             image_path=image_path,
             image_name=image_name,
             model_repeats=model_repeats,
@@ -1001,9 +1185,11 @@ def _process_single_page(
             page_state["attempts_used"] = attempt_idx
             page_state["updated_at"] = _utcnow_iso()
 
-            if is_success and final_text is not None:
+            if outcome == "success" and final_text is not None:
                 page_state["status"] = "done"
                 page_state["last_error"] = None
+                page_state.pop("candidates", None)
+                page_state.pop("candidate_models", None)
                 # Only promote run_status to "running" if we're not already paused —
                 # otherwise a late-success could overwrite a paused sibling's state.
                 if state.get("run_status") != "paused":
@@ -1030,6 +1216,44 @@ def _process_single_page(
                     status="completed",
                     started_monotonic=started_monotonic,
                     force_print=True
+                )
+                break
+
+            if outcome == "judge_pending" and final_text is not None:
+                # OCR text is usable but the judge did not adjudicate. Persist the
+                # text (so it is immediately usable) and the candidates (so a later
+                # run can re-judge without re-OCR). This page is NOT done and must
+                # not be archived as a clean success.
+                page_state["status"] = "judge_pending"
+                page_state["last_error"] = (
+                    "[JUDGE_PENDING: OCR succeeded but the judge did not adjudicate "
+                    "(e.g. judge model unavailable). Re-judged automatically on next run.]"
+                )
+                page_state["candidates"] = list(candidates)
+                page_state["candidate_models"] = [list(cm) for cm in candidate_models]
+                page_texts[image_name] = final_text
+                state["updated_at"] = _utcnow_iso()
+                _write_output_sections_atomic(output_file_path, image_files, page_texts)
+                _write_json_atomic(state_file_path, state)
+                counters["judge_pending"] = counters.get("judge_pending", 0) + 1
+                page_completed = True  # settled for this run; do not retry or pause
+
+                _print_progress(
+                    pid=pid,
+                    total_pages=total_pages,
+                    done_pages=counters["processed"],
+                    resumed_pages=resumed_pages_count,
+                    attempt_cycles=counters["attempt_cycles"],
+                    current_image=image_name,
+                    attempt_idx=attempt_idx,
+                    max_page_attempts=max_page_attempts,
+                    status="judge_pending",
+                    started_monotonic=started_monotonic,
+                    force_print=True
+                )
+                print(
+                    f"[{pid}] [JUDGE-PENDING] {image_name}: OCR kept, but judge "
+                    f"'{judge_model}' did not adjudicate. Will re-judge on next run."
                 )
                 break
 
@@ -1215,6 +1439,7 @@ def convert_images_to_text(
         "attempt_cycles": attempt_cycles,
         "failed_cycles": failed_attempt_cycles,
         "newly_done": newly_done_pages_count,
+        "judge_pending": 0,
     }
     state_lock = threading.RLock()
     pause_event = threading.Event()
@@ -1322,27 +1547,55 @@ def convert_images_to_text(
         attempt_cycles = counters["attempt_cycles"]
         failed_attempt_cycles = counters["failed_cycles"]
 
-        state["run_status"] = "completed"
-        state["pause_reason"] = None
+        judge_pending_pages = [
+            name for name in image_files
+            if state.get("pages", {}).get(name, {}).get("status") == "judge_pending"
+        ]
+        judge_pending_count = len(judge_pending_pages)
+
+        if judge_pending_count:
+            # Some pages have usable OCR but were never adjudicated. Do NOT pretend
+            # this is a clean success and do NOT archive the live state -- keep it so
+            # the next run re-judges the stored candidates automatically.
+            state["run_status"] = "completed_with_judge_pending"
+            state["pause_reason"] = (
+                f"{judge_pending_count} page(s) awaiting re-judge: {', '.join(judge_pending_pages)}. "
+                f"Ensure the judge model is valid, then rerun to adjudicate (no re-OCR needed)."
+            )
+            run_status_str = "completed_with_judge_pending"
+        else:
+            state["run_status"] = "completed"
+            state["pause_reason"] = None
+            run_status_str = "completed"
+
         state["updated_at"] = _utcnow_iso()
         _write_json_atomic(state_file_path, state)
         _write_output_sections_atomic(output_file_path, image_files, page_texts)
-        archived_state_path = _archive_state_file_if_completed(
-            state_file_path=state_file_path,
-            output_file_path=output_file_path,
-            verbose=verbose
-        )
+        archived_state_path = None
+        if not judge_pending_count:
+            archived_state_path = _archive_state_file_if_completed(
+                state_file_path=state_file_path,
+                output_file_path=output_file_path,
+                verbose=verbose
+            )
 
         elapsed_seconds = time.monotonic() - started_monotonic
         print(
-            f"[{pid}] [SUMMARY] run_status=completed total_pages={total_pages} "
+            f"[{pid}] [SUMMARY] run_status={run_status_str} total_pages={total_pages} "
             f"resumed_pages={resumed_pages_count} newly_done={newly_done_pages_count} "
+            f"judge_pending={judge_pending_count} "
             f"attempt_cycles={attempt_cycles} failed_attempts={failed_attempt_cycles} "
             f"elapsed={elapsed_seconds:.1f}s archived_state={archived_state_path or '-'}"
         )
+        if judge_pending_count:
+            print(
+                f"[{pid}] [JUDGE-PENDING] {judge_pending_count}/{total_pages} page(s) have "
+                f"un-adjudicated OCR (judge '{judge_model}' failed). Rerun with a valid judge "
+                f"to re-judge without re-OCR: {', '.join(judge_pending_pages)}"
+            )
 
         if verbose:
-            print(f"[{pid}] All images processed successfully for this document worker. Total: {processed_images_count}")
+            print(f"[{pid}] All images processed for this document worker. Total done: {processed_images_count}, judge_pending: {judge_pending_count}")
         _perf_tuner.record_observation(
             model_id=model_repeats[0][0] if model_repeats else "",
             concurrency=max_concurrent_pages,
