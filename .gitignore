@@ -32,32 +32,39 @@
 pdf2anki/allfiles.txt
 allfiles.txt
 
-# --- benchmarks -------------------------------------------------------------
-# Harness and report are versioned...
-!benchmarks/**/scripts/*
-!benchmarks/**/openrouter_models_*.json
-# (README.md is already allowed above, at any depth)
-
-# ...but NEVER the corpus a benchmark was run against, unless it is provably
-# copyright-free. This repo is PUBLIC. Rendered pages and OCR results are the
-# source material -- a transcription is the same content in another form, not a
-# neutral measurement artifact. Runs against third-party material (lecture
-# slides, exercise sheets, papers) stay local.
-# A corpus that is self-generated or public-domain may be allowlisted
-# explicitly, per directory, with a note saying where it came from.
+# --- benchmarks: deny by default, allowlist per reviewed directory -----------
+# This repo is PUBLIC. A benchmark run against third-party material (lecture
+# slides, exercise sheets, papers) must not reach it -- and that means more than
+# the corpus. Rendered pages and OCR results ARE the source material: a
+# transcription is the same content in another form, not a neutral measurement
+# artifact. The report and the harness leak too: a report names the course and
+# its author, and the scripts carry the source filenames and local paths.
+# That is not hypothetical -- it is exactly what slipped through once, because
+# the `!README.md` and `!*/` rules above match at any depth.
+#
+# So: nothing under benchmarks/ is versioned unless its directory is listed
+# below, after checking where its corpus came from.
+benchmarks/**/README.md
+benchmarks/**/scripts/*
 benchmarks/**/pages/
 benchmarks/**/results/
 benchmarks/**/logs/
+benchmarks/**/corpus/
 benchmarks/**/ground_truth.json
 benchmarks/**/page_map.json
+benchmarks/**/openrouter_models_*.json
 
-# Reviewed exception: ocr_model_selection/ is drawn from scratch by
-# scripts/make_corpus.py -- no third-party material, see its CORPUS.md.
+# Reviewed: ocr_model_selection/ is drawn from scratch by scripts/make_corpus.py
+# -- no third-party material anywhere in it, see its CORPUS.md.
 # A directory must be re-included before anything inside it can be.
+!benchmarks/ocr_model_selection/README.md
+!benchmarks/ocr_model_selection/CORPUS.md
+!benchmarks/ocr_model_selection/openrouter_models_*.json
+!benchmarks/ocr_model_selection/scripts/
+!benchmarks/ocr_model_selection/scripts/*
 !benchmarks/ocr_model_selection/corpus/
 !benchmarks/ocr_model_selection/corpus/*
 !benchmarks/ocr_model_selection/pages/
 !benchmarks/ocr_model_selection/pages/*
 !benchmarks/ocr_model_selection/results/
 !benchmarks/ocr_model_selection/results/*
-!benchmarks/ocr_model_selection/CORPUS.md

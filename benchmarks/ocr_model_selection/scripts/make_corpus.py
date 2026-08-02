@@ -10,7 +10,9 @@ that separated the OCR models -- becomes objectively measurable instead of
 depending on an LLM rubric.
 
 Built on PyMuPDF only, which pdf2anki already requires. No extra dependencies.
-Deterministic: same input, same bytes.
+No randomness and no timestamps, so a rerun reproduces the same slides and the same
+truth.json. The PDF bytes themselves are not guaranteed identical across PyMuPDF
+versions -- compare content, not checksums.
 
     python make_corpus.py            # writes ../corpus/slides.pdf + truth.json
 """

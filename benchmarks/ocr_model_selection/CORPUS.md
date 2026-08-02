@@ -6,11 +6,11 @@ drawn from scratch with PyMuPDF; the wording is written for this benchmark; the 
 invented. The corpus therefore carries the same licence as the rest of this repository and
 may be redistributed with it.
 
-This matters because of what it replaces. The original study
-(`../model_selection_2026-08/`) measured against real university lecture slides. Those are
-someone else's copyrighted work, so neither the slides nor their OCR transcriptions could be
-published — which left that study readable but not reproducible. Regenerating the corpus
-from code removes the obstacle.
+This matters because of what it replaces. An earlier study measured against real university
+lecture slides. Those are someone else's copyrighted work, so neither the slides nor their
+OCR transcriptions could be published — which left that study readable but not reproducible.
+It is therefore not part of this repo at all; its findings survive only as the replication
+comparison in [README.md](README.md). Regenerating the corpus from code removes the obstacle.
 
 ## Why generated rather than sourced
 
