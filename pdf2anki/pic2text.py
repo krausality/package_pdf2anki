@@ -849,8 +849,30 @@ def _post_ocr_request(model_name: str, base64_image: str, ocr_log_file: str, ima
            isinstance(response_data["choices"][0], dict) and response_data["choices"][0].get("message") and \
            isinstance(response_data["choices"][0]["message"], dict):
             cleaned_text = response_data["choices"][0]["message"].get("content", "").strip()
+            finish_reason = response_data["choices"][0].get("finish_reason")
             if not cleaned_text:
                  cleaned_text = "[INFO: API returned empty content for OCR]"
+            elif finish_reason == "length":
+                 # The model hit its output-token ceiling. In practice this means it
+                 # ran away into a repetition loop: one observed page produced 65k
+                 # tokens / ~2 MB of text for a slide whose real transcription is
+                 # ~200 tokens, costing 150x a normal page -- and the blown-up text
+                 # was then passed to the judge, whose call cost 20x normal.
+                 # Without this check the blob counts as a successful page, because
+                 # _is_successful_ocr_text() only rejects the [ERROR:/[INFO: prefixes.
+                 # Turning it into an error routes the page through the normal retry
+                 # path instead, where a fresh attempt usually succeeds.
+                 usage = (response_data.get("usage") or {})
+                 out_tokens = usage.get("completion_tokens")
+                 cleaned_text = (
+                     f"[ERROR: OCR response truncated at the output-token limit "
+                     f"(finish_reason=length, completion_tokens={out_tokens}, "
+                     f"{len(cleaned_text)} chars) for model {model_name}. "
+                     f"Treating as a failed attempt rather than a page.]"
+                 )
+                 print(f"[{pid_str}] OCR TRUNCATED for {image_name_for_log}, attempt "
+                       f"{attempt_num_for_log}, model {model_name}: "
+                       f"completion_tokens={out_tokens}. Retrying this page.")
         else:
             problematic_response_summary = str(response_data)[:500]
             cleaned_text = f"[ERROR: Unexpected API response structure. Summary: {problematic_response_summary}]"
@@ -972,11 +994,21 @@ def _post_judge_request(
            isinstance(response_data_judge["choices"][0], dict) and response_data_judge["choices"][0].get("message") and \
            isinstance(response_data_judge["choices"][0]["message"], dict):
             final_text = response_data_judge["choices"][0]["message"].get("content", "").strip()
+            judge_finish = response_data_judge["choices"][0].get("finish_reason")
             if not final_text:
                  # Judge replied but produced no verdict -> not adjudicated; mark for re-judge.
                  final_text = "[INFO: Judge returned empty content. Defaulting to first valid candidate.]"
                  if valid_candidates_for_judge: final_text = valid_candidates_for_judge[0]
                  else: final_text = "[ERROR: Judge returned empty, and no valid candidates to fallback to.]"
+            elif judge_finish == "length":
+                 # Truncated verdict: the judge was re-emitting the winning text and
+                 # got cut off, so what came back is a partial page, not a decision.
+                 # Fall back to a candidate and mark the page for re-judging rather
+                 # than writing the fragment out as the final text.
+                 print(f"[{pid_str}] JUDGE TRUNCATED for {image_name}, model {judge_model}: "
+                       f"finish_reason=length. Falling back to first valid candidate.")
+                 final_text = valid_candidates_for_judge[0] if valid_candidates_for_judge else \
+                     "[ERROR: Judge output truncated, and no valid candidates to fallback to.]"
             else:
                  judged_ok = True
         else:
