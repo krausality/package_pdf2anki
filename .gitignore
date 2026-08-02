@@ -31,3 +31,33 @@
 .venv/*
 pdf2anki/allfiles.txt
 allfiles.txt
+
+# --- benchmarks -------------------------------------------------------------
+# Harness and report are versioned...
+!benchmarks/**/scripts/*
+!benchmarks/**/openrouter_models_*.json
+# (README.md is already allowed above, at any depth)
+
+# ...but NEVER the corpus a benchmark was run against, unless it is provably
+# copyright-free. This repo is PUBLIC. Rendered pages and OCR results are the
+# source material -- a transcription is the same content in another form, not a
+# neutral measurement artifact. Runs against third-party material (lecture
+# slides, exercise sheets, papers) stay local.
+# A corpus that is self-generated or public-domain may be allowlisted
+# explicitly, per directory, with a note saying where it came from.
+benchmarks/**/pages/
+benchmarks/**/results/
+benchmarks/**/logs/
+benchmarks/**/ground_truth.json
+benchmarks/**/page_map.json
+
+# Reviewed exception: ocr_model_selection/ is drawn from scratch by
+# scripts/make_corpus.py -- no third-party material, see its CORPUS.md.
+# A directory must be re-included before anything inside it can be.
+!benchmarks/ocr_model_selection/corpus/
+!benchmarks/ocr_model_selection/corpus/*
+!benchmarks/ocr_model_selection/pages/
+!benchmarks/ocr_model_selection/pages/*
+!benchmarks/ocr_model_selection/results/
+!benchmarks/ocr_model_selection/results/*
+!benchmarks/ocr_model_selection/CORPUS.md

@@ -1,0 +1,319 @@
+{
+ "page_1": {
+  "kind": "text",
+  "text": [
+   "Softwarequalität: Messen und Bewerten",
+   "Synthetischer Beispielkurs - Folienkorpus fuer OCR-Messungen",
+   "Seite 1",
+   "Kapitel 1 - Einfuehrung und Begriffsbildung",
+   "Qualität ist die Gesamtheit der Merkmale einer Einheit",
+   "bezüglich ihrer Eignung, festgelegte Erfordernisse zu erfüllen",
+   "Interne Merkmale: Wartbarkeit, Änderbarkeit, Prüfbarkeit",
+   "Externe Merkmale: Zuverlässigkeit, Effizienz, Benutzbarkeit",
+   "Größe allein ist kein Qualitätsmaß",
+   "Maße müssen validiert und reproduzierbar sein"
+  ]
+ },
+ "page_2": {
+  "kind": "barchart",
+  "text": [
+   "Qualitätsmerkmale priorisieren",
+   "Synthetischer Beispielkurs - Folienkorpus fuer OCR-Messungen",
+   "Seite 2",
+   "Erhebung im Projekt Beispielsystem",
+   "Zuverlässigkeit",
+   "Wartbarkeit",
+   "Effizienz",
+   "Benutzbarkeit",
+   "Portabilität",
+   "Testbarkeit",
+   "Sicherheit",
+   "Skalierbarkeit",
+   "Änderbarkeit",
+   "Interoperabilität",
+   "Nachvollziehbarkeit",
+   "Robustheit",
+   "Priorität"
+  ],
+  "values": {
+   "Zuverlässigkeit": 9,
+   "Wartbarkeit": 6,
+   "Effizienz": 4,
+   "Benutzbarkeit": 8,
+   "Portabilität": 3,
+   "Testbarkeit": 7,
+   "Sicherheit": 10,
+   "Skalierbarkeit": 5,
+   "Änderbarkeit": 11,
+   "Interoperabilität": 2,
+   "Nachvollziehbarkeit": 13,
+   "Robustheit": 1
+  },
+  "axis": {
+   "min": 0,
+   "max": 14,
+   "tick": 2
+  },
+  "vision_required": true
+ },
+ "page_3": {
+  "kind": "table",
+  "text": [
+   "Messwerte je Modul",
+   "Synthetischer Beispielkurs - Folienkorpus fuer OCR-Messungen",
+   "Seite 3",
+   "Erhebung nach Integrationstest",
+   "Modul",
+   "LOC",
+   "Zyklomatisch",
+   "Defekte",
+   "Parser",
+   "1240",
+   "18",
+   "7",
+   "Scheduler",
+   "860",
+   "24",
+   "11",
+   "Renderer",
+   "2130",
+   "31",
+   "4",
+   "Persistenz",
+   "540",
+   "9",
+   "2"
+  ],
+  "header": [
+   "Modul",
+   "LOC",
+   "Zyklomatisch",
+   "Defekte"
+  ],
+  "rows": [
+   [
+    "Parser",
+    "1240",
+    "18",
+    "7"
+   ],
+   [
+    "Scheduler",
+    "860",
+    "24",
+    "11"
+   ],
+   [
+    "Renderer",
+    "2130",
+    "31",
+    "4"
+   ],
+   [
+    "Persistenz",
+    "540",
+    "9",
+    "2"
+   ]
+  ]
+ },
+ "page_4": {
+  "kind": "formula",
+  "text": [
+   "Zyklomatische Komplexität",
+   "Synthetischer Beispielkurs - Folienkorpus fuer OCR-Messungen",
+   "Seite 4",
+   "Definition nach McCabe und Rechenbeispiel",
+   "M = E - N + 2P",
+   "E = Anzahl der Kanten des Kontrollflussgraphen",
+   "N = Anzahl der Knoten",
+   "P = Anzahl der Zusammenhangskomponenten",
+   "Beispiel: E = 14, N = 11, P = 1",
+   "M = 14 - 11 + 2 * 1 = 5",
+   "Schwellwert: M > 10 gilt als wartungskritisch"
+  ],
+  "values": {
+   "E": 14,
+   "N": 11,
+   "P": 1,
+   "M": 5,
+   "Schwellwert": 10
+  }
+ },
+ "page_5": {
+  "kind": "graph",
+  "text": [
+   "Kontrollflussgraph",
+   "Synthetischer Beispielkurs - Folienkorpus fuer OCR-Messungen",
+   "Seite 5",
+   "Grundlage der Pfadüberdeckung",
+   "n1",
+   "n2",
+   "n3",
+   "n4",
+   "n5",
+   "n6",
+   "n7",
+   "Knoten: 7",
+   "Kanten: 8",
+   "Komponenten: 1",
+   "M = 8 - 7 + 2 = 3"
+  ],
+  "nodes": [
+   "n1",
+   "n2",
+   "n3",
+   "n4",
+   "n5",
+   "n6",
+   "n7"
+  ],
+  "edges": [
+   [
+    "n1",
+    "n2"
+   ],
+   [
+    "n2",
+    "n3"
+   ],
+   [
+    "n2",
+    "n4"
+   ],
+   [
+    "n3",
+    "n5"
+   ],
+   [
+    "n4",
+    "n5"
+   ],
+   [
+    "n2",
+    "n6"
+   ],
+   [
+    "n6",
+    "n7"
+   ],
+   [
+    "n7",
+    "n5"
+   ]
+  ],
+  "values": {
+   "Knoten": 7,
+   "Kanten": 8,
+   "Komponenten": 1,
+   "M": 3
+  }
+ },
+ "page_6": {
+  "kind": "text",
+  "text": [
+   "Prüfverfahren im Überblick",
+   "Synthetischer Beispielkurs - Folienkorpus fuer OCR-Messungen",
+   "Seite 6",
+   "Statisch und dynamisch",
+   "Statische Verfahren",
+   "Review: Inspektion, Walkthrough, Stellungnahme",
+   "Statische Analyse: Datenflussanomalien, Metriken",
+   "Dynamische Verfahren",
+   "Strukturtest: Anweisungs-, Zweig-, Pfadüberdeckung",
+   "Funktionstest: Äquivalenzklassen, Grenzwertanalyse",
+   "Formale Verfahren",
+   "Verifikation gegen eine Spezifikation",
+   "Symbolische Ausführung und Modellprüfung"
+  ]
+ },
+ "page_7": {
+  "kind": "linechart",
+  "text": [
+   "Defektdichte über die Sprints",
+   "Synthetischer Beispielkurs - Folienkorpus fuer OCR-Messungen",
+   "Seite 7",
+   "Gefundene Defekte je 1000 LOC",
+   "Sprint"
+  ],
+  "values": {
+   "1": 12,
+   "2": 15,
+   "3": 9,
+   "4": 7,
+   "5": 8,
+   "6": 4,
+   "7": 3,
+   "8": 2
+  },
+  "axis": {
+   "min": 0,
+   "max": 20
+  },
+  "vision_required": true
+ },
+ "page_8": {
+  "kind": "code",
+  "text": [
+   "Beispiel: prüfbare Methode",
+   "Synthetischer Beispielkurs - Folienkorpus fuer OCR-Messungen",
+   "Seite 8",
+   "Zyklomatische Komplexität M = 4",
+   "public int einstufen(int wert) {",
+   "    if (wert < 0) {",
+   "        throw new IllegalArgumentException(\"negativ\");",
+   "    }",
+   "    if (wert < 10) return 1;",
+   "    if (wert < 100) return 2;",
+   "    return 3;",
+   "}"
+  ],
+  "code": [
+   "public int einstufen(int wert) {",
+   "    if (wert < 0) {",
+   "        throw new IllegalArgumentException(\"negativ\");",
+   "    }",
+   "    if (wert < 10) return 1;",
+   "    if (wert < 100) return 2;",
+   "    return 3;",
+   "}"
+  ]
+ },
+ "page_9": {
+  "kind": "text",
+  "text": [
+   "Review versus Test",
+   "Synthetischer Beispielkurs - Folienkorpus fuer OCR-Messungen",
+   "Seite 9",
+   "Stärken und Grenzen",
+   "Review",
+   "Test",
+   "findet Ursachen, nicht nur Symptome",
+   "früh im Prozess einsetzbar",
+   "überträgt Wissen im Team",
+   "erfordert Personalzeit",
+   "zeigt beobachtbares Fehlverhalten",
+   "automatisierbar und wiederholbar",
+   "benötigt lauffähigen Code",
+   "belegt keine Fehlerfreiheit"
+  ]
+ },
+ "page_10": {
+  "kind": "text",
+  "text": [
+   "Gütekriterien für Maße",
+   "Synthetischer Beispielkurs - Folienkorpus fuer OCR-Messungen",
+   "Seite 10",
+   "Reliabilität und Validität",
+   "Ein Maß heißt reliabel, wenn wiederholte Messungen desselben Gegenstandes",
+   "unter gleichen Bedingungen übereinstimmende Werte liefern. Reliabilität ist",
+   "notwendig, aber nicht hinreichend: ein zuverlässig falsch messendes Verfahren",
+   "bleibt unbrauchbar. Validität verlangt zusätzlich, dass das Maß tatsächlich",
+   "die Eigenschaft erfasst, über die eine Aussage getroffen werden soll.",
+   "Häufige Fehlschlüsse in der Praxis sind die Gleichsetzung von Codegröße mit",
+   "Komplexität, die Übertragung projektspezifischer Schwellwerte auf fremde",
+   "Kontexte sowie die Deutung einer Korrelation als Kausalität. Maße steuern",
+   "Verhalten: sobald eine Kennzahl zum Ziel wird, verliert sie ihre Aussagekraft."
+  ]
+ }
+}

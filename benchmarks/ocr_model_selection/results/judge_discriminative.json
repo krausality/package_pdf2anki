@@ -1,0 +1,842 @@
+{
+ "google/gemini-3-flash-preview||page_2.png||good_shorter||good_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.001848,
+  "longer": "bad"
+ },
+ "google/gemini-3.1-flash-lite||page_2.png||good_shorter||good_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.000924,
+  "longer": "bad"
+ },
+ "google/gemini-2.5-flash-lite||page_2.png||good_shorter||good_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0005418,
+  "longer": "bad"
+ },
+ "google/gemini-3.5-flash-lite||page_2.png||good_shorter||good_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0012381,
+  "longer": "bad"
+ },
+ "google/gemini-3.6-flash||page_2.png||good_shorter||good_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0074805,
+  "longer": "bad"
+ },
+ "google/gemini-3-flash-preview||page_2.png||good_shorter||good_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.001848,
+  "longer": "bad"
+ },
+ "google/gemini-3.1-flash-lite||page_2.png||good_shorter||good_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.000924,
+  "longer": "bad"
+ },
+ "google/gemini-2.5-flash-lite||page_2.png||good_shorter||good_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0005418,
+  "longer": "bad"
+ },
+ "google/gemini-3.5-flash-lite||page_2.png||good_shorter||good_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0012978,
+  "longer": "bad"
+ },
+ "google/gemini-3.6-flash||page_2.png||good_shorter||good_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.008448,
+  "longer": "bad"
+ },
+ "google/gemini-3-flash-preview||page_2.png||good_shorter||good_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.001848,
+  "longer": "bad"
+ },
+ "google/gemini-3.1-flash-lite||page_2.png||good_shorter||good_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.00088225,
+  "longer": "bad"
+ },
+ "google/gemini-2.5-flash-lite||page_2.png||good_shorter||good_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0005418,
+  "longer": "bad"
+ },
+ "google/gemini-3.5-flash-lite||page_2.png||good_shorter||good_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0012381,
+  "longer": "bad"
+ },
+ "google/gemini-3.6-flash||page_2.png||good_shorter||good_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.009888,
+  "longer": "bad"
+ },
+ "google/gemini-3-flash-preview||page_2.png||good_shorter||bad_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.001848,
+  "longer": "bad"
+ },
+ "google/gemini-3.1-flash-lite||page_2.png||good_shorter||bad_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.000924,
+  "longer": "bad"
+ },
+ "google/gemini-2.5-flash-lite||page_2.png||good_shorter||bad_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 0.5571428571428572,
+  "cost": 0.0004818,
+  "longer": "bad"
+ },
+ "google/gemini-3.5-flash-lite||page_2.png||good_shorter||bad_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0012381,
+  "longer": "bad"
+ },
+ "google/gemini-3.6-flash||page_2.png||good_shorter||bad_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.009693,
+  "longer": "bad"
+ },
+ "google/gemini-3-flash-preview||page_2.png||good_shorter||bad_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.001848,
+  "longer": "bad"
+ },
+ "google/gemini-3.1-flash-lite||page_2.png||good_shorter||bad_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.000924,
+  "longer": "bad"
+ },
+ "google/gemini-2.5-flash-lite||page_2.png||good_shorter||bad_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 0.5571428571428572,
+  "cost": 0.0004818,
+  "longer": "bad"
+ },
+ "google/gemini-3.5-flash-lite||page_2.png||good_shorter||bad_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0012978,
+  "longer": "bad"
+ },
+ "google/gemini-3.6-flash||page_2.png||good_shorter||bad_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0091305,
+  "longer": "bad"
+ },
+ "google/gemini-3-flash-preview||page_2.png||good_shorter||bad_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.001848,
+  "longer": "bad"
+ },
+ "google/gemini-3.1-flash-lite||page_2.png||good_shorter||bad_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.000924,
+  "longer": "bad"
+ },
+ "google/gemini-2.5-flash-lite||page_2.png||good_shorter||bad_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 0.5571428571428572,
+  "cost": 0.00012711,
+  "longer": "bad"
+ },
+ "google/gemini-3.5-flash-lite||page_2.png||good_shorter||bad_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0012381,
+  "longer": "bad"
+ },
+ "google/gemini-3.6-flash||page_2.png||good_shorter||bad_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.010908,
+  "longer": "bad"
+ },
+ "google/gemini-3-flash-preview||page_2.png||good_longer||good_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.003047,
+  "longer": "good"
+ },
+ "google/gemini-3.1-flash-lite||page_2.png||good_longer||good_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0015235,
+  "longer": "good"
+ },
+ "google/gemini-2.5-flash-lite||page_2.png||good_longer||good_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0007072,
+  "longer": "good"
+ },
+ "google/gemini-3.5-flash-lite||page_2.png||good_longer||good_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 0.9969183359013868,
+  "cost": 0.0022926,
+  "longer": "good"
+ },
+ "google/gemini-3.6-flash||page_2.png||good_longer||good_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 0.9984567901234568,
+  "cost": 0.0107295,
+  "longer": "good"
+ },
+ "google/gemini-3-flash-preview||page_2.png||good_longer||good_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.003047,
+  "longer": "good"
+ },
+ "google/gemini-3.1-flash-lite||page_2.png||good_longer||good_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0015235,
+  "longer": "good"
+ },
+ "google/gemini-2.5-flash-lite||page_2.png||good_longer||good_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0007072,
+  "longer": "good"
+ },
+ "google/gemini-3.5-flash-lite||page_2.png||good_longer||good_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 0.9969183359013868,
+  "cost": 0.0019829,
+  "longer": "good"
+ },
+ "google/gemini-3.6-flash||page_2.png||good_longer||good_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 0.9984567901234568,
+  "cost": 0.0108855,
+  "longer": "good"
+ },
+ "google/gemini-3-flash-preview||page_2.png||good_longer||good_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 0.9992277992277993,
+  "cost": 0.003053,
+  "longer": "good"
+ },
+ "google/gemini-3.1-flash-lite||page_2.png||good_longer||good_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.00136775,
+  "longer": "good"
+ },
+ "google/gemini-2.5-flash-lite||page_2.png||good_longer||good_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.00035206,
+  "longer": "good"
+ },
+ "google/gemini-3.5-flash-lite||page_2.png||good_longer||good_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 0.9969183359013868,
+  "cost": 0.0019829,
+  "longer": "good"
+ },
+ "google/gemini-3.6-flash||page_2.png||good_longer||good_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 0.9992277992277993,
+  "cost": 0.0131505,
+  "longer": "good"
+ },
+ "google/gemini-3-flash-preview||page_2.png||good_longer||bad_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.003047,
+  "longer": "good"
+ },
+ "google/gemini-3.1-flash-lite||page_2.png||good_longer||bad_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0015235,
+  "longer": "good"
+ },
+ "google/gemini-2.5-flash-lite||page_2.png||good_longer||bad_first||0": {
+  "ok": true,
+  "picked": "bad",
+  "verbatim": 1.0,
+  "cost": 0.0005752,
+  "longer": "good"
+ },
+ "google/gemini-3.5-flash-lite||page_2.png||good_longer||bad_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0019654,
+  "longer": "good"
+ },
+ "google/gemini-3.6-flash||page_2.png||good_longer||bad_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0106695,
+  "longer": "good"
+ },
+ "google/gemini-3-flash-preview||page_2.png||good_longer||bad_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.003047,
+  "longer": "good"
+ },
+ "google/gemini-3.1-flash-lite||page_2.png||good_longer||bad_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.00130775,
+  "longer": "good"
+ },
+ "google/gemini-2.5-flash-lite||page_2.png||good_longer||bad_first||1": {
+  "ok": true,
+  "picked": "bad",
+  "verbatim": 1.0,
+  "cost": 0.00022006,
+  "longer": "good"
+ },
+ "google/gemini-3.5-flash-lite||page_2.png||good_longer||bad_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0022776,
+  "longer": "good"
+ },
+ "google/gemini-3.6-flash||page_2.png||good_longer||bad_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.012612,
+  "longer": "good"
+ },
+ "google/gemini-3-flash-preview||page_2.png||good_longer||bad_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.003047,
+  "longer": "good"
+ },
+ "google/gemini-3.1-flash-lite||page_2.png||good_longer||bad_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0015235,
+  "longer": "good"
+ },
+ "google/gemini-2.5-flash-lite||page_2.png||good_longer||bad_first||2": {
+  "ok": true,
+  "picked": "bad",
+  "verbatim": 1.0,
+  "cost": 0.00022006,
+  "longer": "good"
+ },
+ "google/gemini-3.5-flash-lite||page_2.png||good_longer||bad_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0020379,
+  "longer": "good"
+ },
+ "google/gemini-3.6-flash||page_2.png||good_longer||bad_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.012153,
+  "longer": "good"
+ },
+ "google/gemini-3-flash-preview||page_7.png||good_shorter||good_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 0.9939393939393939,
+  "cost": 0.0015535,
+  "longer": "bad"
+ },
+ "google/gemini-3.1-flash-lite||page_7.png||good_shorter||good_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.000729,
+  "longer": "bad"
+ },
+ "google/gemini-2.5-flash-lite||page_7.png||good_shorter||good_first||0": {
+  "ok": true,
+  "picked": "bad",
+  "verbatim": 0.8182883939038686,
+  "cost": 0.0004745,
+  "longer": "bad"
+ },
+ "google/gemini-3.5-flash-lite||page_7.png||good_shorter||good_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0010803,
+  "longer": "bad"
+ },
+ "google/gemini-3.6-flash||page_7.png||good_shorter||good_first||0": {
+  "ok": true,
+  "picked": "bad",
+  "verbatim": 0.8168028004667445,
+  "cost": 0.0067965,
+  "longer": "bad"
+ },
+ "google/gemini-3-flash-preview||page_7.png||good_shorter||good_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0015415,
+  "longer": "bad"
+ },
+ "google/gemini-3.1-flash-lite||page_7.png||good_shorter||good_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.00077075,
+  "longer": "bad"
+ },
+ "google/gemini-2.5-flash-lite||page_7.png||good_shorter||good_first||1": {
+  "ok": true,
+  "picked": "bad",
+  "verbatim": 0.8182883939038686,
+  "cost": 0.0004745,
+  "longer": "bad"
+ },
+ "google/gemini-3.5-flash-lite||page_7.png||good_shorter||good_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0010206,
+  "longer": "bad"
+ },
+ "google/gemini-3.6-flash||page_7.png||good_shorter||good_first||1": {
+  "ok": true,
+  "picked": "bad",
+  "verbatim": 1.0,
+  "cost": 0.0130605,
+  "longer": "bad"
+ },
+ "google/gemini-3-flash-preview||page_7.png||good_shorter||good_first||2": {
+  "ok": true,
+  "picked": "bad",
+  "verbatim": 0.8182883939038686,
+  "cost": 0.0014245,
+  "longer": "bad"
+ },
+ "google/gemini-3.1-flash-lite||page_7.png||good_shorter||good_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.00077075,
+  "longer": "bad"
+ },
+ "google/gemini-2.5-flash-lite||page_7.png||good_shorter||good_first||2": {
+  "ok": true,
+  "picked": "bad",
+  "verbatim": 0.8182883939038686,
+  "cost": 0.00011729,
+  "longer": "bad"
+ },
+ "google/gemini-3.5-flash-lite||page_7.png||good_shorter||good_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 0.962582538517975,
+  "cost": 0.0010681,
+  "longer": "bad"
+ },
+ "google/gemini-3.6-flash||page_7.png||good_shorter||good_first||2": {
+  "ok": true,
+  "picked": "bad",
+  "verbatim": 0.8182883939038686,
+  "cost": 0.006384,
+  "longer": "bad"
+ },
+ "google/gemini-3-flash-preview||page_7.png||good_shorter||bad_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0015415,
+  "longer": "bad"
+ },
+ "google/gemini-3.1-flash-lite||page_7.png||good_shorter||bad_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.000735,
+  "longer": "bad"
+ },
+ "google/gemini-2.5-flash-lite||page_7.png||good_shorter||bad_first||0": {
+  "ok": true,
+  "picked": "bad",
+  "verbatim": 0.8182883939038686,
+  "cost": 0.0004745,
+  "longer": "bad"
+ },
+ "google/gemini-3.5-flash-lite||page_7.png||good_shorter||bad_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0010206,
+  "longer": "bad"
+ },
+ "google/gemini-3.6-flash||page_7.png||good_shorter||bad_first||0": {
+  "ok": true,
+  "picked": "bad",
+  "verbatim": 0.9960474308300395,
+  "cost": 0.006888,
+  "longer": "bad"
+ },
+ "google/gemini-3-flash-preview||page_7.png||good_shorter||bad_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0015415,
+  "longer": "bad"
+ },
+ "google/gemini-3.1-flash-lite||page_7.png||good_shorter||bad_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.00077075,
+  "longer": "bad"
+ },
+ "google/gemini-2.5-flash-lite||page_7.png||good_shorter||bad_first||1": {
+  "ok": true,
+  "picked": "bad",
+  "verbatim": 0.8292682926829268,
+  "cost": 0.0004765,
+  "longer": "bad"
+ },
+ "google/gemini-3.5-flash-lite||page_7.png||good_shorter||bad_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0010206,
+  "longer": "bad"
+ },
+ "google/gemini-3.6-flash||page_7.png||good_shorter||bad_first||1": {
+  "ok": true,
+  "picked": "bad",
+  "verbatim": 1.0,
+  "cost": 0.007359,
+  "longer": "bad"
+ },
+ "google/gemini-3-flash-preview||page_7.png||good_shorter||bad_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0015415,
+  "longer": "bad"
+ },
+ "google/gemini-3.1-flash-lite||page_7.png||good_shorter||bad_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.00077075,
+  "longer": "bad"
+ },
+ "google/gemini-2.5-flash-lite||page_7.png||good_shorter||bad_first||2": {
+  "ok": true,
+  "picked": "bad",
+  "verbatim": 0.8292682926829268,
+  "cost": 0.00011929,
+  "longer": "bad"
+ },
+ "google/gemini-3.5-flash-lite||page_7.png||good_shorter||bad_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0010206,
+  "longer": "bad"
+ },
+ "google/gemini-3.6-flash||page_7.png||good_shorter||bad_first||2": {
+  "ok": true,
+  "picked": "bad",
+  "verbatim": 1.0,
+  "cost": 0.006879,
+  "longer": "bad"
+ },
+ "google/gemini-3-flash-preview||page_7.png||good_longer||good_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 0.997212543554007,
+  "cost": 0.0021185,
+  "longer": "good"
+ },
+ "google/gemini-3.1-flash-lite||page_7.png||good_longer||good_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.00105325,
+  "longer": "good"
+ },
+ "google/gemini-2.5-flash-lite||page_7.png||good_longer||good_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 0.9300934579439253,
+  "cost": 0.0005539,
+  "longer": "good"
+ },
+ "google/gemini-3.5-flash-lite||page_7.png||good_longer||good_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0013597,
+  "longer": "good"
+ },
+ "google/gemini-3.6-flash||page_7.png||good_longer||good_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 0.997212543554007,
+  "cost": 0.008292,
+  "longer": "good"
+ },
+ "google/gemini-3-flash-preview||page_7.png||good_longer||good_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0021065,
+  "longer": "good"
+ },
+ "google/gemini-3.1-flash-lite||page_7.png||good_longer||good_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.00105325,
+  "longer": "good"
+ },
+ "google/gemini-2.5-flash-lite||page_7.png||good_longer||good_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 0.9300934579439253,
+  "cost": 0.0005539,
+  "longer": "good"
+ },
+ "google/gemini-3.5-flash-lite||page_7.png||good_longer||good_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0013597,
+  "longer": "good"
+ },
+ "google/gemini-3.6-flash||page_7.png||good_longer||good_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 0.997212543554007,
+  "cost": 0.010656,
+  "longer": "good"
+ },
+ "google/gemini-3-flash-preview||page_7.png||good_longer||good_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0021065,
+  "longer": "good"
+ },
+ "google/gemini-3.1-flash-lite||page_7.png||good_longer||good_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0009515,
+  "longer": "good"
+ },
+ "google/gemini-2.5-flash-lite||page_7.png||good_longer||good_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 0.9282794500185805,
+  "cost": 0.00028779,
+  "longer": "good"
+ },
+ "google/gemini-3.5-flash-lite||page_7.png||good_longer||good_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0013797,
+  "longer": "good"
+ },
+ "google/gemini-3.6-flash||page_7.png||good_longer||good_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 0.997212543554007,
+  "cost": 0.010212,
+  "longer": "good"
+ },
+ "google/gemini-3-flash-preview||page_7.png||good_longer||bad_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0021065,
+  "longer": "good"
+ },
+ "google/gemini-3.1-flash-lite||page_7.png||good_longer||bad_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0009515,
+  "longer": "good"
+ },
+ "google/gemini-2.5-flash-lite||page_7.png||good_longer||bad_first||0": {
+  "ok": true,
+  "picked": "bad",
+  "verbatim": 1.0,
+  "cost": 0.0004915,
+  "longer": "good"
+ },
+ "google/gemini-3.5-flash-lite||page_7.png||good_longer||bad_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0013072,
+  "longer": "good"
+ },
+ "google/gemini-3.6-flash||page_7.png||good_longer||bad_first||0": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.008886,
+  "longer": "good"
+ },
+ "google/gemini-3-flash-preview||page_7.png||good_longer||bad_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0021065,
+  "longer": "good"
+ },
+ "google/gemini-3.1-flash-lite||page_7.png||good_longer||bad_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0009515,
+  "longer": "good"
+ },
+ "google/gemini-2.5-flash-lite||page_7.png||good_longer||bad_first||1": {
+  "ok": true,
+  "picked": "bad",
+  "verbatim": 1.0,
+  "cost": 0.0004915,
+  "longer": "good"
+ },
+ "google/gemini-3.5-flash-lite||page_7.png||good_longer||bad_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0013072,
+  "longer": "good"
+ },
+ "google/gemini-3.6-flash||page_7.png||good_longer||bad_first||1": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 0.997212543554007,
+  "cost": 0.0098835,
+  "longer": "good"
+ },
+ "google/gemini-3-flash-preview||page_7.png||good_longer||bad_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0021065,
+  "longer": "good"
+ },
+ "google/gemini-3.1-flash-lite||page_7.png||good_longer||bad_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0009515,
+  "longer": "good"
+ },
+ "google/gemini-2.5-flash-lite||page_7.png||good_longer||bad_first||2": {
+  "ok": true,
+  "picked": "bad",
+  "verbatim": 1.0,
+  "cost": 0.00022339,
+  "longer": "good"
+ },
+ "google/gemini-3.5-flash-lite||page_7.png||good_longer||bad_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 1.0,
+  "cost": 0.0015369,
+  "longer": "good"
+ },
+ "google/gemini-3.6-flash||page_7.png||good_longer||bad_first||2": {
+  "ok": true,
+  "picked": "good",
+  "verbatim": 0.9975601254792611,
+  "cost": 0.0089145,
+  "longer": "good"
+ }
+}
