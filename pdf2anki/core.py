@@ -456,23 +456,34 @@ def _process_pdf_worker(pdf_file_path_str: str, common_args_dict: dict) -> str:
 
         pdf_name_stem = pdf_path.stem
         is_batch_mode = common_args_dict.get('_is_batch_mode', False)
-        
-        # Image output directory
-        if is_batch_mode:
-            base_image_dir = Path(worker_args.output_dir) if worker_args.output_dir else Path.cwd() / "pdf2pic"
-            current_image_output_dir = base_image_dir / pdf_name_stem
-        else:
-            current_image_output_dir = Path(worker_args.output_dir) if worker_args.output_dir else Path.cwd() / "pdf2pic" / pdf_name_stem
-        current_image_output_dir.mkdir(parents=True, exist_ok=True)
+        is_recursive = common_args_dict.get('_is_recursive', False)
 
-        # Text output file
-        if is_batch_mode:
-            base_text_dir = Path(worker_args.output_file) if worker_args.output_file else Path.cwd()
-            if base_text_dir.suffix and base_text_dir.parent != Path('.'):
-                base_text_dir = base_text_dir.parent
-            current_text_output_file = base_text_dir / f"{pdf_name_stem}.txt"
+        if is_recursive:
+            # Mirror the source tree: every PDF's output lands next to the PDF
+            # itself -- byte-identical to what `cd <dir> && pdf2anki pdf2text .`
+            # produces. That keeps the layout meaningful across many folders
+            # (instead of dumping every .txt into one directory) and lets resume
+            # pick up folders that were processed the old, manual way.
+            current_image_output_dir = pdf_path.parent / "pdf2pic" / pdf_name_stem
+            current_text_output_file = pdf_path.parent / f"{pdf_name_stem}.txt"
         else:
-            current_text_output_file = Path(worker_args.output_file) if worker_args.output_file else Path.cwd() / f"{pdf_name_stem}.txt"
+            # Image output directory
+            if is_batch_mode:
+                base_image_dir = Path(worker_args.output_dir) if worker_args.output_dir else Path.cwd() / "pdf2pic"
+                current_image_output_dir = base_image_dir / pdf_name_stem
+            else:
+                current_image_output_dir = Path(worker_args.output_dir) if worker_args.output_dir else Path.cwd() / "pdf2pic" / pdf_name_stem
+
+            # Text output file
+            if is_batch_mode:
+                base_text_dir = Path(worker_args.output_file) if worker_args.output_file else Path.cwd()
+                if base_text_dir.suffix and base_text_dir.parent != Path('.'):
+                    base_text_dir = base_text_dir.parent
+                current_text_output_file = base_text_dir / f"{pdf_name_stem}.txt"
+            else:
+                current_text_output_file = Path(worker_args.output_file) if worker_args.output_file else Path.cwd() / f"{pdf_name_stem}.txt"
+
+        current_image_output_dir.mkdir(parents=True, exist_ok=True)
         current_text_output_file.parent.mkdir(parents=True, exist_ok=True)
 
         pdf_to_images_args = argparse.Namespace(
@@ -529,17 +540,46 @@ def pdf_to_text(args: argparse.Namespace) -> None:
     input_path = Path(args.pdf_path)
     pdf_files_to_process: List[Path] = []
     is_batch_mode = False
+    recursive = getattr(args, 'recursive', False)
+
+    # --recursive fixes the output layout itself (next to each source PDF), so an
+    # explicit single-target output path cannot be honoured at the same time.
+    # Fail loudly rather than silently ignoring what the user asked for.
+    if recursive and (args.output_dir or args.output_file):
+        print("[ERROR] --recursive writes each PDF's output next to that PDF, so it cannot be")
+        print("        combined with an explicit image dir / output file. Drop those arguments,")
+        print("        or process a single directory without --recursive.")
+        sys.exit(1)
 
     if input_path.is_dir():
         is_batch_mode = True
-        pdf_files_to_process = sorted(list(input_path.glob("*.pdf")))
+        pdf_files_to_process = sorted(
+            input_path.rglob("*.pdf") if recursive else input_path.glob("*.pdf")
+        )
+        if recursive:
+            # Never re-ingest our own artifacts: pdf2pic/ holds rendered pages and
+            # log_archive/ holds rotated logs. A stray PDF in there is not input.
+            pdf_files_to_process = [
+                p for p in pdf_files_to_process
+                if not {"pdf2pic", "log_archive"} & set(p.relative_to(input_path).parts[:-1])
+            ]
         if not pdf_files_to_process:
-            print(f"[INFO] No PDF files found in directory: {args.pdf_path}")
+            scope = "directory tree" if recursive else "directory"
+            print(f"[INFO] No PDF files found in {scope}: {args.pdf_path}")
             return
-        print(f"[INFO] Batch mode activated. Found {len(pdf_files_to_process)} PDF(s) in '{args.pdf_path}'.")
+        if recursive:
+            folders = len({p.parent for p in pdf_files_to_process})
+            print(f"[INFO] Recursive batch mode. Found {len(pdf_files_to_process)} PDF(s) "
+                  f"across {folders} folder(s) under '{args.pdf_path}'.")
+            print("[INFO] Each PDF's text and images are written next to the PDF itself.")
+        else:
+            print(f"[INFO] Batch mode activated. Found {len(pdf_files_to_process)} PDF(s) in '{args.pdf_path}'.")
     elif input_path.is_file():
         if input_path.suffix.lower() != '.pdf':
             raise ValueError(f"Input file is not a PDF: {args.pdf_path}")
+        if recursive:
+            print("[WARN] --recursive has no effect on a single PDF file; ignoring it.")
+            recursive = False
         pdf_files_to_process.append(input_path)
         print(f"[INFO] Single file mode: Processing '{args.pdf_path}'.")
     else:
@@ -550,6 +590,7 @@ def pdf_to_text(args: argparse.Namespace) -> None:
 
     common_args_dict = vars(args).copy()
     common_args_dict['_is_batch_mode'] = is_batch_mode
+    common_args_dict['_is_recursive'] = recursive
 
     if is_batch_mode and len(pdf_files_to_process) > 1:
         cpu_cores = os.cpu_count() or 1
@@ -1204,6 +1245,17 @@ def cli_invoke() -> None:
     parser_pdf2text.add_argument("output_dir", type=str, nargs='?', default=None, help="Optional: Image dir base / specific dir.")
     parser_pdf2text.add_argument("rectangles", type=str, nargs="*", default=[], help="Optional: Crop rectangles.")
     parser_pdf2text.add_argument("output_file", type=str, nargs='?', default=None, help="Optional: Text output dir / file.")
+    parser_pdf2text.add_argument(
+        "-r", "--recursive", action="store_true", default=False,
+        help=(
+            "Walk the directory tree instead of only its top level. Each PDF's text and "
+            "images are written next to that PDF (<dir>/<stem>.txt and <dir>/pdf2pic/<stem>/), "
+            "so the folder structure is preserved and previously processed folders resume. "
+            "Skips pdf2pic/ and log_archive/. Cannot be combined with an explicit output dir/file. "
+            "Note: more PDFs means more worker processes -- throttle with --max-concurrent-pages "
+            "if you want a gentler request rate."
+        ),
+    )
     parser_pdf2text.add_argument("--model", action="append", default=[], help="OCR model(s) to use (overrides presets).")
     parser_pdf2text.add_argument("--repeat", action="append", type=int, default=[], help="Repeats per model (overrides presets).")
     parser_pdf2text.add_argument("--judge-model", type=str, default=None, help="Judge model to use (overrides presets).")

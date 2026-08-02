@@ -653,7 +653,7 @@ A comprehensive command to convert PDF documents to text. It can process a singl
 
 **Syntax**
 ```bash
-pdf2anki pdf2text <pdf_path_or_dir> [images_output_dir] [rectangle1 ...] [text_output_path] [OPTIONS...]
+pdf2anki pdf2text <pdf_path_or_dir> [images_output_dir] [rectangle1 ...] [OPTIONS...]
 ```
 
 **Positional Arguments**
@@ -664,11 +664,17 @@ pdf2anki pdf2text <pdf_path_or_dir> [images_output_dir] [rectangle1 ...] [text_o
     *   If `pdf_path_or_dir` is a directory: The base directory where subfolders for each PDF's images will be created (e.g., `<images_output_dir>/<pdf_name>/`).
         Default: `./pdf2pic/`
 3.  `rectangles` (Optional, zero or more): Crop rectangle strings (e.g., `"l,t,r,b"`), applied to all processed PDFs.
-4.  `text_output_path` (Optional):
-    *   If `pdf_path_or_dir` is a single file: The full path for the final output `.txt` file.
-        Default: `./<pdf_name_without_extension>.txt` (in the current working directory).
-    *   If `pdf_path_or_dir` is a directory: The base directory where individual `.txt` files (one per PDF) will be saved.
-        Default: Current working directory.
+
+> **Where the `.txt` goes.** There is a fourth positional (`output_file`) in the parser, but
+> `rectangles` is greedy (`nargs="*"`), so **any** argument after `images_output_dir` is parsed
+> as a crop rectangle — at every argument count. Passing a text path there does not redirect
+> the output, it fails with `Invalid rectangle definition '<your path>'`.
+>
+> The text output location is therefore always derived, not passed:
+> *   default — `./<pdf_name>.txt`, relative to the **current working directory**
+> *   with `--recursive` — next to each source PDF, mirroring the input tree
+>
+> To control it without `--recursive`, `cd` into the target directory first.
 
 **Optional OCR Arguments**
 Accepts all [OCR options from `pic2text`](#pic2text). Command-line options override config presets. If no model is specified via options or presets, `default_model` from config is used.
@@ -676,6 +682,16 @@ Accepts all [OCR options from `pic2text`](#pic2text). Command-line options overr
 **Behavior**
 *   **Single PDF:** Converts to images (with cropping if `rectangles` provided), then performs OCR on these images.
 *   **Directory of PDFs:** Processes each PDF found in the directory. Image conversion and OCR for different PDFs are run in parallel using multiple CPU cores for efficiency.
+*   **`-r` / `--recursive`:** Walks the whole directory tree instead of only its top level, so a
+    nested course/exercise layout can be processed with one command instead of one `cd` per folder.
+    Each PDF's output is written **next to that PDF** (`<dir>/<stem>.txt` and `<dir>/pdf2pic/<stem>/`),
+    which is byte-identical to what a manual per-folder run produces — so folders you already
+    processed that way resume for free instead of being redone.
+    Our own artifact directories (`pdf2pic/`, `log_archive/`) are skipped as inputs.
+    Cannot be combined with an explicit `images_output_dir`; that combination exits with an error
+    rather than silently ignoring the argument.
+    More PDFs means more worker processes (`min(#pdfs, 0.6 × CPU cores)`), each running its own
+    page-level pool — use `--max-concurrent-pages` if you want a gentler request rate.
 *   When OCR resume is enabled (default), image generation is resume-aware: existing valid page files are reused and only missing/invalid pages are regenerated.
 *   If any page reaches `--max-page-attempts`, OCR is paused and `pdf2text` exits with an error so the run can be resumed later.
 *   Default paths are intelligently determined if optional path arguments are omitted.
@@ -690,21 +706,30 @@ Accepts all [OCR options from `pic2text`](#pic2text). Command-line options overr
     pdf2anki pdf2text "path/to/my/pdfs/"
     ```
 
-2.  **Process a single PDF with specified output paths and OCR models (overriding presets)**
+2.  **Process a single PDF with a specific image directory and OCR model (overriding presets)**
     ```bash
-    pdf2anki pdf2text "mydoc.pdf" "images_out/" "doc_text.txt" --model "google/gemini-2.0-flash-001"
+    pdf2anki pdf2text "mydoc.pdf" "images_out/" --model "google/gemini-2.0-flash-001"
     ```
     - Images: `images_out/`
-    - Text: `doc_text.txt`
+    - Text: `./mydoc.txt` (cwd — see the note above; it cannot be passed positionally)
 
-3.  **Process a directory, specify output base directories, and crop**
+3.  **Process a directory, specify the image base directory, and crop**
     ```bash
-    pdf2anki pdf2text ./research_papers/ /mnt/data/paper_images/ "50,50,800,1000" /mnt/data/paper_texts/ \
+    pdf2anki pdf2text ./research_papers/ /mnt/data/paper_images/ "50,50,800,1000" \
         --model openai/chatgpt-4o-latest
     ```
     - Images for `research_papers/paper1.pdf`: `/mnt/data/paper_images/paper1/`
-    - Text for `research_papers/paper1.pdf`: `/mnt/data/paper_texts/paper1.txt`
+    - Text for `research_papers/paper1.pdf`: `./paper1.txt` (cwd)
     - All pages cropped to "50,50,800,1000".
+
+4.  **Process a whole nested tree in one command (lectures + exercises)**
+    ```bash
+    pdf2anki pdf2text . --recursive
+    ```
+    - Finds every PDF at any depth below `.`
+    - `Übungen/Hausübung_01/HA01.pdf` → `Übungen/Hausübung_01/HA01.txt`
+      and `Übungen/Hausübung_01/pdf2pic/HA01/`
+    - Already-processed folders resume instead of re-running.
 
 4.  **Process a single PDF using only default OCR model and inferred paths**
     ```bash
