@@ -20,8 +20,18 @@
 !DEV_GENANKI_FEATURES.md
 !FAQ.md
 !tests/*
+!docs/*
+!tools/*
 !SUPERLAZYMODE_PLAN.md
 # etc...
+
+# Incident case files stay local: they name the affected commit SHAs, and an
+# orphaned commit is only findable if you know its SHA. Publishing it would
+# widen the exposure, not close it. See docs/repo-hygiene.md.
+*.local.md
+INCIDENT-*.md
+# Backup output, in case someone points backup_repo.sh at the repo itself.
+package_pdf2anki-backup-*/
 
 
 # ...even if they are in subdirectories

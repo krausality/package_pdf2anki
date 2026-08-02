@@ -29,6 +29,12 @@ pdf2anki . -y   ──►  scans folder tree, auto-configures, runs all pending 
                      (run in the TOP-LEVEL course folder — finds PDFs in all subfolders)
 ```
 
+> **Working with course material?** Your PDFs, and anything this tool derives from them,
+> are usually someone else's copyrighted work. If you contribute here, read
+> [docs/repo-hygiene.md](docs/repo-hygiene.md) first — it covers what must not reach this
+> public repo, how the `.gitignore` enforces it, what to do if something slips through
+> anyway, and how to back the repository up.
+
 ## Lazy Start
 
 ```bash
