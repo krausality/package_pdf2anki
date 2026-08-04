@@ -1225,3 +1225,354 @@ class TestJudgePending:
         # State is now clean and archived away.
         state_file = Path(out_file + ".ocr_state.json")
         assert not state_file.exists(), "fully-judged run should archive its state"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _http_post SSE transport — streaming consumption, idle/wall guards, fallbacks
+# These tests patch _get_session (NOT _http_post), so the real transport runs.
+# ─────────────────────────────────────────────────────────────────────────────
+
+import time as _time
+import requests as req_lib
+
+CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+
+def make_stream_response(lines, status=200, ctype="text/event-stream", body=b""):
+    """Real requests.Response with instance-level iter_lines/iter_content fakes.
+
+    `lines` is a list of bytes lines or a zero-arg callable returning an
+    iterator (for generators that sleep between yields). Using a real Response
+    keeps .json()/.raise_for_status() honest instead of mocking them.
+    """
+    resp = req_lib.Response()
+    resp.status_code = status
+    resp.headers["Content-Type"] = ctype
+    resp.iter_lines = lambda **_kw: (lines() if callable(lines) else iter(lines))
+    resp.iter_content = lambda **_kw: iter([body])
+    resp.close = MagicMock()
+    return resp
+
+
+def sse_lines(events, done=True, leading_comment=True):
+    """Encode dict events as OpenRouter-style SSE lines (as measured live)."""
+    lines = []
+    if leading_comment:
+        lines += [b": OPENROUTER PROCESSING", b""]
+    for ev in events:
+        lines += [b"data: " + json.dumps(ev).encode("utf-8"), b""]
+    if done:
+        lines += [b"data: [DONE]", b""]
+    return lines
+
+
+def _patched_session(resp):
+    session = MagicMock()
+    session.post.return_value = resp
+    return patch("pdf2anki.pic2text._get_session", return_value=session), session
+
+
+def _chat_call_kwargs():
+    return dict(
+        url=CHAT_URL,
+        headers={"Authorization": "Bearer fake", "X-Title": "pdf2anki-ocr"},
+        data=json.dumps({"model": "m", "messages": []}),
+        timeout=120,
+    )
+
+
+class TestHttpPostSseTransport:
+    def test_sse_stream_assembles_eager_response(self):
+        """Deltas are joined, finish_reason and usage survive, payload gains
+        stream + stream_options — and callers still get an eager Response."""
+        from pdf2anki.pic2text import _http_post
+        resp = make_stream_response(sse_lines([
+            {"id": "gen-1", "model": "m", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "Hel"}}]},
+            {"id": "gen-1", "choices": [{"index": 0, "delta": {"content": "lo"}}]},
+            {"id": "gen-1", "choices": [{"index": 0, "delta": {"content": ""}, "finish_reason": "stop"}],
+             "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12}},
+        ]))
+        session_patch, session = _patched_session(resp)
+        with session_patch:
+            out = _http_post(**_chat_call_kwargs())
+
+        out.raise_for_status()  # must not raise
+        data = out.json()
+        assert data["choices"][0]["message"]["content"] == "Hello"
+        assert data["choices"][0]["finish_reason"] == "stop"
+        assert data["usage"]["completion_tokens"] == 2
+
+        sent = json.loads(session.post.call_args.kwargs["data"])
+        assert sent["stream"] is True
+        assert sent["stream_options"] == {"include_usage": True}
+
+    def test_sse_idle_timeout_fires_on_keepalives_without_deltas(self):
+        """The core regression test for the observed hang: a stream that stays
+        alive with keep-alive comments but never produces a data event must be
+        aborted by the idle timeout — as requests.exceptions.Timeout, so the
+        callers' existing handlers route the attempt into the retry path."""
+        from pdf2anki.pic2text import _http_post
+
+        def endless_keepalives():
+            while True:
+                _time.sleep(0.02)
+                yield b": OPENROUTER PROCESSING"
+                yield b""
+
+        resp = make_stream_response(endless_keepalives)
+        session_patch, _ = _patched_session(resp)
+        started = _time.monotonic()
+        with session_patch, \
+             patch("pdf2anki.pic2text.HTTP_STREAM_IDLE_TIMEOUT_SECONDS", 0.15), \
+             patch("pdf2anki.pic2text.HTTP_WALL_TIMEOUT_SECONDS", 30):
+            with pytest.raises(req_lib.exceptions.Timeout):
+                _http_post(**_chat_call_kwargs())
+        assert _time.monotonic() - started < 5, "idle timeout must fire promptly"
+        resp.close.assert_called()
+
+    def test_sse_reasoning_deltas_count_as_progress(self):
+        """Reasoning models stream delta.reasoning for a long time with content
+        still empty (verified live). Those events must reset the idle clock —
+        total runtime here exceeds the idle window several times over."""
+        from pdf2anki.pic2text import _http_post
+
+        def reasoning_then_answer():
+            yield b": OPENROUTER PROCESSING"
+            yield b""
+            for i in range(8):
+                _time.sleep(0.06)  # per-gap < idle, total >> idle
+                ev = {"id": "gen-r", "model": "m",
+                      "choices": [{"index": 0, "delta": {"content": "", "reasoning": f"step {i}"}}]}
+                yield b"data: " + json.dumps(ev).encode("utf-8")
+                yield b""
+            ev = {"id": "gen-r", "choices": [{"index": 0, "delta": {"content": "OK"}, "finish_reason": "stop"}]}
+            yield b"data: " + json.dumps(ev).encode("utf-8")
+            yield b""
+            yield b"data: [DONE]"
+            yield b""
+
+        resp = make_stream_response(reasoning_then_answer)
+        session_patch, _ = _patched_session(resp)
+        with session_patch, \
+             patch("pdf2anki.pic2text.HTTP_STREAM_IDLE_TIMEOUT_SECONDS", 0.2), \
+             patch("pdf2anki.pic2text.HTTP_WALL_TIMEOUT_SECONDS", 30):
+            out = _http_post(**_chat_call_kwargs())
+        data = out.json()
+        assert data["choices"][0]["message"]["content"] == "OK"
+        assert data["choices"][0]["finish_reason"] == "stop"
+
+    def test_sse_wall_ceiling_fires_despite_continuous_deltas(self):
+        """A pathological producer that keeps emitting deltas forever is capped
+        by the wall backstop even though the idle clock keeps resetting."""
+        from pdf2anki.pic2text import _http_post
+
+        def endless_deltas():
+            i = 0
+            while True:
+                _time.sleep(0.02)
+                ev = {"choices": [{"index": 0, "delta": {"content": f"w{i} "}}]}
+                yield b"data: " + json.dumps(ev).encode("utf-8")
+                yield b""
+                i += 1
+
+        resp = make_stream_response(endless_deltas)
+        session_patch, _ = _patched_session(resp)
+        with session_patch, \
+             patch("pdf2anki.pic2text.HTTP_STREAM_IDLE_TIMEOUT_SECONDS", 10), \
+             patch("pdf2anki.pic2text.HTTP_WALL_TIMEOUT_SECONDS", 0.15):
+            with pytest.raises(req_lib.exceptions.Timeout):
+                _http_post(**_chat_call_kwargs())
+        resp.close.assert_called()
+
+    def test_sse_mid_stream_error_raises_request_exception(self):
+        """After HTTP 200, provider errors arrive as data events. They must
+        surface as a RequestException subclass so existing handlers catch them."""
+        from pdf2anki.pic2text import _http_post, OpenRouterStreamError
+        resp = make_stream_response(sse_lines([
+            {"choices": [{"index": 0, "delta": {"content": "par"}}]},
+            {"error": {"code": 502, "message": "Provider fell over"}},
+        ], done=False))
+        session_patch, _ = _patched_session(resp)
+        with session_patch:
+            with pytest.raises(OpenRouterStreamError) as exc_info:
+                _http_post(**_chat_call_kwargs())
+        assert isinstance(exc_info.value, req_lib.exceptions.RequestException)
+        assert "Provider fell over" in str(exc_info.value)
+        resp.close.assert_called()
+
+    def test_sse_completion_char_cap_synthesizes_length(self):
+        """Runaway output is cut in flight; the assembled response carries
+        finish_reason == "length" so the callers' existing truncation branch
+        fails the attempt into the retry path."""
+        from pdf2anki.pic2text import _http_post
+        resp = make_stream_response(sse_lines([
+            {"choices": [{"index": 0, "delta": {"content": "abcdef"}}]},
+            {"choices": [{"index": 0, "delta": {"content": "abcdef"}}]},
+            {"choices": [{"index": 0, "delta": {"content": "never-read"}}]},
+        ], done=False))
+        session_patch, _ = _patched_session(resp)
+        with session_patch, \
+             patch("pdf2anki.pic2text.HTTP_MAX_COMPLETION_CHARS", 10):
+            out = _http_post(**_chat_call_kwargs())
+        data = out.json()
+        assert data["choices"][0]["finish_reason"] == "length"
+        assert data["choices"][0]["message"]["content"] == "abcdefabcdef"
+        assert "usage" not in data  # aborted before the usage event
+        resp.close.assert_called()  # half-read stream must not be pooled
+
+    def test_error_status_falls_back_to_eager_body(self):
+        """stream:true requests still get plain application/json error bodies
+        (verified live with an invalid model ID) — those must go down the eager
+        path so raise_for_status()/.json() behave classically."""
+        from pdf2anki.pic2text import _http_post
+        resp = make_stream_response(
+            lines=[], status=400, ctype="application/json",
+            body=b'{"error": {"message": "not a valid model ID", "code": 400}}',
+        )
+        session_patch, _ = _patched_session(resp)
+        with session_patch:
+            out = _http_post(**_chat_call_kwargs())
+        with pytest.raises(req_lib.exceptions.HTTPError):
+            out.raise_for_status()
+        assert out.json()["error"]["code"] == 400
+
+    def test_non_chat_url_payload_not_touched(self):
+        """Only chat-completion calls are upgraded to SSE; other URLs pass
+        through with their payload byte-identical."""
+        from pdf2anki.pic2text import _http_post
+        resp = make_stream_response(lines=[], status=200, ctype="application/json",
+                                    body=b'{"ok": true}')
+        session_patch, session = _patched_session(resp)
+        original = json.dumps({"model": "m"})
+        with session_patch:
+            out = _http_post(url="https://example.org/other", headers={}, data=original, timeout=5)
+        assert out.json() == {"ok": True}
+        assert session.post.call_args.kwargs["data"] == original
+
+    def test_post_ocr_request_end_to_end_over_sse(self, tmp_path):
+        """Production caller through the real transport: _post_ocr_request gets
+        its text from assembled deltas and writes its log line."""
+        from pdf2anki.pic2text import _post_ocr_request
+        resp = make_stream_response(sse_lines([
+            {"id": "gen-1", "model": "m", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "Page "}}]},
+            {"choices": [{"index": 0, "delta": {"content": "text."}, "finish_reason": "stop"}],
+             "usage": {"completion_tokens": 3}},
+        ]))
+        session_patch, _ = _patched_session(resp)
+        log_file = str(tmp_path / "ocr.log")
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), session_patch:
+            text = _post_ocr_request("m", "aW1n", log_file, "page_1.png", 1)
+        assert text == "Page text."
+        assert "Page text." in Path(log_file).read_text(encoding="utf-8")
+
+    def test_post_ocr_request_char_cap_becomes_error_attempt(self, tmp_path):
+        """Cap trip end-to-end: the synthesized finish_reason == "length" must
+        turn into an [ERROR: ...] attempt (retry path), not a successful page."""
+        from pdf2anki.pic2text import _post_ocr_request
+        resp = make_stream_response(sse_lines([
+            {"choices": [{"index": 0, "delta": {"content": "runaway " * 4}}]},
+            {"choices": [{"index": 0, "delta": {"content": "runaway " * 4}}]},
+        ], done=False))
+        session_patch, _ = _patched_session(resp)
+        log_file = str(tmp_path / "ocr.log")
+        with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), session_patch, \
+             patch("pdf2anki.pic2text.HTTP_MAX_COMPLETION_CHARS", 20):
+            text = _post_ocr_request("m", "aW1n", log_file, "page_1.png", 1)
+        assert text.startswith("[ERROR: OCR response truncated")
+
+    def test_sse_post_done_data_events_are_ignored(self):
+        """Events after [DONE] (seen from misbehaving intermediaries) must not
+        leak into the assembled result: neither content nor finish_reason."""
+        from pdf2anki.pic2text import _http_post
+        lines = sse_lines([
+            {"id": "gen-1", "model": "m",
+             "choices": [{"index": 0, "delta": {"content": "real"}, "finish_reason": "stop"}],
+             "usage": {"completion_tokens": 1}},
+        ], done=True)
+        injected = {"choices": [{"index": 0, "delta": {"content": " INJECTED"},
+                                 "finish_reason": "error"}]}
+        lines += [b"data: " + json.dumps(injected).encode("utf-8"), b""]
+        resp = make_stream_response(lines)
+        session_patch, _ = _patched_session(resp)
+        with session_patch:
+            out = _http_post(**_chat_call_kwargs())
+        data = out.json()
+        assert data["choices"][0]["message"]["content"] == "real"
+        assert data["choices"][0]["finish_reason"] == "stop"
+
+    def test_sse_drain_failure_after_done_keeps_result(self):
+        """A transport failure while draining to EOF after [DONE] (silent
+        socket hitting the per-read timeout, abortive close without the
+        chunked terminator) must return the complete, paid-for result instead
+        of discarding it -- and must not pool the broken connection."""
+        from pdf2anki.pic2text import _http_post
+
+        def done_then_broken():
+            ev = {"id": "gen-1", "model": "m",
+                  "choices": [{"index": 0, "delta": {"content": "paid result"},
+                               "finish_reason": "stop"}],
+                  "usage": {"completion_tokens": 2}}
+            yield b"data: " + json.dumps(ev).encode("utf-8")
+            yield b""
+            yield b"data: [DONE]"
+            yield b""
+            raise req_lib.exceptions.ChunkedEncodingError("broken while draining")
+
+        resp = make_stream_response(done_then_broken)
+        session_patch, _ = _patched_session(resp)
+        with session_patch:
+            out = _http_post(**_chat_call_kwargs())
+        data = out.json()
+        assert data["choices"][0]["message"]["content"] == "paid result"
+        assert data["choices"][0]["finish_reason"] == "stop"
+        assert data["usage"]["completion_tokens"] == 2
+        resp.close.assert_called()
+
+    def test_sse_keepalives_after_done_return_result_within_drain_budget(self):
+        """EOF withheld after [DONE] while keep-alives keep the line busy: the
+        drain deadline must return the finished result, not raise Timeout."""
+        from pdf2anki.pic2text import _http_post
+
+        def done_then_endless_keepalives():
+            ev = {"id": "gen-1", "model": "m",
+                  "choices": [{"index": 0, "delta": {"content": "paid result"},
+                               "finish_reason": "stop"}]}
+            yield b"data: " + json.dumps(ev).encode("utf-8")
+            yield b""
+            yield b"data: [DONE]"
+            yield b""
+            while True:
+                _time.sleep(0.02)
+                yield b": OPENROUTER PROCESSING"
+                yield b""
+
+        resp = make_stream_response(done_then_endless_keepalives)
+        session_patch, _ = _patched_session(resp)
+        started = _time.monotonic()
+        with session_patch, \
+             patch("pdf2anki.pic2text.HTTP_STREAM_IDLE_TIMEOUT_SECONDS", 0.15), \
+             patch("pdf2anki.pic2text.HTTP_WALL_TIMEOUT_SECONDS", 30):
+            out = _http_post(**_chat_call_kwargs())
+        assert _time.monotonic() - started < 5, "drain must be bounded"
+        data = out.json()
+        assert data["choices"][0]["message"]["content"] == "paid result"
+        assert data["choices"][0]["finish_reason"] == "stop"
+        resp.close.assert_called()
+
+    def test_sse_premature_clean_eof_raises_stream_error(self):
+        """Clean EOF before [DONE] with no finish_reason is a truncated
+        stream. The fragment must NOT come back looking like a complete page
+        (silent truncation); it must fail into the callers' retry path as a
+        RequestException subclass."""
+        from pdf2anki.pic2text import _http_post, OpenRouterStreamError
+        resp = make_stream_response(sse_lines([
+            {"id": "gen-1", "model": "m",
+             "choices": [{"index": 0, "delta": {"content": "half a page"}}]},
+        ], done=False))
+        session_patch, _ = _patched_session(resp)
+        with session_patch:
+            with pytest.raises(OpenRouterStreamError) as exc_info:
+                _http_post(**_chat_call_kwargs())
+        assert isinstance(exc_info.value, req_lib.exceptions.RequestException)
+        assert "prematurely" in str(exc_info.value)
+        resp.close.assert_called()

@@ -69,43 +69,242 @@ def _get_session() -> requests.Session:
         return s
 
 
+class OpenRouterStreamError(requests.exceptions.RequestException):
+    """An error event arrived inside an SSE stream, after HTTP 200 was sent.
+
+    Streaming moves upstream failures past the status line: OpenRouter commits
+    to 200 as soon as it starts relaying, so a provider error mid-generation
+    arrives as a `data: {"error": ...}` event instead of an HTTP status code.
+    Subclassing RequestException keeps the callers' existing
+    `except requests.exceptions.RequestException` handlers working unchanged.
+    """
+    pass
+
+
+def _read_body_eager(response) -> None:
+    """Read a non-SSE body under the wall clock and restore the eager-Response
+    contract (.raise_for_status(), .json()) by handing requests the pre-read
+    body -- the same attribute requests itself fills on the stream=False path,
+    where Session.send simply touches r.content.
+
+    Under urllib3 2.x, iter_content yields once per received transfer chunk
+    rather than per chunk_size, so even a keep-alive dribble re-arms the
+    deadline check every ~0.4s. Should the connection instead fall completely
+    silent, the caller-supplied per-read timeout still fires -- surfacing as a
+    ConnectionError wrapping ReadTimeoutError, which the callers'
+    RequestException handlers catch.
+    """
+    deadline = time.monotonic() + HTTP_WALL_TIMEOUT_SECONDS
+    chunks: List[bytes] = []
+    for chunk in response.iter_content(chunk_size=8192):
+        chunks.append(chunk)
+        if time.monotonic() > deadline:
+            raise requests.exceptions.Timeout(
+                f"OpenRouter call exceeded the wall-clock limit of "
+                f"{HTTP_WALL_TIMEOUT_SECONDS}s while reading a non-SSE body."
+            )
+    response._content = b"".join(chunks)
+    response._content_consumed = True
+
+
+def _consume_sse_stream(response) -> Dict[str, Any]:
+    """Consume an OpenRouter SSE chat stream into a non-streamed-shaped dict.
+
+    Returns {"id", "object", "model", "choices": [{"message": {...},
+    "finish_reason": ...}], "usage"?} so the callers' response parsing works
+    identically for streamed and non-streamed transports.
+
+    Guards, in order of expected relevance (see the constants block below for
+    the rationale and the measured numbers behind each):
+      * idle timeout -- no parsed data event for HTTP_STREAM_IDLE_TIMEOUT_SECONDS.
+        Keep-alive comments and blank separator lines do NOT reset the clock;
+        any parsed data event does (including reasoning deltas).
+      * wall ceiling -- HTTP_WALL_TIMEOUT_SECONDS, absolute.
+      * completion cap -- HTTP_MAX_COMPLETION_CHARS on accumulated content;
+        trips the callers' existing finish_reason == "length" handling, but
+        mid-flight, before the runaway finishes billing.
+    Total socket silence (no lines at all) is covered by the caller-supplied
+    per-read timeout, surfacing as a ConnectionError the callers already catch.
+
+    Two post-conditions of the loop:
+      * After [DONE] the result is complete and paid for, so nothing that
+        happens while draining to EOF (timeout, transport failure) may
+        discard it -- the connection is dropped instead of pooled, and the
+        assembled result is returned.
+      * A clean EOF before [DONE] with no finish_reason means the stream was
+        cut short. The fragment is NOT returned: these pages go into
+        documents where silently truncated text that reads as complete is
+        strictly worse than a loud failed attempt, so the call fails into
+        the callers' retry path instead.
+    """
+    now = time.monotonic()
+    idle_deadline = now + HTTP_STREAM_IDLE_TIMEOUT_SECONDS
+    wall_deadline = now + HTTP_WALL_TIMEOUT_SECONDS
+    content_parts: List[str] = []
+    content_len = 0
+    finish_reason: Optional[str] = None
+    usage: Optional[Dict[str, Any]] = None
+    response_id: Optional[str] = None
+    model_id: Optional[str] = None
+    saw_done = False
+
+    line_iter = response.iter_lines(chunk_size=1024)
+    while True:
+        try:
+            raw_line = next(line_iter)
+        except StopIteration:
+            break
+        except Exception:
+            if saw_done:
+                # The result is complete and paid for; a transport failure
+                # while draining to EOF -- a silent socket tripping the
+                # per-read timeout (ConnectionError), or an abortive close
+                # without the chunked terminator (ChunkedEncodingError) --
+                # must not discard it. Drop the connection, keep the result.
+                response.close()
+                break
+            raise
+        now = time.monotonic()
+        if now > wall_deadline or now > idle_deadline:
+            if saw_done:
+                # Same principle: past [DONE] the deadlines only bound the
+                # drain, not the generation. Keep the result, drop the
+                # connection instead of pooling it half-read.
+                response.close()
+                break
+            if now > wall_deadline:
+                raise requests.exceptions.Timeout(
+                    f"OpenRouter stream exceeded the wall-clock ceiling of "
+                    f"{HTTP_WALL_TIMEOUT_SECONDS}s."
+                )
+            raise requests.exceptions.Timeout(
+                f"OpenRouter stream produced no data event for "
+                f"{HTTP_STREAM_IDLE_TIMEOUT_SECONDS}s (keep-alives only); "
+                f"treating the generation as stuck."
+            )
+        if not raw_line or raw_line.startswith(b":"):
+            # Blank event separator or ': OPENROUTER PROCESSING' comment:
+            # proves the socket is alive, not that the model is producing.
+            continue
+        if not raw_line.startswith(b"data:"):
+            continue  # other SSE fields (event:, id:) -- unused by OpenRouter
+        data = raw_line[len(b"data:"):].strip()
+        if data == b"[DONE]":
+            # Deliberately no break: the server ends the response right after
+            # [DONE], and draining to EOF lets urllib3 return the connection
+            # to the pool instead of discarding it mid-read. The drain gets a
+            # small budget of its own: past it, keeping the finished result
+            # beats keeping the connection.
+            saw_done = True
+            idle_deadline = min(idle_deadline, now + 5.0)
+            continue
+        try:
+            event = json.loads(data)
+        except ValueError:
+            continue  # tolerate one malformed line rather than kill the call
+        if not isinstance(event, dict) or saw_done:
+            continue
+        if event.get("error"):
+            err = event["error"] if isinstance(event["error"], dict) else {"message": str(event["error"])}
+            raise OpenRouterStreamError(
+                f"OpenRouter mid-stream error (HTTP status was already 200): "
+                f"code={err.get('code')}, message={str(err.get('message'))[:300]}"
+            )
+        idle_deadline = now + HTTP_STREAM_IDLE_TIMEOUT_SECONDS  # progress
+        if event.get("usage") is not None:
+            usage = event["usage"]
+        if response_id is None:
+            response_id = event.get("id")
+            model_id = event.get("model")
+        choices = event.get("choices")
+        if not (isinstance(choices, list) and choices and isinstance(choices[0], dict)):
+            continue  # e.g. a bare usage event
+        if choices[0].get("finish_reason"):
+            finish_reason = choices[0]["finish_reason"]
+        delta = choices[0].get("delta")
+        piece = delta.get("content") if isinstance(delta, dict) else None
+        if piece:
+            content_parts.append(piece)
+            content_len += len(piece)
+            if content_len > HTTP_MAX_COMPLETION_CHARS:
+                # Runaway generation: stop paying for it now and let the
+                # callers' finish_reason == "length" branch fail the attempt.
+                # The half-read connection must not go back to the pool.
+                finish_reason = "length"
+                response.close()
+                break
+
+    if not saw_done and finish_reason is None:
+        # Clean EOF before [DONE] with no finish_reason: the stream was cut
+        # short. Returning the fragment would count a half page as a success
+        # (and a half judge verdict as final); fail the attempt instead.
+        raise OpenRouterStreamError(
+            "OpenRouter stream ended prematurely: EOF before [DONE] and no "
+            "finish_reason; discarding the partial completion."
+        )
+    result: Dict[str, Any] = {
+        "id": response_id,
+        "object": "chat.completion",
+        "model": model_id,
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": "".join(content_parts)},
+            "finish_reason": finish_reason,
+        }],
+    }
+    if usage is not None:
+        result["usage"] = usage
+    return result
+
+
 def _http_post(**kwargs):
     # Single chokepoint for OpenRouter HTTP calls. Production routes through
     # the per-process Session; tests patch this name directly with side_effect.
     #
-    # The body is read manually under a wall-clock deadline (hence stream=True),
-    # because the caller's `timeout=` only bounds connect and per-read
-    # inactivity -- which OpenRouter's keep-alive dribble defeats outright. See
-    # HTTP_WALL_TIMEOUT_SECONDS for the full story. Callers get an ordinary
-    # eager Response back and keep their existing exception handling.
-    deadline = time.monotonic() + HTTP_WALL_TIMEOUT_SECONDS
+    # Chat-completion calls are upgraded to SSE streaming here, invisibly to
+    # the callers: they keep sending a plain payload and keep receiving an
+    # ordinary eager Response whose .json() looks like a non-streamed
+    # chat.completion. Rationale and guard values: see the constants block
+    # below (HTTP_STREAM_IDLE_TIMEOUT_SECONDS and friends). Anything that is
+    # not a successfully negotiated event stream -- error statuses arrive as
+    # application/json even for stream:true requests (verified live), and a
+    # non-chat URL never asks for one -- takes the eager fallback path with
+    # the wall-clock guard.
+    url = kwargs.get("url", "")
+    body = kwargs.get("data")
+    wants_sse = False
+    if isinstance(url, str) and url.rstrip("/").endswith("/chat/completions") and isinstance(body, str):
+        try:
+            payload = json.loads(body)
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            payload["stream"] = True
+            # Without this flag the stream carries no usage block; the
+            # finish_reason == "length" logging reads usage.completion_tokens.
+            # Verified live: OpenRouter sends usage as the final data event.
+            payload["stream_options"] = {"include_usage": True}
+            kwargs = dict(kwargs)
+            kwargs["data"] = json.dumps(payload)
+            wants_sse = True
+
     response = _get_session().post(stream=True, **kwargs)
     try:
-        chunks: List[bytes] = []
-        # Under urllib3 2.x, iter_content yields once per received transfer
-        # chunk rather than per chunk_size, so with OpenRouter's ~0.4s keep-
-        # alive cadence the deadline is re-checked every ~0.4s. Should the
-        # connection instead fall completely silent, the caller's per-read
-        # timeout still fires -- surfacing as a ConnectionError wrapping
-        # ReadTimeoutError, which their RequestException handlers catch.
-        for chunk in response.iter_content(chunk_size=8192):
-            chunks.append(chunk)
-            if time.monotonic() > deadline:
-                raise requests.exceptions.Timeout(
-                    f"OpenRouter call exceeded the wall-clock limit of "
-                    f"{HTTP_WALL_TIMEOUT_SECONDS}s (keep-alive bytes kept the "
-                    f"socket alive past the read timeout)."
-                )
+        content_type = (response.headers.get("Content-Type") or "").lower()
+        if not wants_sse or response.status_code != 200 or "text/event-stream" not in content_type:
+            _read_body_eager(response)
+            return response
+        response_data = _consume_sse_stream(response)
         # Restore the eager-Response contract the callers rely on
-        # (.raise_for_status(), .json()) by handing requests the pre-read body.
-        # This is the same attribute requests itself fills on the stream=False
-        # path, where Session.send simply touches r.content.
-        response._content = b"".join(chunks)
+        # (.raise_for_status(), .json()) by handing requests the assembled
+        # body -- the same attribute requests itself fills on the
+        # stream=False path, where Session.send simply touches r.content.
+        response._content = json.dumps(response_data).encode("utf-8")
         response._content_consumed = True
         return response
     except BaseException:
-        # Deadline hit or transport error: drop the connection rather than
-        # returning a half-read socket to the pool.
+        # Deadline hit, mid-stream error, or transport failure: drop the
+        # connection rather than returning a half-read socket to the pool.
         response.close()
         raise
 
@@ -151,34 +350,62 @@ DEFAULT_MAX_IMAGE_KB = 800
 MIN_LONGEST_EDGE_PX = 1600
 MIN_JPEG_QUALITY = 60
 
-# Wall-clock ceiling for a single OpenRouter call, in seconds -- enforced by
-# _http_post, NOT by the `timeout=` the callers pass.
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    """Integer knob from the environment, clamped below by `minimum`.
+
+    load_dotenv() already ran above, so a project .env is picked up without
+    further plumbing. Malformed values fall back to the default rather than
+    aborting an OCR run over a typo.
+    """
+    try:
+        return max(minimum, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+
+# Transport guards for a single OpenRouter call -- enforced inside _http_post,
+# NOT by the `timeout=` the callers pass (that only bounds connect time and
+# per-read socket *inactivity*).
 #
-# requests' timeout is a per-socket-read *inactivity* timeout, and OpenRouter
-# keeps non-streamed connections warm by dribbling a whitespace keep-alive line
-# (b'\n         \n') roughly every 0.4s while the model is still generating. The
-# socket therefore never goes quiet and that timeout can never fire. Observed
-# result: a stuck generation blocked a worker thread forever -- no Timeout, no
-# OCR log line (the log write happens after the response), the page left at
-# status="pending"/attempts_used=0, and the run never ended.
+# Chat-completion calls are streamed (SSE) at the transport layer. The reason
+# is that non-streaming offers no progress signal: OpenRouter pads the silent
+# generation phase with whitespace keep-alives (b'\n         \n' every ~0.4s,
+# measured live), which reset the per-read inactivity timeout indefinitely --
+# a stuck generation once blocked a worker thread forever, and the only
+# possible defense was a blunt wall-clock ceiling that had to referee between
+# "slow but healthy model" and "stuck model" without being able to tell them
+# apart. In SSE mode token deltas ARE the progress signal, so three graded
+# guards replace the single lossy wall value:
 #
-# 300s is a deliberately asymmetric trade. Too HIGH only costs idle waiting in
-# the rare hung-generation case: one incident = one wall-timeout, and because
-# the --repeat attempts run in parallel a page cycle costs max(), not sum().
-# Too LOW is far worse -- a value below a slow model's legitimate per-page
-# duration makes the page unhealable, killing it on every one of the
-# max_page_attempts retries while paying for each aborted generation. Observed
-# legitimate calls with a fast model peak at ~17s; 300s leaves ~17x headroom
-# and still caps the runaway repetition loop described at the
-# finish_reason == "length" check below after 5 minutes, instead of paying for
-# it to generate 65k tokens to the end.
-#
-# Override for models that legitimately need longer; .env is already loaded
-# above, so this picks up a project .env without further plumbing.
-try:
-    HTTP_WALL_TIMEOUT_SECONDS = max(1, int(os.getenv("PDF2ANKI_HTTP_WALL_TIMEOUT_S", "300")))
-except ValueError:
-    HTTP_WALL_TIMEOUT_SECONDS = 300
+#  * HTTP_STREAM_IDLE_TIMEOUT_SECONDS -- the workhorse. Abort when no new SSE
+#    data event has arrived for this long. Keep-alive comments
+#    (': OPENROUTER PROCESSING') deliberately do NOT count as progress -- they
+#    only say the socket is alive -- but ANY parsed data event does, including
+#    role-only preambles and delta.reasoning: reasoning models stream thought
+#    tokens for minutes while content stays empty (verified live), and an
+#    idle clock keyed to content alone would kill them. 120s is ~85x the
+#    observed time-to-first-token; a stuck generation now dies after 2
+#    minutes, while a slow model that keeps producing deltas can never be
+#    killed by it.
+#  * HTTP_WALL_TIMEOUT_SECONDS -- pure backstop, no longer the primary guard.
+#    Caps a pathological producer that dribbles one delta every few seconds
+#    indefinitely, and bounds the non-SSE fallback path (HTTP error bodies,
+#    intermediaries that strip streaming). Raised from 300 to 1800 alongside
+#    the semantics change: with the idle timeout refereeing stuck-vs-slow,
+#    this value only needs to cap the absurd, and must sit safely above any
+#    legitimate slow stream so it never re-creates the unhealable-page
+#    failure mode (a guard below a model's honest per-page duration would
+#    kill the page on every one of the max_page_attempts retries).
+#  * HTTP_MAX_COMPLETION_CHARS -- in-flight version of the
+#    finish_reason == "length" runaway check further down (observed incident:
+#    65k tokens / ~2MB of text for a ~200-token page, 150x normal cost).
+#    Streaming lets us cut such a blob after ~10% of that instead of paying
+#    for it to complete; the synthesized finish_reason == "length" routes the
+#    attempt through the exact same retry path as the post-hoc check. 200k
+#    chars is >10x a dense OCR page.
+HTTP_STREAM_IDLE_TIMEOUT_SECONDS = _env_int("PDF2ANKI_HTTP_IDLE_TIMEOUT_S", 120)
+HTTP_WALL_TIMEOUT_SECONDS = _env_int("PDF2ANKI_HTTP_WALL_TIMEOUT_S", 1800)
+HTTP_MAX_COMPLETION_CHARS = _env_int("PDF2ANKI_HTTP_MAX_COMPLETION_CHARS", 200_000)
 
 OUTPUT_SECTION_HEADER_RE = re.compile(r'^Image:\s*(.+?)\s*$')
 
@@ -922,6 +1149,10 @@ def _post_ocr_request(model_name: str, base64_image: str, ocr_log_file: str, ima
                  # tokens / ~2 MB of text for a slide whose real transcription is
                  # ~200 tokens, costing 150x a normal page -- and the blown-up text
                  # was then passed to the judge, whose call cost 20x normal.
+                 # Two feeders reach this branch: the model's own token ceiling,
+                 # and the in-flight HTTP_MAX_COMPLETION_CHARS cut in the SSE
+                 # transport (which aborts before the usage event, so
+                 # completion_tokens logs as None in that case).
                  # Without this check the blob counts as a successful page, because
                  # _is_successful_ocr_text() only rejects the [ERROR:/[INFO: prefixes.
                  # Turning it into an error routes the page through the normal retry
