@@ -72,7 +72,42 @@ def _get_session() -> requests.Session:
 def _http_post(**kwargs):
     # Single chokepoint for OpenRouter HTTP calls. Production routes through
     # the per-process Session; tests patch this name directly with side_effect.
-    return _get_session().post(**kwargs)
+    #
+    # The body is read manually under a wall-clock deadline (hence stream=True),
+    # because the caller's `timeout=` only bounds connect and per-read
+    # inactivity -- which OpenRouter's keep-alive dribble defeats outright. See
+    # HTTP_WALL_TIMEOUT_SECONDS for the full story. Callers get an ordinary
+    # eager Response back and keep their existing exception handling.
+    deadline = time.monotonic() + HTTP_WALL_TIMEOUT_SECONDS
+    response = _get_session().post(stream=True, **kwargs)
+    try:
+        chunks: List[bytes] = []
+        # Under urllib3 2.x, iter_content yields once per received transfer
+        # chunk rather than per chunk_size, so with OpenRouter's ~0.4s keep-
+        # alive cadence the deadline is re-checked every ~0.4s. Should the
+        # connection instead fall completely silent, the caller's per-read
+        # timeout still fires -- surfacing as a ConnectionError wrapping
+        # ReadTimeoutError, which their RequestException handlers catch.
+        for chunk in response.iter_content(chunk_size=8192):
+            chunks.append(chunk)
+            if time.monotonic() > deadline:
+                raise requests.exceptions.Timeout(
+                    f"OpenRouter call exceeded the wall-clock limit of "
+                    f"{HTTP_WALL_TIMEOUT_SECONDS}s (keep-alive bytes kept the "
+                    f"socket alive past the read timeout)."
+                )
+        # Restore the eager-Response contract the callers rely on
+        # (.raise_for_status(), .json()) by handing requests the pre-read body.
+        # This is the same attribute requests itself fills on the stream=False
+        # path, where Session.send simply touches r.content.
+        response._content = b"".join(chunks)
+        response._content_consumed = True
+        return response
+    except BaseException:
+        # Deadline hit or transport error: drop the connection rather than
+        # returning a half-read socket to the pool.
+        response.close()
+        raise
 
 
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
@@ -115,6 +150,35 @@ DEFAULT_MAX_PAGE_ATTEMPTS = 40
 DEFAULT_MAX_IMAGE_KB = 800
 MIN_LONGEST_EDGE_PX = 1600
 MIN_JPEG_QUALITY = 60
+
+# Wall-clock ceiling for a single OpenRouter call, in seconds -- enforced by
+# _http_post, NOT by the `timeout=` the callers pass.
+#
+# requests' timeout is a per-socket-read *inactivity* timeout, and OpenRouter
+# keeps non-streamed connections warm by dribbling a whitespace keep-alive line
+# (b'\n         \n') roughly every 0.4s while the model is still generating. The
+# socket therefore never goes quiet and that timeout can never fire. Observed
+# result: a stuck generation blocked a worker thread forever -- no Timeout, no
+# OCR log line (the log write happens after the response), the page left at
+# status="pending"/attempts_used=0, and the run never ended.
+#
+# 300s is a deliberately asymmetric trade. Too HIGH only costs idle waiting in
+# the rare hung-generation case: one incident = one wall-timeout, and because
+# the --repeat attempts run in parallel a page cycle costs max(), not sum().
+# Too LOW is far worse -- a value below a slow model's legitimate per-page
+# duration makes the page unhealable, killing it on every one of the
+# max_page_attempts retries while paying for each aborted generation. Observed
+# legitimate calls with a fast model peak at ~17s; 300s leaves ~17x headroom
+# and still caps the runaway repetition loop described at the
+# finish_reason == "length" check below after 5 minutes, instead of paying for
+# it to generate 65k tokens to the end.
+#
+# Override for models that legitimately need longer; .env is already loaded
+# above, so this picks up a project .env without further plumbing.
+try:
+    HTTP_WALL_TIMEOUT_SECONDS = max(1, int(os.getenv("PDF2ANKI_HTTP_WALL_TIMEOUT_S", "300")))
+except ValueError:
+    HTTP_WALL_TIMEOUT_SECONDS = 300
 
 OUTPUT_SECTION_HEADER_RE = re.compile(r'^Image:\s*(.+?)\s*$')
 
