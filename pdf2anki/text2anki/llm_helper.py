@@ -1,4 +1,6 @@
 import os
+import time
+import random
 import requests
 import json
 import getpass
@@ -13,9 +15,95 @@ from .forensic_logger import log_event
 # returns an eager Response (.raise_for_status()/.json() unchanged); it also
 # reuses a per-process Session instead of paying a TLS handshake per call.
 # Tests mock the transport by patching `pdf2anki.text2anki.llm_helper._http_post`.
-from ..openrouter_transport import _http_post
+from ..openrouter_transport import _http_post, OpenRouterStreamError
 
 load_dotenv()
+
+# --- Retry policy for transient upstream failures ---------------------------
+#
+# Observed in production (and reproducibly in test_dedup): OpenRouter relays
+# upstream rate limits as code=429 -- sometimes as an HTTP status, sometimes
+# (with SSE) as a mid-stream error event after the 200 was already committed.
+# Without a retry, one transient 429 turns a whole call into None, which e.g.
+# silently converts a dedup voting pass into "no duplicates found".
+#
+# Scope decisions (deliberate, keep in sync with the tests in
+# tests/test_llm_helper_retry.py):
+#  * The retry lives HERE, not in the transport: pic2text already has its own
+#    per-page attempt loop (max_page_attempts, pause/resume state); stacking a
+#    second retry underneath it would multiply waits and blur page status.
+#    llm_helper had no retry layer at all -- this is it.
+#  * Retryable: 429 plus the transient 5xx trio (500/502/503), whether they
+#    arrive as an HTTP status (pre-generation, nothing billed yet) or as an
+#    OpenRouterStreamError code (mid-stream; only the fragment up to the error
+#    was billed, and text2anki calls cost micro-cents -- the lost dedup pass
+#    is worth more than the duplicate fragment cost).
+#  * NOT retryable: other 4xx (deterministic: bad request/auth/quota),
+#    OpenRouterStreamError with code=None (premature EOF -- that is
+#    truncation, not throttling), Timeout (the idle/wall guards exist to make
+#    stuck generations loud; auto-repeating a call that just burned minutes
+#    hides that signal), and ConnectionError (usually "network gone" -- a
+#    backoff would only delay the user-facing failure; revisit if measured
+#    otherwise).
+#  * Profile: 2 attempts after the first (total 3), delays 2s then 8s with
+#    +/-25% jitter. Bounded well under the transport's own guards, loud via
+#    safe_print WARNING + forensic log_event so a *persistent* rate limit is
+#    visible instead of silently absorbed.
+#
+# Known limitation -- no circuit breaker. Each call retries independently, so
+# a *persistent* rate limit costs up to 12.5s (2s + 8s, both jittered up) per
+# call before it gives up, where it used to fail instantly. Accepted at the
+# current call volume: a dedup run makes single-digit calls, and the WARNING
+# lines make the cause obvious rather than looking like a hang. It stops being
+# acceptable once a single workflow issues calls in bulk -- N calls against a
+# rate limit that is not going away means N x 12.5s of pure waiting. The fix
+# then is a shared breaker: after K consecutive exhausted retries, stop
+# retrying for the rest of the run and fail fast.
+_RETRYABLE_STATUS_CODES = {429, 500, 502, 503}
+_RETRY_DELAYS_SECONDS = (2.0, 8.0)
+
+
+def _retryable_code(exc):
+    """Upstream status code if `exc` is a retryable transient failure, else None."""
+    if isinstance(exc, OpenRouterStreamError):
+        return exc.code if exc.code in _RETRYABLE_STATUS_CODES else None
+    if isinstance(exc, requests.exceptions.HTTPError) and exc.response is not None:
+        sc = exc.response.status_code
+        return sc if sc in _RETRYABLE_STATUS_CODES else None
+    return None
+
+
+def _post_chat_with_retry(caller, **kwargs):
+    """_http_post + raise_for_status, with bounded backoff on transient errors.
+
+    Returns a Response whose status has already been checked. Non-retryable
+    failures and exhausted retries re-raise into the callers' existing
+    RequestException handlers (-> None, logged), unchanged.
+    """
+    delays = _RETRY_DELAYS_SECONDS + (None,)  # None marks the last attempt
+    for attempt, delay in enumerate(delays, start=1):
+        try:
+            response = _http_post(**kwargs)
+            response.raise_for_status()
+            return response
+        except requests.exceptions.RequestException as e:
+            code = _retryable_code(e)
+            if code is None or delay is None:
+                raise
+            sleep_s = delay * random.uniform(0.75, 1.25)
+            safe_print(
+                f"Transienter Upstream-Fehler (HTTP {code}), "
+                f"Versuch {attempt}/{len(delays)} fehlgeschlagen -- "
+                f"neuer Versuch in {sleep_s:.1f}s...", "WARNING")
+            log_event("llm_retry", {
+                "caller": caller,
+                "code": code,
+                "attempt": attempt,
+                "delay_s": round(sleep_s, 2),
+                "error": str(e)[:300],
+            })
+            time.sleep(sleep_s)
+
 
 # --- NEUE, ROBUSTE SESSION-VERWALTUNG ---
 # Speichert die vollständigen JSON-Antworten jedes API-Aufrufs in der Session.
@@ -98,13 +186,15 @@ def get_llm_decision(header_context, prompt_body, model="google/gemini-2.5-flash
     try:
         # timeout=60 only guards connect time and total socket silence; the
         # transport's SSE idle/wall guards bound the generation itself.
-        response = _http_post(
+        # _post_chat_with_retry adds bounded backoff on transient 429/5xx and
+        # has already called raise_for_status on the returned response.
+        response = _post_chat_with_retry(
+            "get_llm_decision",
             url="https://openrouter.ai/api/v1/chat/completions",
             headers={ "Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json" },
             data=json.dumps(payload),
             timeout=60
         )
-        response.raise_for_status()
         response_data = response.json()
 
         _session_responses.append(response_data)
@@ -164,8 +254,10 @@ def get_llm_conversation_turn(
     })
 
     try:
-        # Same transport routing (and rationale) as in get_llm_decision above.
-        response = _http_post(
+        # Same transport routing, retry policy and rationale as in
+        # get_llm_decision above; raise_for_status happens inside the helper.
+        response = _post_chat_with_retry(
+            "get_llm_conversation_turn",
             url="https://openrouter.ai/api/v1/chat/completions",
             headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
             data=json.dumps({
@@ -176,7 +268,6 @@ def get_llm_conversation_turn(
             }),
             timeout=60,
         )
-        response.raise_for_status()
         response_data = response.json()
 
         _session_responses.append(response_data)
