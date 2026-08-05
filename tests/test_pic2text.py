@@ -1560,6 +1560,46 @@ class TestHttpPostSseTransport:
         assert data["choices"][0]["finish_reason"] == "stop"
         resp.close.assert_called()
 
+    def test_sse_done_drain_budget_caps_tail_latency(self):
+        """The drain after [DONE] gets its OWN small budget instead of
+        inheriting the full idle window. The test above cannot see this: it
+        patches the idle window BELOW the budget, so min(idle, budget) always
+        picks idle. Here the idle window is large (30s) and the budget small
+        (0.2s), and the server dribbles a FINITE 2s keep-alive tail after
+        [DONE] -- only the budget can hand the finished result back early.
+        Without it, the already-complete result would sit hostage to the
+        tail (up to the idle window, 120s in production) for a connection
+        that gets dropped anyway."""
+        from pdf2anki.pic2text import _http_post
+
+        def done_then_slow_finite_tail():
+            ev = {"id": "gen-1", "model": "m",
+                  "choices": [{"index": 0, "delta": {"content": "paid result"},
+                               "finish_reason": "stop"}]}
+            yield b"data: " + json.dumps(ev).encode("utf-8")
+            yield b""
+            yield b"data: [DONE]"
+            yield b""
+            for _ in range(100):  # finite: worst case 2s, so a regression
+                _time.sleep(0.02)  # here can never hang the test run
+                yield b": OPENROUTER PROCESSING"
+                yield b""
+
+        resp = make_stream_response(done_then_slow_finite_tail)
+        session_patch, _ = _patched_session(resp)
+        started = _time.monotonic()
+        with session_patch, \
+             patch("pdf2anki.openrouter_transport.HTTP_STREAM_IDLE_TIMEOUT_SECONDS", 30), \
+             patch("pdf2anki.openrouter_transport.HTTP_WALL_TIMEOUT_SECONDS", 30), \
+             patch("pdf2anki.openrouter_transport.HTTP_DONE_DRAIN_BUDGET_SECONDS", 0.2):
+            out = _http_post(**_chat_call_kwargs())
+        elapsed = _time.monotonic() - started
+        assert elapsed < 1, f"drain budget must cap tail latency, took {elapsed:.2f}s"
+        data = out.json()
+        assert data["choices"][0]["message"]["content"] == "paid result"
+        assert data["choices"][0]["finish_reason"] == "stop"
+        resp.close.assert_called()
+
     def test_sse_premature_clean_eof_raises_stream_error(self):
         """Clean EOF before [DONE] with no finish_reason is a truncated
         stream. The fragment must NOT come back looking like a complete page

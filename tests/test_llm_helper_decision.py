@@ -103,6 +103,37 @@ class TestGetLlmDecisionBasic:
 
 
 # ---------------------------------------------------------------------------
+# system_message parameter
+# ---------------------------------------------------------------------------
+
+class TestSystemMessage:
+    def test_system_message_lands_in_payload(self):
+        """system_message must arrive as a leading system-role message in the
+        request payload -- it enables provider-side prompt caching, so
+        silently dropping it would not fail any call, just quietly disable
+        caching and change model behavior."""
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
+                   return_value=_make_response("ok")) as mock_post:
+            get_llm_decision("h", "b", system_message="You are a card writer.")
+
+        payload = json.loads(mock_post.call_args.kwargs["data"])
+        assert payload["messages"][0] == {
+            "role": "system", "content": "You are a card writer.",
+        }
+        assert payload["messages"][1]["role"] == "user"
+        assert "h" in payload["messages"][1]["content"]
+        assert "b" in payload["messages"][1]["content"]
+
+    def test_no_system_message_sends_only_user_role(self):
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
+                   return_value=_make_response("ok")) as mock_post:
+            get_llm_decision("h", "b")
+
+        payload = json.loads(mock_post.call_args.kwargs["data"])
+        assert [m["role"] for m in payload["messages"]] == ["user"]
+
+
+# ---------------------------------------------------------------------------
 # json_mode parameter
 # ---------------------------------------------------------------------------
 
@@ -121,16 +152,20 @@ class TestJsonMode:
             get_llm_decision("h", "b", json_mode=True)
 
     def test_json_mode_payload_structure(self):
+        """json_mode must ADD response_format without disturbing the rest of
+        the payload vocabulary: model, the single user message, temperature,
+        and usage.include (which OpenRouter's cost accounting -- and the cost
+        line printed after every call -- depends on)."""
         with patch("pdf2anki.text2anki.llm_helper._http_post",
-                   return_value=_make_response('{"cards":[]}')):
-            pass  # verify via mock
-
-        with patch("pdf2anki.text2anki.llm_helper._http_post",
-                   return_value=_make_response("{}")) as mock_post:
+                   return_value=_make_response('{"cards":[]}')) as mock_post:
             get_llm_decision("h", "b", json_mode=True)
 
         payload = json.loads(mock_post.call_args.kwargs["data"])
         assert payload["response_format"] == {"type": "json_object"}
+        assert payload["model"] == "google/gemini-2.5-flash"
+        assert payload["messages"] == [{"role": "user", "content": "h\n\n---\n\nb"}]
+        assert payload["temperature"] == 0.1
+        assert payload["usage"] == {"include": True}
 
 
 # ---------------------------------------------------------------------------

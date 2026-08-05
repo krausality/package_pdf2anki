@@ -200,7 +200,7 @@ def _consume_sse_stream(response) -> Dict[str, Any]:
             # small budget of its own: past it, keeping the finished result
             # beats keeping the connection.
             saw_done = True
-            idle_deadline = min(idle_deadline, now + 5.0)
+            idle_deadline = min(idle_deadline, now + HTTP_DONE_DRAIN_BUDGET_SECONDS)
             continue
         try:
             event = json.loads(data)
@@ -374,3 +374,12 @@ def _env_int(name: str, default: int, minimum: int = 1) -> int:
 HTTP_STREAM_IDLE_TIMEOUT_SECONDS = _env_int("PDF2ANKI_HTTP_IDLE_TIMEOUT_S", 120)
 HTTP_WALL_TIMEOUT_SECONDS = _env_int("PDF2ANKI_HTTP_WALL_TIMEOUT_S", 1800)
 HTTP_MAX_COMPLETION_CHARS = _env_int("PDF2ANKI_HTTP_MAX_COMPLETION_CHARS", 200_000)
+
+# Once [DONE] has arrived the result is complete and paid for; draining to EOF
+# only exists so urllib3 can return the connection to the pool. That drain must
+# not inherit the full idle window (up to 120s of tail latency on an already
+# finished call): past this budget, keeping the finished result beats keeping
+# the connection, so the drain is cut and the connection dropped. Internal
+# implementation detail, not an env-tunable knob -- a plain constant, extracted
+# from an inline literal so tests can patch it instead of clock-watching 5s.
+HTTP_DONE_DRAIN_BUDGET_SECONDS = 5.0
