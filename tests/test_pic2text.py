@@ -1269,7 +1269,7 @@ def sse_lines(events, done=True, leading_comment=True):
 def _patched_session(resp):
     session = MagicMock()
     session.post.return_value = resp
-    return patch("pdf2anki.pic2text._get_session", return_value=session), session
+    return patch("pdf2anki.openrouter_transport._get_session", return_value=session), session
 
 
 def _chat_call_kwargs():
@@ -1323,8 +1323,8 @@ class TestHttpPostSseTransport:
         session_patch, _ = _patched_session(resp)
         started = _time.monotonic()
         with session_patch, \
-             patch("pdf2anki.pic2text.HTTP_STREAM_IDLE_TIMEOUT_SECONDS", 0.15), \
-             patch("pdf2anki.pic2text.HTTP_WALL_TIMEOUT_SECONDS", 30):
+             patch("pdf2anki.openrouter_transport.HTTP_STREAM_IDLE_TIMEOUT_SECONDS", 0.15), \
+             patch("pdf2anki.openrouter_transport.HTTP_WALL_TIMEOUT_SECONDS", 30):
             with pytest.raises(req_lib.exceptions.Timeout):
                 _http_post(**_chat_call_kwargs())
         assert _time.monotonic() - started < 5, "idle timeout must fire promptly"
@@ -1354,8 +1354,8 @@ class TestHttpPostSseTransport:
         resp = make_stream_response(reasoning_then_answer)
         session_patch, _ = _patched_session(resp)
         with session_patch, \
-             patch("pdf2anki.pic2text.HTTP_STREAM_IDLE_TIMEOUT_SECONDS", 0.2), \
-             patch("pdf2anki.pic2text.HTTP_WALL_TIMEOUT_SECONDS", 30):
+             patch("pdf2anki.openrouter_transport.HTTP_STREAM_IDLE_TIMEOUT_SECONDS", 0.2), \
+             patch("pdf2anki.openrouter_transport.HTTP_WALL_TIMEOUT_SECONDS", 30):
             out = _http_post(**_chat_call_kwargs())
         data = out.json()
         assert data["choices"][0]["message"]["content"] == "OK"
@@ -1378,8 +1378,8 @@ class TestHttpPostSseTransport:
         resp = make_stream_response(endless_deltas)
         session_patch, _ = _patched_session(resp)
         with session_patch, \
-             patch("pdf2anki.pic2text.HTTP_STREAM_IDLE_TIMEOUT_SECONDS", 10), \
-             patch("pdf2anki.pic2text.HTTP_WALL_TIMEOUT_SECONDS", 0.15):
+             patch("pdf2anki.openrouter_transport.HTTP_STREAM_IDLE_TIMEOUT_SECONDS", 10), \
+             patch("pdf2anki.openrouter_transport.HTTP_WALL_TIMEOUT_SECONDS", 0.15):
             with pytest.raises(req_lib.exceptions.Timeout):
                 _http_post(**_chat_call_kwargs())
         resp.close.assert_called()
@@ -1398,6 +1398,7 @@ class TestHttpPostSseTransport:
                 _http_post(**_chat_call_kwargs())
         assert isinstance(exc_info.value, req_lib.exceptions.RequestException)
         assert "Provider fell over" in str(exc_info.value)
+        assert exc_info.value.code == 502  # machine-readable, not just message text
         resp.close.assert_called()
 
     def test_sse_completion_char_cap_synthesizes_length(self):
@@ -1412,7 +1413,7 @@ class TestHttpPostSseTransport:
         ], done=False))
         session_patch, _ = _patched_session(resp)
         with session_patch, \
-             patch("pdf2anki.pic2text.HTTP_MAX_COMPLETION_CHARS", 10):
+             patch("pdf2anki.openrouter_transport.HTTP_MAX_COMPLETION_CHARS", 10):
             out = _http_post(**_chat_call_kwargs())
         data = out.json()
         assert data["choices"][0]["finish_reason"] == "length"
@@ -1476,7 +1477,7 @@ class TestHttpPostSseTransport:
         session_patch, _ = _patched_session(resp)
         log_file = str(tmp_path / "ocr.log")
         with patch("pdf2anki.pic2text.OPENROUTER_API_KEY", "fake-key"), session_patch, \
-             patch("pdf2anki.pic2text.HTTP_MAX_COMPLETION_CHARS", 20):
+             patch("pdf2anki.openrouter_transport.HTTP_MAX_COMPLETION_CHARS", 20):
             text = _post_ocr_request("m", "aW1n", log_file, "page_1.png", 1)
         assert text.startswith("[ERROR: OCR response truncated")
 
@@ -1550,8 +1551,8 @@ class TestHttpPostSseTransport:
         session_patch, _ = _patched_session(resp)
         started = _time.monotonic()
         with session_patch, \
-             patch("pdf2anki.pic2text.HTTP_STREAM_IDLE_TIMEOUT_SECONDS", 0.15), \
-             patch("pdf2anki.pic2text.HTTP_WALL_TIMEOUT_SECONDS", 30):
+             patch("pdf2anki.openrouter_transport.HTTP_STREAM_IDLE_TIMEOUT_SECONDS", 0.15), \
+             patch("pdf2anki.openrouter_transport.HTTP_WALL_TIMEOUT_SECONDS", 30):
             out = _http_post(**_chat_call_kwargs())
         assert _time.monotonic() - started < 5, "drain must be bounded"
         data = out.json()
@@ -1575,4 +1576,5 @@ class TestHttpPostSseTransport:
                 _http_post(**_chat_call_kwargs())
         assert isinstance(exc_info.value, req_lib.exceptions.RequestException)
         assert "prematurely" in str(exc_info.value)
+        assert exc_info.value.code is None  # no upstream code applies here
         resp.close.assert_called()

@@ -5,6 +5,15 @@ import getpass
 from dotenv import load_dotenv
 from .console_utils import safe_print, is_verbose, verbose_print
 from .forensic_logger import log_event
+# Shared OpenRouter transport chokepoint. requests' `timeout=` alone cannot
+# bound a chat call: it is a per-socket-read *inactivity* timeout, and
+# OpenRouter keeps non-streamed connections warm with whitespace keep-alives
+# every ~0.4s, so a stuck generation would block forever. _http_post upgrades
+# chat calls to SSE streaming with idle/wall/completion-size guards and still
+# returns an eager Response (.raise_for_status()/.json() unchanged); it also
+# reuses a per-process Session instead of paying a TLS handshake per call.
+# Tests mock the transport by patching `pdf2anki.text2anki.llm_helper._http_post`.
+from ..openrouter_transport import _http_post
 
 load_dotenv()
 
@@ -87,7 +96,9 @@ def get_llm_decision(header_context, prompt_body, model="google/gemini-2.5-flash
     })
 
     try:
-        response = requests.post(
+        # timeout=60 only guards connect time and total socket silence; the
+        # transport's SSE idle/wall guards bound the generation itself.
+        response = _http_post(
             url="https://openrouter.ai/api/v1/chat/completions",
             headers={ "Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json" },
             data=json.dumps(payload),
@@ -153,7 +164,8 @@ def get_llm_conversation_turn(
     })
 
     try:
-        response = requests.post(
+        # Same transport routing (and rationale) as in get_llm_decision above.
+        response = _http_post(
             url="https://openrouter.ai/api/v1/chat/completions",
             headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
             data=json.dumps({

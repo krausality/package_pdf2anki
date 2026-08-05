@@ -39,7 +39,7 @@ class TestGetLlmConversationTurn:
         from pdf2anki.text2anki.llm_helper import get_llm_conversation_turn
 
         history = []
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_response("Hello!")):
             reply = get_llm_conversation_turn(history, "Hi there")
 
@@ -49,7 +49,7 @@ class TestGetLlmConversationTurn:
         from pdf2anki.text2anki.llm_helper import get_llm_conversation_turn
 
         history = []
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_response("Turn 1 reply")):
             get_llm_conversation_turn(history, "Turn 1 message")
 
@@ -62,7 +62,7 @@ class TestGetLlmConversationTurn:
 
         history = []
         replies = ["Reply A", "Reply B"]
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    side_effect=[_make_response(r) for r in replies]):
             get_llm_conversation_turn(history, "Msg A")
             get_llm_conversation_turn(history, "Msg B")
@@ -75,7 +75,7 @@ class TestGetLlmConversationTurn:
         from pdf2anki.text2anki.llm_helper import get_llm_conversation_turn
 
         history = [{"role": "system", "content": "You are helpful."}]
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_response("ok")) as mock_post:
             get_llm_conversation_turn(history, "question")
 
@@ -87,7 +87,7 @@ class TestGetLlmConversationTurn:
         from pdf2anki.text2anki.llm_helper import get_llm_conversation_turn, get_session_responses
 
         history = []
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_response("x")):
             get_llm_conversation_turn(history, "y")
 
@@ -102,7 +102,7 @@ class TestGetLlmConversationTurn:
         from pdf2anki.text2anki.llm_helper import get_llm_conversation_turn
 
         history = []
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    side_effect=req.exceptions.ConnectionError("unreachable")):
             reply = get_llm_conversation_turn(history, "msg")
 
@@ -113,7 +113,7 @@ class TestGetLlmConversationTurn:
         from pdf2anki.text2anki.llm_helper import get_llm_conversation_turn
 
         history = []
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    side_effect=req.exceptions.ConnectionError("unreachable")):
             get_llm_conversation_turn(history, "msg")
 
@@ -129,7 +129,7 @@ class TestGetLlmConversationTurn:
         bad.raise_for_status = MagicMock()
 
         history = []
-        with patch("pdf2anki.text2anki.llm_helper.requests.post", return_value=bad):
+        with patch("pdf2anki.text2anki.llm_helper._http_post", return_value=bad):
             reply = get_llm_conversation_turn(history, "msg")
 
         assert reply is None

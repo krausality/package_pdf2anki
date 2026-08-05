@@ -70,7 +70,7 @@ class TestLlmHelperWiring:
         set_phase("ingest")
 
         from pdf2anki.text2anki.llm_helper import get_llm_decision
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_api_response('{"cards": []}')):
             get_llm_decision("header", "body", json_mode=True)
 
@@ -92,7 +92,7 @@ class TestLlmHelperWiring:
         init_forensic_log(tmp_path, "wiring-err")
 
         from pdf2anki.text2anki.llm_helper import get_llm_decision
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    side_effect=req_lib.exceptions.ConnectionError("down")):
             get_llm_decision("h", "b")
 
@@ -109,7 +109,7 @@ class TestLlmHelperWiring:
 
         from pdf2anki.text2anki.llm_helper import get_llm_conversation_turn
         history = []
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_api_response("reply")):
             get_llm_conversation_turn(history, "hello")
 
@@ -214,12 +214,12 @@ class TestPhaseContext:
         from pdf2anki.text2anki.llm_helper import get_llm_decision
 
         set_phase("discovery")
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_api_response("disc_reply")):
             get_llm_decision("h", "b")
 
         set_phase("ingest")
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_api_response("ing_reply")):
             get_llm_decision("h", "b")
 

@@ -57,13 +57,13 @@ def reset_verbose():
 
 class TestGetLlmDecisionBasic:
     def test_returns_content_stripped(self):
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_response("  answer  ")):
             result = get_llm_decision("header", "body")
         assert result == "answer"
 
     def test_builds_correct_prompt(self):
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_response("ok")) as mock_post:
             get_llm_decision("HEADER", "BODY", model="test/model")
 
@@ -74,17 +74,17 @@ class TestGetLlmDecisionBasic:
         assert payload["temperature"] == 0.1
 
     def test_session_responses_accumulated(self):
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_response("a")):
             get_llm_decision("h", "b")
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_response("b")):
             get_llm_decision("h", "b")
 
         assert len(get_session_responses()) == 2
 
     def test_reset_session_clears_responses(self):
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_response("x")):
             get_llm_decision("h", "b")
 
@@ -93,7 +93,7 @@ class TestGetLlmDecisionBasic:
 
     def test_session_responses_is_copy(self):
         """Modifying the returned list should not affect internal state."""
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_response("x")):
             get_llm_decision("h", "b")
 
@@ -108,7 +108,7 @@ class TestGetLlmDecisionBasic:
 
 class TestJsonMode:
     def test_json_mode_false_no_response_format(self):
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_response("ok")) as mock_post:
             get_llm_decision("h", "b", json_mode=False)
 
@@ -116,16 +116,16 @@ class TestJsonMode:
         assert "response_format" not in payload
 
     def test_json_mode_true_sets_response_format(self):
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_response('{"cards":[]}')):
             get_llm_decision("h", "b", json_mode=True)
 
     def test_json_mode_payload_structure(self):
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_response('{"cards":[]}')):
             pass  # verify via mock
 
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_response("{}")) as mock_post:
             get_llm_decision("h", "b", json_mode=True)
 
@@ -140,14 +140,14 @@ class TestJsonMode:
 class TestGetLlmDecisionErrors:
     def test_returns_none_on_connection_error(self):
         import requests as req
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    side_effect=req.exceptions.ConnectionError("unreachable")):
             result = get_llm_decision("h", "b")
         assert result is None
 
     def test_returns_none_on_timeout(self):
         import requests as req
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    side_effect=req.exceptions.Timeout("timeout")):
             result = get_llm_decision("h", "b")
         assert result is None
@@ -156,14 +156,14 @@ class TestGetLlmDecisionErrors:
         import requests as req
         mock = MagicMock()
         mock.raise_for_status.side_effect = req.exceptions.HTTPError("429")
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=mock):
             result = get_llm_decision("h", "b")
         assert result is None
 
     def test_error_appended_to_session_responses(self):
         import requests as req
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    side_effect=req.exceptions.ConnectionError("down")):
             get_llm_decision("h", "b")
 
@@ -175,7 +175,7 @@ class TestGetLlmDecisionErrors:
         bad = MagicMock()
         bad.json.return_value = {"no_choices": True}
         bad.raise_for_status = MagicMock()
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=bad):
             result = get_llm_decision("h", "b")
         assert result is None
@@ -184,7 +184,7 @@ class TestGetLlmDecisionErrors:
         bad = MagicMock()
         bad.json.return_value = {"choices": []}
         bad.raise_for_status = MagicMock()
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=bad):
             result = get_llm_decision("h", "b")
         assert result is None
@@ -249,7 +249,7 @@ class TestVerboseGating:
         from pdf2anki.text2anki.console_utils import set_verbose
         set_verbose(False)
 
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_response("ok")):
             get_llm_decision("h", "b")
 
@@ -260,7 +260,7 @@ class TestVerboseGating:
         from pdf2anki.text2anki.console_utils import set_verbose
         set_verbose(True)
 
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_response("ok")):
             get_llm_decision("h", "b")
 
@@ -268,7 +268,7 @@ class TestVerboseGating:
         assert "Full OpenRouter API Response" in out
 
     def test_cost_always_printed(self, capsys):
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_response("ok", cost=0.005)):
             get_llm_decision("h", "b")
 
@@ -277,7 +277,7 @@ class TestVerboseGating:
         assert "$0.005" in out
 
     def test_cached_tokens_printed(self, capsys):
-        with patch("pdf2anki.text2anki.llm_helper.requests.post",
+        with patch("pdf2anki.text2anki.llm_helper._http_post",
                    return_value=_make_response("ok", cached=1500)):
             get_llm_decision("h", "b")
 
