@@ -1,5 +1,7 @@
 [build-system]
-requires = ["setuptools>=42", "wheel"]
+# >=61: first setuptools that reads [project] (PEP 621). With setup.py now a
+# bare shim, an older setuptools would build a package with NO metadata at all.
+requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -20,13 +22,22 @@ classifiers = [
     "Topic :: Utilities",
     "Intended Audience :: Education"
 ]
+# Pin strategy (changed after the 2026-08 Dependabot incident): the previous
+# `~=X.Y.Z` pins were patch-only and each one FORBADE exactly the release that
+# contained its security fix (Pillow 12.3.0, requests 2.33.0, dotenv 1.2.2 --
+# all minor releases, which is where these projects ship security fixes).
+# Now: lower bound = the exact version the test suite runs against, upper
+# bound = next major (where breaking changes are actually announced). genanki
+# is 0.x, so its next MINOR counts as the breaking boundary instead.
+# pdf2image was removed entirely: nothing in the package imports it (the PDF
+# rasterizer is PyMuPDF + Pillow) -- a dependency that is never imported is
+# pure attack surface and future alert noise.
 dependencies = [
-    "pdf2image~=1.16.3",
-    "Pillow~=12.2.0",
-    "genanki~=0.13.1",
-    "PyMuPDF~=1.24.13",
-    "requests~=2.32.0",
-    "python-dotenv~=1.0.1"
+    "Pillow>=12.3.0,<13",
+    "genanki>=0.13.1,<0.14",
+    "PyMuPDF>=1.24.14,<2",
+    "requests>=2.34.2,<3",
+    "python-dotenv>=1.2.2,<2",
 ]
 
 [project.optional-dependencies]
@@ -37,3 +48,9 @@ dev = [
 
 [project.scripts]
 pdf2anki = "pdf2anki.core:cli_invoke"
+
+[tool.setuptools.packages.find]
+# Explicit: ship only the package. Without this, auto-discovery would either
+# error on multiple top-level packages or (as the old setup.py's bare
+# find_packages() did) bundle the importable tests/ directory into the wheel.
+include = ["pdf2anki*"]
